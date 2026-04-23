@@ -4,6 +4,7 @@ import { api, Camera, CreateCameraRequest } from '@/api/client';
 import { Button, Field, Input } from './UiKit';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L, { LatLngExpression } from 'leaflet';
+import { navigate } from '@/router/routes';
 
 const defaultIcon = L.icon({
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
@@ -106,6 +107,7 @@ export default function CamerasPage() {
     loadCameraMeta(cam.camera_id);
     store.loadZones();
     setViewMode('labeler');
+    navigate('labeler');
   }
 
   async function onDeleteCamera(cameraId: number) {
@@ -152,7 +154,7 @@ export default function CamerasPage() {
       <div className="sidebar">
         <div className="row" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
           <h4>Камеры</h4>
-          <Button className="ghost" onClick={() => setViewMode('labeler')}>Вернуться к разметке</Button>
+          <Button className="ghost" onClick={() => navigate('labeler')}>К разметке</Button>
         </div>
 
         <div className="row" style={{ marginBottom: 12, gap: 8 }}>

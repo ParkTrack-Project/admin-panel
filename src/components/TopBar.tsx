@@ -4,7 +4,7 @@ import { Button, Field, Input, FilePicker } from './UiKit';
 import { useEffect, useState, useCallback, useRef } from 'react';
 
 export default function TopBar() {
-  const { apiBase, token, cameraId, viewMode, setViewMode, setImage, image } = useStore();
+  const { apiBase, token, cameraId, viewMode, setImage, image } = useStore();
   const [imageUrlInput, setImageUrlInput] = useState('');
   const [loadingSnapshot, setLoadingSnapshot] = useState(false);
   const currentBlobUrlRef = useRef<string | null>(null);
@@ -100,18 +100,7 @@ export default function TopBar() {
     <div className="topbar">
       <div className="row" style={{ gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <div className="row" style={{ gap: 6, marginRight: 16 }}>
-          <Button
-            variant={isLabeler ? 'primary' : 'ghost'}
-            onClick={() => setViewMode('labeler')}
-          >
-            Labeler
-          </Button>
-          <Button
-            variant={viewMode === 'cameras' ? 'primary' : 'ghost'}
-            onClick={() => setViewMode('cameras')}
-          >
-            Cameras
-          </Button>
+          <span className="badge">Разметка зон</span>
         </div>
 
         {isLabeler && (

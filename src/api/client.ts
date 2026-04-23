@@ -1,4 +1,4 @@
-  import { ParkingZone, GeoPoint, PxPoint, Id } from '@/types';
+import { ParkingZone, GeoPoint, PxPoint, Id, SessionUser } from '@/types';
 import { useRequestLog } from './requestLog';
 
 type Config = { baseUrl: string; token?: string };
@@ -62,10 +62,40 @@ export type ZonePoint = {
 
 export type HealthResponse = {
   status?: string;
+  database?: string;
 };
 
 export type VersionResponse = {
+  api_version?: string;
   version?: string;
+};
+
+export type AuthUserResponse = {
+  user_id: number;
+  email: string;
+  full_name: string | null;
+  global_roles: string[];
+  permissions?: string[];
+  partner_memberships?: SessionUser['partner_memberships'];
+};
+
+export type AuthResponse = {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  user: AuthUserResponse;
+};
+
+export type LoginRequest = {
+  login: string;
+  password: string;
+};
+
+export type RegisterRequest = {
+  email: string;
+  password: string;
+  full_name?: string;
+  phone?: string;
 };
 
 export const apiConfig = {
@@ -177,6 +207,25 @@ function buildUpdateZoneBody(z: ParkingZone) {
 
 // --- public API ---
 export const api = {
+  // --- Auth ---
+  auth: {
+    async register(data: RegisterRequest) {
+      return request<AuthResponse>('POST', '/auth/register', data);
+    },
+
+    async login(data: LoginRequest) {
+      return request<AuthResponse>('POST', '/auth/login', data);
+    },
+
+    async logout() {
+      await request<void>('POST', '/auth/logout');
+    },
+
+    async me() {
+      return request<SessionUser>('GET', '/auth/me');
+    }
+  },
+
   // --- Parking Zones ---
   async listZones(cameraId?: number) {
     const q = cameraId ? `?camera_id=${encodeURIComponent(cameraId)}` : '';
