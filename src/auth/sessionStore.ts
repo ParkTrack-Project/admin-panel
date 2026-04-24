@@ -10,7 +10,9 @@ type SessionSnapshot = {
 
 type SessionState = SessionSnapshot & {
   hydrated: boolean;
+  validating: boolean;
   setSession: (snapshot: SessionSnapshot) => void;
+  setValidating: (validating: boolean) => void;
   startDemoSession: () => void;
   logout: () => void;
   hasPermission: (permission: string) => boolean;
@@ -96,10 +98,15 @@ const initialSession = loadStoredSession();
 export const useSessionStore = create<SessionState>((set, get) => ({
   ...initialSession,
   hydrated: true,
+  validating: false,
 
   setSession(snapshot) {
     storeSession(snapshot);
     set(snapshot);
+  },
+
+  setValidating(validating) {
+    set({ validating });
   },
 
   startDemoSession() {
@@ -113,7 +120,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   logout() {
     storeSession({});
-    set({ accessToken: undefined, user: undefined });
+    set({ accessToken: undefined, user: undefined, validating: false });
   },
 
   hasPermission(permission) {

@@ -5,10 +5,14 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 type Config = { baseUrl: string; token?: string };
 
 let cfg: Config = { baseUrl: 'https://api.parktrack.live' };
+let unauthorizedHandler: (() => void) | undefined;
 
 export const apiConfig = {
   set(baseUrl: string, token?: string) {
     cfg = { baseUrl, token };
+  },
+  setUnauthorizedHandler(handler?: () => void) {
+    unauthorizedHandler = handler;
   },
   get() {
     return cfg;
@@ -51,6 +55,9 @@ export async function request<T>(method: HttpMethod, path: string, body?: any): 
   useRequestLog.getState().add({ id: id + '-resp', ts: Date.now(), method, url, status: res.status, response: data });
 
   if (!res.ok) {
+    if (res.status === 401 && unauthorizedHandler && !path.startsWith('/auth/')) {
+      unauthorizedHandler();
+    }
     const errorMessage = data?.error_description || data?.error || data?.message || `HTTP ${res.status}`;
     throw new Error(errorMessage);
   }
@@ -78,6 +85,9 @@ export async function requestBlob(path: string): Promise<{ blob: Blob; headers: 
   });
 
   if (!res.ok) {
+    if (res.status === 401 && unauthorizedHandler && !path.startsWith('/auth/')) {
+      unauthorizedHandler();
+    }
     const errorText = await res.text().catch(() => 'Unknown error');
     throw new Error(errorText || `HTTP ${res.status}`);
   }
