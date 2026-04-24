@@ -165,13 +165,37 @@ export default function ZonesAdminPage() {
     }
   }, [selectedZone?.id, filters.cameraId]);
 
-  function openZoneInLabeler(zone: ParkingZone) {
+  async function prepareZoneWorkspace(zone: ParkingZone) {
     store.setCamera(String(zone.camera_id));
     store.selectZone(zone.id);
-    store.loadCameraMeta(zone.camera_id);
-    store.loadZones();
-    store.setViewMode('labeler');
-    navigate('labeler');
+    await Promise.all([
+      store.loadCameraMeta(zone.camera_id),
+      store.loadZones()
+    ]);
+  }
+
+  async function openZoneImageGeometry(zone: ParkingZone) {
+    setError(undefined);
+    try {
+      await prepareZoneWorkspace(zone);
+      store.setTool('editZone');
+      store.setViewMode('labeler');
+      navigate('labeler');
+    } catch (err: any) {
+      setError(`Не удалось открыть геометрию зоны: ${String(err?.message || err)}`);
+    }
+  }
+
+  async function openZoneMapGeometry(zone: ParkingZone) {
+    setError(undefined);
+    try {
+      await prepareZoneWorkspace(zone);
+      store.setTool('select');
+      store.setViewMode('zoneMapSelector');
+      navigate('labeler');
+    } catch (err: any) {
+      setError(`Не удалось открыть карту зоны: ${String(err?.message || err)}`);
+    }
   }
 
   async function startCreateZone() {
@@ -474,6 +498,15 @@ export default function ZonesAdminPage() {
                 <div className="small">Occupancy updated: {formatDate(selectedZone.occupancy_updated_at)}</div>
               </div>
 
+              <div className="zone-geometry-actions">
+                <Button onClick={() => openZoneImageGeometry(selectedZone)}>
+                  Редактировать полигон
+                </Button>
+                <Button variant="ghost" onClick={() => openZoneMapGeometry(selectedZone)}>
+                  Геометрия на карте
+                </Button>
+              </div>
+
               {editor && (
                 <div className="zone-settings-grid">
                   <Field label="Тип зоны">
@@ -588,7 +621,7 @@ export default function ZonesAdminPage() {
                 >
                   Сбросить
                 </Button>
-                <Button onClick={() => openZoneInLabeler(selectedZone)}>Открыть в разметке</Button>
+                <Button onClick={() => openZoneImageGeometry(selectedZone)}>Открыть в разметке</Button>
                 <Button className="danger" onClick={onDeleteZone} disabled={deleteLoading}>
                   {deleteLoading ? 'Удаление...' : 'Удалить зону'}
                 </Button>
