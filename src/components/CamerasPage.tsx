@@ -79,6 +79,19 @@ function cameraToEditor(camera: Camera): CameraEditorState {
   };
 }
 
+function normalizeEditor(editor: CameraEditorState) {
+  return {
+    title: editor.title.trim(),
+    source: editor.source.trim(),
+    imageWidth: editor.imageWidth.trim(),
+    imageHeight: editor.imageHeight.trim(),
+    latitude: editor.latitude.trim(),
+    longitude: editor.longitude.trim(),
+    calib: editor.calib.trim(),
+    isActive: editor.isActive
+  };
+}
+
 export default function CamerasPage() {
   const store = useStore();
   const { setViewMode, setCamera, loadCameraMeta } = store;
@@ -98,11 +111,16 @@ export default function CamerasPage() {
   const [snapshotReloadKey, setSnapshotReloadKey] = useState(0);
   const [editor, setEditor] = useState<CameraEditorState | null>(null);
   const [saveState, setSaveState] = useState<CameraSaveState>({ loading: false });
+  const [pageNotice, setPageNotice] = useState<string | undefined>();
 
   const selectedCamera = useMemo(
     () => cameras.find(cam => cam.camera_id === selectedId),
     [cameras, selectedId]
   );
+  const hasEditorChanges = useMemo(() => {
+    if (!selectedCamera || !editor) return false;
+    return JSON.stringify(normalizeEditor(editor)) !== JSON.stringify(normalizeEditor(cameraToEditor(selectedCamera)));
+  }, [selectedCamera, editor]);
 
   async function loadCameras() {
     setLoading(true);
@@ -220,6 +238,7 @@ export default function CamerasPage() {
     setDeletingId(cameraId);
     try {
       await api.deleteCamera(cameraId);
+      setPageNotice('Камера удалена.');
       await loadCameras();
     } catch (e: any) {
       setError(`Ошибка удаления камеры: ${String(e)}`);
@@ -232,8 +251,10 @@ export default function CamerasPage() {
     try {
       setLoading(true);
       setError(undefined);
-      await api.createCamera(data);
+      const created = await api.createCamera(data);
       await loadCameras();
+      setSelectedId(created.camera_id);
+      setPageNotice('Камера создана.');
       setShowAddCamera(false);
     } catch (e: any) {
       setError(`Ошибка создания камеры: ${String(e)}`);
@@ -295,6 +316,7 @@ export default function CamerasPage() {
       );
       setEditor(cameraToEditor(updated));
       setSaveState({ loading: false, success: 'Настройки камеры сохранены.' });
+      setPageNotice(undefined);
     } catch (e: any) {
       setSaveState({ loading: false, error: `Ошибка сохранения камеры: ${String(e)}` });
     }
@@ -335,6 +357,7 @@ export default function CamerasPage() {
         </div>
 
         {error && <div className="notice error" style={{ marginBottom: 12 }}>{error}</div>}
+        {pageNotice && <div className="notice" style={{ marginBottom: 12 }}>{pageNotice}</div>}
 
         <div className="section-panel" style={{ marginBottom: 12 }}>
           <div className="table-header camera-list-header">
@@ -413,14 +436,20 @@ export default function CamerasPage() {
                 <Field label="Название">
                   <Input
                     value={editor.title}
-                    onChange={e => setEditor(prev => prev ? ({ ...prev, title: e.target.value }) : prev)}
+                    onChange={e => {
+                      setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                      setEditor(prev => prev ? ({ ...prev, title: e.target.value }) : prev);
+                    }}
                     placeholder="Название камеры"
                   />
                 </Field>
                 <Field label="Источник">
                   <Input
                     value={editor.source}
-                    onChange={e => setEditor(prev => prev ? ({ ...prev, source: e.target.value }) : prev)}
+                    onChange={e => {
+                      setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                      setEditor(prev => prev ? ({ ...prev, source: e.target.value }) : prev);
+                    }}
                     placeholder="https://... или rtsp://..."
                   />
                 </Field>
@@ -429,7 +458,10 @@ export default function CamerasPage() {
                     type="number"
                     min={1}
                     value={editor.imageWidth}
-                    onChange={e => setEditor(prev => prev ? ({ ...prev, imageWidth: e.target.value }) : prev)}
+                    onChange={e => {
+                      setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                      setEditor(prev => prev ? ({ ...prev, imageWidth: e.target.value }) : prev);
+                    }}
                   />
                 </Field>
                 <Field label="Высота">
@@ -437,7 +469,10 @@ export default function CamerasPage() {
                     type="number"
                     min={1}
                     value={editor.imageHeight}
-                    onChange={e => setEditor(prev => prev ? ({ ...prev, imageHeight: e.target.value }) : prev)}
+                    onChange={e => {
+                      setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                      setEditor(prev => prev ? ({ ...prev, imageHeight: e.target.value }) : prev);
+                    }}
                   />
                 </Field>
                 <Field label="Широта">
@@ -445,7 +480,10 @@ export default function CamerasPage() {
                     type="number"
                     step="any"
                     value={editor.latitude}
-                    onChange={e => setEditor(prev => prev ? ({ ...prev, latitude: e.target.value }) : prev)}
+                    onChange={e => {
+                      setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                      setEditor(prev => prev ? ({ ...prev, latitude: e.target.value }) : prev);
+                    }}
                   />
                 </Field>
                 <Field label="Долгота">
@@ -453,13 +491,19 @@ export default function CamerasPage() {
                     type="number"
                     step="any"
                     value={editor.longitude}
-                    onChange={e => setEditor(prev => prev ? ({ ...prev, longitude: e.target.value }) : prev)}
+                    onChange={e => {
+                      setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                      setEditor(prev => prev ? ({ ...prev, longitude: e.target.value }) : prev);
+                    }}
                   />
                 </Field>
                 <Field label="Calib (JSON)">
                   <Textarea
                     value={editor.calib}
-                    onChange={e => setEditor(prev => prev ? ({ ...prev, calib: e.target.value }) : prev)}
+                    onChange={e => {
+                      setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                      setEditor(prev => prev ? ({ ...prev, calib: e.target.value }) : prev);
+                    }}
                     placeholder='{"image_width": 1920, ...}'
                     rows={7}
                     style={{ fontFamily: 'monospace', fontSize: '12px' }}
@@ -470,7 +514,10 @@ export default function CamerasPage() {
                     <input
                       type="checkbox"
                       checked={editor.isActive}
-                      onChange={e => setEditor(prev => prev ? ({ ...prev, isActive: e.target.checked }) : prev)}
+                      onChange={e => {
+                        setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                        setEditor(prev => prev ? ({ ...prev, isActive: e.target.checked }) : prev);
+                      }}
                     />
                     <span className="small">Камера активна</span>
                   </label>
@@ -495,6 +542,11 @@ export default function CamerasPage() {
               {!snapshot.loading && snapshot.error && (
                 <div className="notice warning">{snapshot.error}</div>
               )}
+              {!snapshot.loading && !snapshot.error && snapshot.data?.captured_at && (
+                <div className="small" style={{ marginBottom: 8 }}>
+                  Захвачено: {formatDate(snapshot.data.captured_at)}
+                </div>
+              )}
               {!snapshot.loading && snapshot.data?.image_url && (
                 <img
                   className="camera-preview-image"
@@ -502,16 +554,22 @@ export default function CamerasPage() {
                   alt={`Snapshot camera ${selectedCamera.camera_id}`}
                 />
               )}
+              {!snapshot.loading && !snapshot.error && !snapshot.data?.image_url && (
+                <div className="empty-state">API не вернул изображение для этой камеры.</div>
+              )}
             </div>
 
             <div className="row" style={{ gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-              <Button onClick={onSaveCamera} disabled={saveState.loading || !editor}>
+              <Button onClick={onSaveCamera} disabled={saveState.loading || !editor || !hasEditorChanges}>
                 {saveState.loading ? 'Сохранение...' : 'Сохранить настройки'}
               </Button>
               <Button
                 variant="ghost"
-                onClick={() => setEditor(cameraToEditor(selectedCamera))}
-                disabled={saveState.loading || !editor}
+                onClick={() => {
+                  setEditor(cameraToEditor(selectedCamera));
+                  setSaveState({ loading: false });
+                }}
+                disabled={saveState.loading || !editor || !hasEditorChanges}
               >
                 Сбросить
               </Button>
