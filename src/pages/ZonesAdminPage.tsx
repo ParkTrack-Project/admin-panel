@@ -29,6 +29,10 @@ type ZoneSaveState = {
   success?: string;
 };
 
+type ZoneCreateState = {
+  cameraId: string;
+};
+
 function formatDate(dateStr?: string) {
   if (!dateStr) return '—';
   try {
@@ -81,9 +85,15 @@ export default function ZonesAdminPage() {
   const [zones, setZones] = useState<ParkingZone[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const [pageNotice, setPageNotice] = useState<string | undefined>();
   const [selectedZoneId, setSelectedZoneId] = useState<string | undefined>();
   const [editor, setEditor] = useState<ZoneEditorState | null>(null);
   const [saveState, setSaveState] = useState<ZoneSaveState>({ loading: false });
+  const [createState, setCreateState] = useState<ZoneCreateState>({
+    cameraId: ''
+  });
+  const [createLoading, setCreateLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [filters, setFilters] = useState<ZoneFilters>({
     cameraId: '',
     partnerId: '',
@@ -145,6 +155,16 @@ export default function ZonesAdminPage() {
     setSaveState({ loading: false });
   }, [selectedZone?.id]);
 
+  useEffect(() => {
+    if (selectedZone) {
+      setCreateState(prev => ({ ...prev, cameraId: String(selectedZone.camera_id) }));
+      return;
+    }
+    if (filters.cameraId.trim()) {
+      setCreateState(prev => ({ ...prev, cameraId: filters.cameraId.trim() }));
+    }
+  }, [selectedZone?.id, filters.cameraId]);
+
   function openZoneInLabeler(zone: ParkingZone) {
     store.setCamera(String(zone.camera_id));
     store.selectZone(zone.id);
@@ -152,6 +172,34 @@ export default function ZonesAdminPage() {
     store.loadZones();
     store.setViewMode('labeler');
     navigate('labeler');
+  }
+
+  async function startCreateZone() {
+    const cameraId = parseInt(createState.cameraId, 10);
+    if (!Number.isFinite(cameraId) || cameraId < 1) {
+      setError('Для создания зоны укажите корректный Camera ID.');
+      return;
+    }
+
+    setCreateLoading(true);
+    setError(undefined);
+    try {
+      await api.getCamera(cameraId);
+      store.setCamera(String(cameraId));
+      await Promise.all([
+        store.loadCameraMeta(cameraId),
+        store.loadZones()
+      ]);
+      store.selectZone(undefined);
+      store.zoneDraftClear();
+      store.addZone();
+      store.setViewMode('labeler');
+      navigate('labeler');
+    } catch (err: any) {
+      setError(`Не удалось открыть создание зоны: ${String(err?.message || err)}`);
+    } finally {
+      setCreateLoading(false);
+    }
   }
 
   async function onSaveZone() {
@@ -193,8 +241,32 @@ export default function ZonesAdminPage() {
       setZones(prev => prev.map(zone => String(zone.id) === String(updated.id) ? updated : zone));
       setEditor(zoneToEditor(updated));
       setSaveState({ loading: false, success: 'Настройки зоны сохранены.' });
+      setPageNotice(undefined);
     } catch (err: any) {
       setSaveState({ loading: false, error: `Ошибка сохранения зоны: ${String(err?.message || err)}` });
+    }
+  }
+
+  async function onDeleteZone() {
+    if (!selectedZone) return;
+    if (!confirm(`Удалить зону #${selectedZone.id}? Это действие нельзя отменить.`)) {
+      return;
+    }
+
+    setDeleteLoading(true);
+    setError(undefined);
+    try {
+      await api.deleteZone(selectedZone.id);
+      const removedId = String(selectedZone.id);
+      const nextZones = zones.filter(zone => String(zone.id) !== removedId);
+      setZones(nextZones);
+      setSelectedZoneId(nextZones[0] ? String(nextZones[0].id) : undefined);
+      setPageNotice(`Зона #${removedId} удалена.`);
+      setSaveState({ loading: false });
+    } catch (err: any) {
+      setError(`Ошибка удаления зоны: ${String(err?.message || err)}`);
+    } finally {
+      setDeleteLoading(false);
     }
   }
 
@@ -205,7 +277,12 @@ export default function ZonesAdminPage() {
           <h1>Зоны</h1>
           <p>Парковочные зоны, фильтры мониторинга и геометрия разметки</p>
         </div>
-        <Button onClick={load} disabled={loading}>{loading ? 'Загрузка...' : 'Обновить'}</Button>
+        <div className="row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <Button onClick={startCreateZone} disabled={createLoading}>
+            {createLoading ? 'Открытие...' : '+ Новая зона'}
+          </Button>
+          <Button onClick={load} disabled={loading}>{loading ? 'Загрузка...' : 'Обновить'}</Button>
+        </div>
       </div>
 
       <div className="metric-grid">
@@ -264,7 +341,31 @@ export default function ZonesAdminPage() {
         <Button variant="ghost" onClick={load} disabled={loading}>Применить</Button>
       </div>
 
+      <div className="section-panel zone-create-panel">
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <div>
+            <h2 style={{ marginBottom: 4 }}>Создание зоны</h2>
+            <div className="small">Новая зона создаётся через разметчик, потому что геометрию нужно отрисовать на изображении камеры.</div>
+          </div>
+        </div>
+        <div className="zone-create-grid">
+          <Field label="Camera ID">
+            <Input
+              value={createState.cameraId}
+              onChange={e => setCreateState(prev => ({ ...prev, cameraId: e.target.value }))}
+              placeholder="ID камеры"
+            />
+          </Field>
+          <div className="zone-create-actions">
+            <Button onClick={startCreateZone} disabled={createLoading}>
+              {createLoading ? 'Открытие...' : 'Открыть создание в разметке'}
+            </Button>
+          </div>
+        </div>
+      </div>
+
       {error && <div className="notice error">{error}</div>}
+      {pageNotice && <div className="notice">{pageNotice}</div>}
 
       <div className="zones-admin-grid">
         <div className="section-panel">
@@ -488,6 +589,9 @@ export default function ZonesAdminPage() {
                   Сбросить
                 </Button>
                 <Button onClick={() => openZoneInLabeler(selectedZone)}>Открыть в разметке</Button>
+                <Button className="danger" onClick={onDeleteZone} disabled={deleteLoading}>
+                  {deleteLoading ? 'Удаление...' : 'Удалить зону'}
+                </Button>
                 <Button variant="ghost" onClick={load} disabled={loading}>
                   {loading ? 'Обновление...' : 'Обновить список'}
                 </Button>
