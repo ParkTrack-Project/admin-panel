@@ -313,7 +313,7 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
 
 .table-header.sources,
 .table-row.sources {
-  grid-template-columns: 80px 150px minmax(220px, 1fr) 120px 150px;
+  grid-template-columns: 80px 90px 150px minmax(220px, 1fr) 120px 150px;
 }
 
 .status-pill {

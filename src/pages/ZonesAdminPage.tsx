@@ -5,6 +5,7 @@ import { useStore } from '@/store/useStore';
 import { navigate } from '@/router/routes';
 import type { ParkingZone } from '@/types';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
+import { useSessionStore } from '@/auth/sessionStore';
 
 type ZoneFilters = {
   cameraId: string;
@@ -86,6 +87,7 @@ export default function ZonesAdminPage() {
   const selectZone = useStore(state => state.selectZone);
   const notifySuccess = useFeedbackStore(state => state.success);
   const confirmAction = useFeedbackStore(state => state.confirm);
+  const currentPartnerId = useSessionStore(state => state.currentPartnerId);
   const [zones, setZones] = useState<ParkingZone[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -125,7 +127,7 @@ export default function ZonesAdminPage() {
     try {
       const nextZones = await api.listZones({
         camera_id: filters.cameraId ? Number(filters.cameraId) : undefined,
-        partner_id: filters.partnerId ? Number(filters.partnerId) : undefined,
+        partner_id: filters.partnerId ? Number(filters.partnerId) : currentPartnerId,
         is_active: filters.status === 'all' ? undefined : filters.status === 'active',
         max_pay: filters.maxPay ? Number(filters.maxPay) : undefined
       });
@@ -148,7 +150,7 @@ export default function ZonesAdminPage() {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [currentPartnerId]);
 
   useEffect(() => {
     if (!selectedZone) {
@@ -319,7 +321,10 @@ export default function ZonesAdminPage() {
       <div className="page-heading">
         <div>
           <h1>Зоны</h1>
-          <p>Парковочные зоны, фильтры мониторинга и геометрия разметки</p>
+          <p>
+            Парковочные зоны, фильтры мониторинга и геометрия разметки
+            {currentPartnerId !== undefined ? ` · партнёр #${currentPartnerId}` : ''}
+          </p>
         </div>
         <div className="row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <Button onClick={startCreateZone} disabled={createLoading}>
@@ -358,9 +363,9 @@ export default function ZonesAdminPage() {
         </Field>
         <Field label="Partner ID">
           <Input
-            value={filters.partnerId}
+            value={filters.partnerId || (currentPartnerId !== undefined ? String(currentPartnerId) : '')}
             onChange={e => setFilters(prev => ({ ...prev, partnerId: e.target.value }))}
-            placeholder="Все партнёры"
+            placeholder={currentPartnerId !== undefined ? `Текущий: #${currentPartnerId}` : 'Все партнёры'}
           />
         </Field>
         <Field label="Статус">

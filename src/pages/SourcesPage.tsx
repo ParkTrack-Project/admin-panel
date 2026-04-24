@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, Camera } from '@/api/client';
 import { Button, Field, Input, Select } from '@/components/UiKit';
 import { navigate } from '@/router/routes';
+import { useSessionStore } from '@/auth/sessionStore';
 
 export default function SourcesPage() {
+  const currentPartnerId = useSessionStore(state => state.currentPartnerId);
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
@@ -14,7 +16,7 @@ export default function SourcesPage() {
     setLoading(true);
     setError(undefined);
     try {
-      setCameras(await api.listCameras());
+      setCameras(await api.listCameras({ partner_id: currentPartnerId }));
     } catch (err: any) {
       setError(String(err?.message || err));
     } finally {
@@ -29,7 +31,7 @@ export default function SourcesPage() {
       setLoading(true);
       setError(undefined);
       try {
-        const nextCameras = await api.listCameras();
+        const nextCameras = await api.listCameras({ partner_id: currentPartnerId });
         if (!active) return;
         setCameras(nextCameras);
       } catch (err: any) {
@@ -46,12 +48,13 @@ export default function SourcesPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [currentPartnerId]);
 
   const items = useMemo(() => {
     return cameras
       .map(camera => ({
         source_id: camera.camera_id,
+        partner_id: camera.partner_id ?? null,
         entity_id: camera.camera_id,
         title: camera.title,
         source_type: 'camera_stream',
@@ -71,7 +74,10 @@ export default function SourcesPage() {
       <div className="page-heading">
         <div>
           <h1>Источники</h1>
-          <p>Единый реестр источников данных</p>
+          <p>
+            Единый реестр источников данных
+            {currentPartnerId !== undefined ? ` · партнёр #${currentPartnerId}` : ''}
+          </p>
         </div>
         <Button onClick={load} disabled={loading}>{loading ? 'Загрузка...' : 'Обновить'}</Button>
       </div>
@@ -94,6 +100,7 @@ export default function SourcesPage() {
       <div className="section-panel">
         <div className="table-header sources">
           <span>ID</span>
+          <span>Партнёр</span>
           <span>Тип</span>
           <span>Название</span>
           <span>Статус</span>
@@ -103,6 +110,7 @@ export default function SourcesPage() {
           {items.map(source => (
             <div className="table-row sources" key={source.source_id}>
               <div>{source.source_id}</div>
+              <div>{source.partner_id ?? '—'}</div>
               <div>{source.source_type}</div>
               <div>{source.title}</div>
               <div><span className={`status-pill ${source.status}`}>{source.status}</span></div>

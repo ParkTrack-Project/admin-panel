@@ -22,7 +22,11 @@ const navItems: NavItem[] = [
 export default function AdminShell({ route, children }: { route: AppRoute; children: React.ReactNode }) {
   const session = useSessionStore();
   const { apiBase, token } = useStore();
-  const activeMemberships = session.user?.partner_memberships.filter(m => m.is_active !== false) ?? [];
+  const activeMemberships = (session.user?.partner_memberships ?? []).filter(m => m.is_active !== false);
+  const membershipOptions = activeMemberships.filter(
+    (membership, index, all) => all.findIndex(item => item.partner_id === membership.partner_id) === index
+  );
+  const canSwitchPartner = session.isAdmin() || membershipOptions.length > 0;
 
   return (
     <div className="admin-app">
@@ -59,10 +63,17 @@ export default function AdminShell({ route, children }: { route: AppRoute; child
               placeholder="https://api.parktrack.live"
             />
           </Field>
-          {activeMemberships.length > 0 && (
+          {canSwitchPartner && (
             <Field label="Партнёр">
-              <Select value={String(activeMemberships[0].partner_id)} disabled>
-                {activeMemberships.map(m => (
+              <Select
+                value={session.currentPartnerId === undefined ? 'all' : String(session.currentPartnerId)}
+                onChange={e => {
+                  const value = e.target.value;
+                  session.setCurrentPartnerId(value === 'all' ? undefined : Number(value));
+                }}
+              >
+                {session.isAdmin() && <option value="all">Все партнёры</option>}
+                {membershipOptions.map(m => (
                   <option key={m.partner_id} value={m.partner_id}>
                     #{m.partner_id} · {m.role}
                   </option>

@@ -6,12 +6,14 @@ const STORAGE_KEY = 'parktrack.session.v1';
 type SessionSnapshot = {
   accessToken?: string;
   user?: SessionUser;
+  currentPartnerId?: number;
 };
 
 type SessionState = SessionSnapshot & {
   hydrated: boolean;
   validating: boolean;
   setSession: (snapshot: SessionSnapshot) => void;
+  setCurrentPartnerId: (partnerId?: number) => void;
   setValidating: (validating: boolean) => void;
   startDemoSession: () => void;
   logout: () => void;
@@ -34,6 +36,30 @@ function storeSession(snapshot: SessionSnapshot) {
     return;
   }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+}
+
+function activeMembershipsOf(user?: SessionUser) {
+  return (user?.partner_memberships ?? []).filter(membership => membership.is_active !== false);
+}
+
+function normalizeCurrentPartnerId(snapshot: SessionSnapshot) {
+  if (!snapshot.user) return undefined;
+
+  const memberships = activeMembershipsOf(snapshot.user);
+  const isAdmin = snapshot.user.global_roles.includes('admin');
+
+  if (snapshot.currentPartnerId !== undefined) {
+    const hasMembership = memberships.some(membership => membership.partner_id === snapshot.currentPartnerId);
+    if (hasMembership || isAdmin) {
+      return snapshot.currentPartnerId;
+    }
+  }
+
+  if (isAdmin) {
+    return undefined;
+  }
+
+  return memberships[0]?.partner_id;
 }
 
 const adminPermissions = [
@@ -97,12 +123,36 @@ const initialSession = loadStoredSession();
 
 export const useSessionStore = create<SessionState>((set, get) => ({
   ...initialSession,
+  currentPartnerId: normalizeCurrentPartnerId(initialSession),
   hydrated: true,
   validating: false,
 
   setSession(snapshot) {
-    storeSession(snapshot);
-    set(snapshot);
+    const nextSnapshot = {
+      accessToken: snapshot.accessToken,
+      user: snapshot.user,
+      currentPartnerId: normalizeCurrentPartnerId({
+        ...snapshot,
+        currentPartnerId: snapshot.currentPartnerId ?? get().currentPartnerId
+      })
+    };
+    storeSession(nextSnapshot);
+    set(nextSnapshot);
+  },
+
+  setCurrentPartnerId(partnerId) {
+    const user = get().user;
+    const nextSnapshot = {
+      accessToken: get().accessToken,
+      user,
+      currentPartnerId: normalizeCurrentPartnerId({
+        accessToken: get().accessToken,
+        user,
+        currentPartnerId: partnerId
+      })
+    };
+    storeSession(nextSnapshot);
+    set({ currentPartnerId: nextSnapshot.currentPartnerId });
   },
 
   setValidating(validating) {
@@ -112,7 +162,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   startDemoSession() {
     const snapshot = {
       accessToken: 'dev-admin-token',
-      user: buildDemoUser()
+      user: buildDemoUser(),
+      currentPartnerId: undefined
     };
     storeSession(snapshot);
     set(snapshot);
@@ -120,7 +171,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   logout() {
     storeSession({});
-    set({ accessToken: undefined, user: undefined, validating: false });
+    set({ accessToken: undefined, user: undefined, currentPartnerId: undefined, validating: false });
   },
 
   hasPermission(permission) {

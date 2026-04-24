@@ -31,6 +31,7 @@ function formatConfidence(value?: number) {
 
 export default function DashboardPage() {
   const session = useSessionStore();
+  const currentPartnerId = useSessionStore(state => state.currentPartnerId);
   const [state, setState] = useState<DashboardState>({
     loading: false,
     cameras: [],
@@ -46,8 +47,8 @@ export default function DashboardPage() {
         const [health, version, cameras, zones] = await Promise.allSettled([
           api.health(),
           api.version(),
-          api.listCameras(),
-          api.listZones()
+          api.listCameras({ partner_id: currentPartnerId }),
+          api.listZones({ partner_id: currentPartnerId })
         ]);
 
         if (cancelled) return;
@@ -78,7 +79,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [currentPartnerId]);
 
   const metrics = useMemo(() => {
     const activeCameras = state.cameras.filter(camera => camera.is_active !== false);
@@ -126,7 +127,7 @@ export default function DashboardPage() {
   );
 
   const camerasWithoutMap = useMemo(
-    () => state.cameras.filter(camera => !camera.latitude || !camera.longitude).slice(0, 4),
+    () => state.cameras.filter(camera => camera.latitude === null || camera.latitude === undefined || camera.longitude === null || camera.longitude === undefined).slice(0, 4),
     [state.cameras]
   );
 
@@ -206,7 +207,7 @@ export default function DashboardPage() {
             </div>
             <div className="dashboard-summary-row">
               <span className="metric-label">Текущий partner</span>
-              <strong>{session.user?.partner_memberships.find(m => m.is_active !== false)?.partner_id ?? '—'}</strong>
+              <strong>{currentPartnerId ?? (session.isAdmin() ? 'Все партнёры' : '—')}</strong>
             </div>
           </div>
         </div>

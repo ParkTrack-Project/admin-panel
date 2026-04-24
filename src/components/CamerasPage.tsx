@@ -6,6 +6,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L, { LatLngExpression } from 'leaflet';
 import { navigate } from '@/router/routes';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
+import { useSessionStore } from '@/auth/sessionStore';
 
 const defaultIcon = L.icon({
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
@@ -106,6 +107,7 @@ export default function CamerasPage() {
   const { setViewMode, setCamera, loadCameraMeta, cameraId, setLabelerReturnRoute } = store;
   const notifySuccess = useFeedbackStore(state => state.success);
   const confirmAction = useFeedbackStore(state => state.confirm);
+  const currentPartnerId = useSessionStore(state => state.currentPartnerId);
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -138,7 +140,8 @@ export default function CamerasPage() {
     try {
       const list = await api.listCameras({
         q: filters.q || undefined,
-        is_active: filters.isActive === 'all' ? undefined : filters.isActive === 'active'
+        is_active: filters.isActive === 'all' ? undefined : filters.isActive === 'active',
+        partner_id: currentPartnerId
       });
       setCameras(list);
       setSelectedId(current => {
@@ -156,7 +159,7 @@ export default function CamerasPage() {
 
   useEffect(() => {
     loadCameras();
-  }, []);
+  }, [currentPartnerId]);
 
   useEffect(() => {
     if (!cameras.length) return;
@@ -344,7 +347,10 @@ export default function CamerasPage() {
         <div className="page-heading" style={{ alignItems: 'flex-start', marginBottom: 12 }}>
           <div>
             <h1 style={{ fontSize: 24, margin: 0 }}>Камеры</h1>
-            <p style={{ marginTop: 4 }}>Рабочие камеры, привязка и поток распознавания</p>
+            <p style={{ marginTop: 4 }}>
+              Рабочие камеры, привязка и поток распознавания
+              {currentPartnerId !== undefined ? ` · партнёр #${currentPartnerId}` : ''}
+            </p>
           </div>
           <Button onClick={() => setShowAddCamera(true)}>+ Добавить</Button>
         </div>
@@ -625,6 +631,7 @@ export default function CamerasPage() {
             onSave={onAddCamera}
             onCancel={() => setShowAddCamera(false)}
             loading={loading}
+            defaultPartnerId={currentPartnerId}
           />
         )}
       </div>
@@ -685,11 +692,13 @@ export default function CamerasPage() {
 function AddCameraForm({
   onSave,
   onCancel,
-  loading
+  loading,
+  defaultPartnerId
 }: {
   onSave: (data: CreateCameraRequest) => void;
   onCancel: () => void;
   loading: boolean;
+  defaultPartnerId?: number;
 }) {
   const [title, setTitle] = useState('');
   const [source, setSource] = useState('');
@@ -719,7 +728,8 @@ function AddCameraForm({
       image_height: parseInt(imageHeight, 10),
       latitude: parseFloat(latitude),
       longitude: parseFloat(longitude),
-      calib: calibParsed
+      calib: calibParsed,
+      partner_id: defaultPartnerId
     });
   }
 
