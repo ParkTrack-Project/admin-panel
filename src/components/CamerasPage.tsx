@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '@/store/useStore';
-import { api, Camera, CreateCameraRequest } from '@/api/client';
-import { Button, Field, Input } from './UiKit';
+import { api, Camera, CameraSnapshot, CreateCameraRequest } from '@/api/client';
+import { Button, Field, Input, Select } from './UiKit';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L, { LatLngExpression } from 'leaflet';
 import { navigate } from '@/router/routes';
@@ -34,6 +34,12 @@ function MapAutoCenter({ cameras, selectedId }: { cameras: Camera[]; selectedId?
   return null;
 }
 
+type SnapshotState = {
+  loading: boolean;
+  error?: string;
+  data?: CameraSnapshot;
+};
+
 export default function CamerasPage() {
   const store = useStore();
   const { setViewMode, setCamera, loadCameraMeta } = store;
@@ -45,36 +51,47 @@ export default function CamerasPage() {
   const [zoneCounts, setZoneCounts] = useState<Record<number, number>>({});
   const [showAddCamera, setShowAddCamera] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [filters, setFilters] = useState({
+    q: '',
+    isActive: 'all'
+  });
+  const [snapshot, setSnapshot] = useState<SnapshotState>({ loading: false });
+  const [snapshotReloadKey, setSnapshotReloadKey] = useState(0);
+
+  const selectedCamera = useMemo(
+    () => cameras.find(cam => cam.camera_id === selectedId),
+    [cameras, selectedId]
+  );
+
+  async function loadCameras() {
+    setLoading(true);
+    setError(undefined);
+    try {
+      const list = await api.listCameras({
+        q: filters.q || undefined,
+        is_active: filters.isActive === 'all' ? undefined : filters.isActive === 'active'
+      });
+      setCameras(list);
+      setSelectedId(current => current && list.some(cam => cam.camera_id === current) ? current : list[0]?.camera_id);
+    } catch (e: any) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
-      setError(undefined);
-      try {
-        const list = await api.listCameras();
-        if (!cancelled) {
-          setCameras(list);
-        }
-      } catch (e: any) {
-        if (!cancelled) setError(String(e));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
+    loadCameras();
   }, []);
 
   useEffect(() => {
     if (!cameras.length) return;
     let cancelled = false;
+
     async function loadCounts() {
       try {
         const entries = await Promise.all(
-          cameras.map(async (cam) => {
+          cameras.map(async cam => {
             try {
               const zones = await api.listZones(cam.camera_id);
               return [cam.camera_id, zones.length] as const;
@@ -83,6 +100,7 @@ export default function CamerasPage() {
             }
           })
         );
+
         if (cancelled) return;
         const map: Record<number, number> = {};
         for (const [id, count] of entries) map[id] = count;
@@ -90,11 +108,48 @@ export default function CamerasPage() {
       } catch {
       }
     }
+
     loadCounts();
     return () => {
       cancelled = true;
     };
   }, [cameras]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let lastImageUrl: string | undefined;
+
+    async function loadSnapshot() {
+      if (!selectedCamera) {
+        setSnapshot({ loading: false });
+        return;
+      }
+
+      setSnapshot({ loading: true });
+      try {
+        const data = await api.getSnapshot(selectedCamera.camera_id, {
+          annotated: true,
+          fallback_to_raw: true
+        });
+        if (!cancelled) {
+          lastImageUrl = data.image_url;
+          setSnapshot({ loading: false, data });
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setSnapshot({ loading: false, error: String(e?.message || e) });
+        }
+      }
+    }
+
+    loadSnapshot();
+    return () => {
+      cancelled = true;
+      if (lastImageUrl?.startsWith('blob:')) {
+        URL.revokeObjectURL(lastImageUrl);
+      }
+    };
+  }, [selectedCamera?.camera_id, snapshotReloadKey]);
 
   const center: LatLngExpression = useMemo(() => {
     const first = cameras.find(c => c.latitude && c.longitude);
@@ -102,7 +157,7 @@ export default function CamerasPage() {
     return [59.9386, 30.3141];
   }, [cameras]);
 
-  function onEditCamera(cam: Camera) {
+  function openLabeler(cam: Camera) {
     setCamera(String(cam.camera_id));
     loadCameraMeta(cam.camera_id);
     store.loadZones();
@@ -114,11 +169,7 @@ export default function CamerasPage() {
     setDeletingId(cameraId);
     try {
       await api.deleteCamera(cameraId);
-      const list = await api.listCameras();
-      setCameras(list);
-      if (selectedId === cameraId) {
-        setSelectedId(undefined);
-      }
+      await loadCameras();
     } catch (e: any) {
       setError(`Ошибка удаления камеры: ${String(e)}`);
     } finally {
@@ -126,21 +177,12 @@ export default function CamerasPage() {
     }
   }
 
-  async function onAddCamera(data: {
-    title: string;
-    source: string;
-    image_width: number;
-    image_height: number;
-    latitude: number;
-    longitude: number;
-    calib?: any;
-  }) {
+  async function onAddCamera(data: CreateCameraRequest) {
     try {
       setLoading(true);
       setError(undefined);
-      const newCamera = await api.createCamera(data);
-      const updatedList = await api.listCameras();
-      setCameras(updatedList);
+      await api.createCamera(data);
+      await loadCameras();
       setShowAddCamera(false);
     } catch (e: any) {
       setError(`Ошибка создания камеры: ${String(e)}`);
@@ -151,67 +193,164 @@ export default function CamerasPage() {
 
   return (
     <>
-      <div className="sidebar">
-        <div className="row" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
-          <h4>Камеры</h4>
-          <Button className="ghost" onClick={() => navigate('labeler')}>К разметке</Button>
+      <div className="sidebar camera-admin-sidebar">
+        <div className="page-heading" style={{ alignItems: 'flex-start', marginBottom: 12 }}>
+          <div>
+            <h1 style={{ fontSize: 24, margin: 0 }}>Камеры</h1>
+            <p style={{ marginTop: 4 }}>Рабочие камеры, привязка и поток распознавания</p>
+          </div>
+          <Button onClick={() => setShowAddCamera(true)}>+ Добавить</Button>
         </div>
 
-        <div className="row" style={{ marginBottom: 12, gap: 8 }}>
-          <Button onClick={() => setShowAddCamera(true)}>+ Добавить камеру</Button>
+        <div className="filter-bar" style={{ marginBottom: 12 }}>
+          <Field label="Поиск">
+            <Input
+              value={filters.q}
+              onChange={e => setFilters(prev => ({ ...prev, q: e.target.value }))}
+              placeholder="Название камеры"
+            />
+          </Field>
+          <Field label="Статус">
+            <Select
+              value={filters.isActive}
+              onChange={e => setFilters(prev => ({ ...prev, isActive: e.target.value }))}
+            >
+              <option value="all">Все</option>
+              <option value="active">Активные</option>
+              <option value="inactive">Неактивные</option>
+            </Select>
+          </Field>
+          <Button variant="ghost" onClick={loadCameras} disabled={loading}>
+            {loading ? 'Загрузка...' : 'Применить'}
+          </Button>
         </div>
 
-        {loading && <div className="small">Загрузка камер…</div>}
-        {error && <div className="small" style={{ color: '#ff6b6b' }}>{error}</div>}
+        {error && <div className="notice error" style={{ marginBottom: 12 }}>{error}</div>}
 
-        <div className="list">
-          {cameras.map(cam => {
-            const isActive = cam.camera_id === selectedId;
-            const isHover = cam.camera_id === hoverId;
-            const zonesCount = zoneCounts[cam.camera_id];
-            return (
-              <div
-                key={cam.camera_id}
-                className={`item ${isActive ? 'active' : ''} ${isHover ? 'hover' : ''} ${cam.is_active === false ? 'inactive' : ''}`}
-                onMouseEnter={() => setHoverId(cam.camera_id)}
-                onMouseLeave={() => setHoverId(id => (id === cam.camera_id ? undefined : id))}
-                onClick={() => setSelectedId(cam.camera_id)}
-                style={cam.is_active === false ? { borderLeft: '3px solid #ff4d4f' } : undefined}
-              >
-                <div className="row" style={{ justifyContent: 'space-between' }}>
-                  <div>{cam.title}</div>
-                  {cam.is_active === false && <span className="badge" style={{ background: '#ff4d4f', color: 'white' }}>Неактивна</span>}
-                </div>
-                <div className="small">ID: {cam.camera_id}</div>
-                <div className="small">Зон: {typeof zonesCount === 'number' ? zonesCount : '—'}</div>
-                <div className="row" style={{ marginTop: 6, gap: 6 }}>
-                  <Button onClick={() => onEditCamera(cam)}>Редактировать</Button>
-                  <Button 
-                    className="danger" 
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      if (confirm(`Удалить камеру "${cam.title}"? Это действие нельзя отменить.`)) {
-                        await onDeleteCamera(cam.camera_id);
-                      }
-                    }}
-                    disabled={deletingId === cam.camera_id}
-                  >
-                    {deletingId === cam.camera_id ? 'Удаление...' : 'Удалить'}
-                  </Button>
-                </div>
-                {isHover && <div className="small">Наведи на метку на карте, чтобы увидеть камеру</div>}
+        <div className="section-panel" style={{ marginBottom: 12 }}>
+          <div className="table-header camera-list-header">
+            <span>Камера</span>
+            <span>Зоны</span>
+            <span>Статус</span>
+          </div>
+          <div className="table-list">
+            {cameras.map(cam => {
+              const isActive = cam.camera_id === selectedId;
+              const zonesCount = zoneCounts[cam.camera_id];
+              return (
+                <button
+                  key={cam.camera_id}
+                  className={`camera-list-item ${isActive ? 'active' : ''}`}
+                  onMouseEnter={() => setHoverId(cam.camera_id)}
+                  onMouseLeave={() => setHoverId(id => (id === cam.camera_id ? undefined : id))}
+                  onClick={() => setSelectedId(cam.camera_id)}
+                >
+                  <span>
+                    <strong>{cam.title}</strong>
+                    <span className="small" style={{ display: 'block' }}>ID: {cam.camera_id}</span>
+                  </span>
+                  <span>{typeof zonesCount === 'number' ? zonesCount : '—'}</span>
+                  <span className={`status-pill ${cam.is_active === false ? 'paused' : 'active'}`}>
+                    {cam.is_active === false ? 'paused' : 'active'}
+                  </span>
+                </button>
+              );
+            })}
+            {!loading && !cameras.length && (
+              <div className="empty-state">Камеры не найдены</div>
+            )}
+          </div>
+        </div>
+
+        {selectedCamera && (
+          <div className="section-panel camera-detail-panel">
+            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <h2 style={{ margin: 0 }}>{selectedCamera.title}</h2>
+                <div className="small">ID: {selectedCamera.camera_id}</div>
               </div>
-            );
-          })}
-          {!loading && !cameras.length && !error && (
-            <div className="small">Камеры не найдены</div>
-          )}
-        </div>
+              <span className={`status-pill ${selectedCamera.is_active === false ? 'paused' : 'active'}`}>
+                {selectedCamera.is_active === false ? 'Неактивна' : 'Активна'}
+              </span>
+            </div>
+
+            <div className="details-grid" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 12 }}>
+              <div className="detail-card">
+                <div className="metric-label">Источник</div>
+                <div className="detail-value" style={{ fontSize: 14, lineHeight: 1.4, wordBreak: 'break-word' }}>
+                  {selectedCamera.source}
+                </div>
+              </div>
+              <div className="detail-card">
+                <div className="metric-label">Изображение</div>
+                <div className="detail-value" style={{ fontSize: 14 }}>
+                  {selectedCamera.image_width} x {selectedCamera.image_height}
+                </div>
+              </div>
+            </div>
+
+            <div className="small" style={{ marginTop: 10 }}>
+              Координаты: {selectedCamera.latitude}, {selectedCamera.longitude}
+            </div>
+            <div className="small">
+              Обновлено: {new Date(selectedCamera.updated_at).toLocaleString('ru-RU')}
+            </div>
+
+            <div className="camera-preview">
+              <div className="camera-preview-header">
+                <h3>Распознанные автомобили</h3>
+                <Button
+                  variant="ghost"
+                  onClick={() => setSnapshotReloadKey(key => key + 1)}
+                >
+                  Обновить кадр
+                </Button>
+              </div>
+              {snapshot.loading && <div className="empty-state">Загрузка snapshot...</div>}
+              {!snapshot.loading && snapshot.error && (
+                <div className="notice warning">{snapshot.error}</div>
+              )}
+              {!snapshot.loading && snapshot.data?.image_url && (
+                <img
+                  className="camera-preview-image"
+                  src={snapshot.data.image_url}
+                  alt={`Snapshot camera ${selectedCamera.camera_id}`}
+                />
+              )}
+            </div>
+
+            <div className="row" style={{ gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+              <Button onClick={() => openLabeler(selectedCamera)}>Настроить и размечать</Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setCamera(String(selectedCamera.camera_id));
+                  loadCameraMeta(selectedCamera.camera_id);
+                  store.setViewMode('cameraMapSelector');
+                  navigate('labeler');
+                }}
+              >
+                Положение на карте
+              </Button>
+              <Button
+                className="danger"
+                onClick={async () => {
+                  if (confirm(`Удалить камеру "${selectedCamera.title}"? Это действие нельзя отменить.`)) {
+                    await onDeleteCamera(selectedCamera.camera_id);
+                  }
+                }}
+                disabled={deletingId === selectedCamera.camera_id}
+              >
+                {deletingId === selectedCamera.camera_id ? 'Удаление...' : 'Удалить'}
+              </Button>
+            </div>
+          </div>
+        )}
 
         {showAddCamera && (
-          <AddCameraForm 
-            onSave={onAddCamera} 
-            onCancel={() => setShowAddCamera(false)} 
+          <AddCameraForm
+            onSave={onAddCamera}
+            onCancel={() => setShowAddCamera(false)}
             loading={loading}
           />
         )}
@@ -228,22 +367,18 @@ export default function CamerasPage() {
             const isActive = cam.camera_id === selectedId;
             const isHover = cam.camera_id === hoverId;
             const isCameraActive = cam.is_active !== false;
-            let color: string;
-            if (!isCameraActive) {
-              color = '#ff4d4f';
-            } else if (isActive) {
-              color = '#ff7a45';
-            } else if (isHover) {
-              color = '#ffd666';
-            } else {
-              color = '#2f54eb';
-            }
+            let color = '#2f54eb';
+            if (!isCameraActive) color = '#ff4d4f';
+            else if (isActive) color = '#ff7a45';
+            else if (isHover) color = '#ffd666';
+
             const icon = L.divIcon({
               className: 'camera-marker',
               html: `<div style="width:${isActive ? 18 : 12}px;height:${isActive ? 18 : 12}px;border-radius:50%;background:${color};border:2px solid white;"></div>`,
               iconSize: [isActive ? 18 : 12, isActive ? 18 : 12],
               iconAnchor: [9, 9]
             });
+
             return (
               <Marker
                 key={cam.camera_id}
@@ -259,8 +394,9 @@ export default function CamerasPage() {
                   <div style={{ maxWidth: 220 }}>
                     <div><b>{cam.title}</b></div>
                     <div className="small">ID: {cam.camera_id}</div>
-                    <div style={{ marginTop: 6 }}>
-                      <Button onClick={() => onEditCamera(cam)}>Редактировать</Button>
+                    <div style={{ marginTop: 6, display: 'flex', gap: 6 }}>
+                      <Button onClick={() => setSelectedId(cam.camera_id)}>Открыть</Button>
+                      <Button onClick={() => openLabeler(cam)}>Разметка</Button>
                     </div>
                   </div>
                 </Popup>
@@ -273,12 +409,12 @@ export default function CamerasPage() {
   );
 }
 
-function AddCameraForm({ 
-  onSave, 
-  onCancel, 
-  loading 
-}: { 
-  onSave: (data: CreateCameraRequest) => void; 
+function AddCameraForm({
+  onSave,
+  onCancel,
+  loading
+}: {
+  onSave: (data: CreateCameraRequest) => void;
   onCancel: () => void;
   loading: boolean;
 }) {
@@ -313,11 +449,11 @@ function AddCameraForm({
   }
 
   return (
-    <div style={{ marginTop: 16, padding: 12, border: '1px solid #ddd', borderRadius: 4 }}>
+    <div className="section-panel" style={{ marginTop: 12 }}>
       <h4 style={{ marginTop: 0 }}>Добавить камеру</h4>
       <form onSubmit={handleSubmit}>
         <Field label="Title *">
-          <Input 
+          <Input
             value={title}
             onChange={e => setTitle(e.target.value)}
             placeholder="Название камеры"
@@ -325,7 +461,7 @@ function AddCameraForm({
           />
         </Field>
         <Field label="Source (видеопоток) *">
-          <Input 
+          <Input
             value={source}
             onChange={e => setSource(e.target.value)}
             placeholder="https://... или rtsp://..."
@@ -333,7 +469,7 @@ function AddCameraForm({
           />
         </Field>
         <Field label="Image Width *">
-          <Input 
+          <Input
             type="number"
             min={1}
             value={imageWidth}
@@ -342,7 +478,7 @@ function AddCameraForm({
           />
         </Field>
         <Field label="Image Height *">
-          <Input 
+          <Input
             type="number"
             min={1}
             value={imageHeight}
@@ -351,7 +487,7 @@ function AddCameraForm({
           />
         </Field>
         <Field label="Latitude *">
-          <Input 
+          <Input
             type="number"
             step="any"
             value={latitude}
@@ -360,7 +496,7 @@ function AddCameraForm({
           />
         </Field>
         <Field label="Longitude *">
-          <Input 
+          <Input
             type="number"
             step="any"
             value={longitude}
@@ -382,7 +518,7 @@ function AddCameraForm({
           <Button type="submit" disabled={loading || !title.trim() || !source.trim()}>
             {loading ? 'Создание...' : 'Создать'}
           </Button>
-          <Button type="button" className="ghost" onClick={onCancel}>Отмена</Button>
+          <Button type="button" variant="ghost" onClick={onCancel}>Отмена</Button>
         </div>
       </form>
     </div>

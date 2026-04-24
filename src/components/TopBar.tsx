@@ -2,9 +2,10 @@ import { useStore } from '@/store/useStore';
 import { apiConfig, api } from '@/api/client';
 import { Button, Field, Input, FilePicker } from './UiKit';
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { navigate } from '@/router/routes';
 
 export default function TopBar() {
-  const { apiBase, token, cameraId, viewMode, setImage, image } = useStore();
+  const { apiBase, token, cameraId, viewMode, setImage, image, setViewMode } = useStore();
   const [imageUrlInput, setImageUrlInput] = useState('');
   const [loadingSnapshot, setLoadingSnapshot] = useState(false);
   const currentBlobUrlRef = useRef<string | null>(null);
@@ -72,6 +73,11 @@ export default function TopBar() {
 
   const isLabeler = viewMode === 'labeler';
 
+  function backToCamera() {
+    setViewMode('cameras');
+    navigate('cameras');
+  }
+
   // Cleanup blob URLs on unmount to prevent memory leaks
   useEffect(() => {
     return () => {
@@ -101,6 +107,11 @@ export default function TopBar() {
       <div className="row" style={{ gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <div className="row" style={{ gap: 6, marginRight: 16 }}>
           <span className="badge">Разметка зон</span>
+          {cameraId && (
+            <Button variant="ghost" onClick={backToCamera}>
+              Назад к камере
+            </Button>
+          )}
         </div>
 
         {isLabeler && (

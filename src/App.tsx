@@ -17,6 +17,7 @@ import { useSessionStore } from '@/auth/sessionStore';
 import { apiConfig } from '@/api/client';
 import { useEffect } from 'react';
 import type { ViewMode } from '@/types';
+import { navigate } from '@/router/routes';
 
 export default function App() {
   const route = useHashRoute();
@@ -35,6 +36,12 @@ export default function App() {
       setViewMode('labeler');
     }
   }, [route, viewMode, setViewMode]);
+
+  useEffect(() => {
+    if (route === 'labeler' && !useStore.getState().cameraId) {
+      navigate('cameras');
+    }
+  }, [route]);
 
   if (route === 'login' || route === 'register') {
     return <AuthPage mode={route} />;

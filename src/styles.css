@@ -408,6 +408,75 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   overflow: hidden;
 }
 
+.camera-admin-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.camera-list-header,
+.camera-list-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 70px 88px;
+  gap: 10px;
+  align-items: center;
+}
+
+.camera-list-item {
+  border: 0;
+  border-bottom: 1px solid #edf1ee;
+  background: transparent;
+  padding: 12px 8px;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.camera-list-item:last-child {
+  border-bottom: 0;
+}
+
+.camera-list-item.active {
+  background: #f3faf5;
+}
+
+.camera-detail-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.camera-preview {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fbf8;
+  padding: 10px;
+}
+
+.camera-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.camera-preview-header h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.camera-preview-image {
+  width: 100%;
+  display: block;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  object-fit: cover;
+  background: #0f1711;
+}
+
 @media (max-width: 900px) {
   .admin-app {
     grid-template-columns: 1fr;

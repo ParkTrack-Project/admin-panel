@@ -82,6 +82,11 @@ export type CameraSnapshot = {
   height?: number;
 };
 
+export type CameraSnapshotOptions = {
+  annotated?: boolean;
+  fallback_to_raw?: boolean;
+};
+
 function formatBBox(bbox?: CameraBBox | string) {
   if (!bbox) return undefined;
   if (typeof bbox === 'string') return bbox;
@@ -132,8 +137,12 @@ export const camerasApi = {
     return request<CamerasNextResponse>('GET', '/cameras/next');
   },
 
-  async getSnapshot(cameraId: number): Promise<CameraSnapshot> {
-    const { blob, headers } = await requestBlob(`/cameras/${encodeURIComponent(cameraId)}/snapshot`);
+  async getSnapshot(cameraId: number, options?: CameraSnapshotOptions): Promise<CameraSnapshot> {
+    const query = buildQuery({
+      annotated: options?.annotated,
+      fallback_to_raw: options?.fallback_to_raw
+    });
+    const { blob, headers } = await requestBlob(`/cameras/${encodeURIComponent(cameraId)}/snapshot${query}`);
     return {
       image_url: URL.createObjectURL(blob),
       captured_at: headers.get('X-Captured-At') || undefined

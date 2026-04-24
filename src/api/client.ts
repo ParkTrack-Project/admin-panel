@@ -13,6 +13,7 @@ export type {
   CameraBBox,
   CameraListFilters,
   CameraMapItem,
+  CameraSnapshotOptions,
   CameraSnapshot,
   CamerasNextResponse,
   CameraView,
@@ -214,8 +215,8 @@ export const api = {
     return camerasApi.getNext();
   },
   
-  async getSnapshot(cameraId: number) {
-    return camerasApi.getSnapshot(cameraId);
+  async getSnapshot(cameraId: number, options?: import('./cameras').CameraSnapshotOptions) {
+    return camerasApi.getSnapshot(cameraId, options);
   },
 
   // --- System ---

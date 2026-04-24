@@ -16,7 +16,6 @@ const navItems: NavItem[] = [
   { route: 'sources', label: 'Источники', permission: 'sources.view' },
   { route: 'users', label: 'Пользователи', permission: 'admin.users.view' },
   { route: 'partners', label: 'Партнёры', permission: 'admin.partners.view' },
-  { route: 'labeler', label: 'Разметка', permission: 'zones.update' },
   { route: 'profile', label: 'Профиль' }
 ];
 
