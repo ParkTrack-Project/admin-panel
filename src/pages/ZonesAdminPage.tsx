@@ -130,9 +130,11 @@ export default function ZonesAdminPage() {
       setSelectedZoneId(current =>
         current && nextZones.some(zone => String(zone.id) === current)
           ? current
-          : nextZones[0]
-            ? String(nextZones[0].id)
-            : undefined
+          : store.activeZoneId && nextZones.some(zone => String(zone.id) === String(store.activeZoneId))
+            ? String(store.activeZoneId)
+            : nextZones[0]
+              ? String(nextZones[0].id)
+              : undefined
       );
     } catch (err: any) {
       setError(String(err?.message || err));
@@ -156,6 +158,12 @@ export default function ZonesAdminPage() {
   }, [selectedZone?.id]);
 
   useEffect(() => {
+    if (selectedZoneId) {
+      store.selectZone(selectedZoneId);
+    }
+  }, [selectedZoneId, store]);
+
+  useEffect(() => {
     if (selectedZone) {
       setCreateState(prev => ({ ...prev, cameraId: String(selectedZone.camera_id) }));
       return;
@@ -166,6 +174,7 @@ export default function ZonesAdminPage() {
   }, [selectedZone?.id, filters.cameraId]);
 
   async function prepareZoneWorkspace(zone: ParkingZone) {
+    store.setLabelerReturnRoute('zones');
     store.setCamera(String(zone.camera_id));
     store.selectZone(zone.id);
     await Promise.all([
@@ -209,6 +218,7 @@ export default function ZonesAdminPage() {
     setError(undefined);
     try {
       await api.getCamera(cameraId);
+      store.setLabelerReturnRoute('zones');
       store.setCamera(String(cameraId));
       await Promise.all([
         store.loadCameraMeta(cameraId),
@@ -412,7 +422,10 @@ export default function ZonesAdminPage() {
                   type="button"
                   key={String(zone.id)}
                   className={`table-row zones-admin zone-row-button ${isSelected ? 'active' : ''}`}
-                  onClick={() => setSelectedZoneId(String(zone.id))}
+                  onClick={() => {
+                    setSelectedZoneId(String(zone.id));
+                    store.selectZone(zone.id);
+                  }}
                 >
                   <span>{String(zone.id)}</span>
                   <span>{zone.camera_id}</span>

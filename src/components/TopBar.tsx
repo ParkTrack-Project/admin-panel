@@ -5,7 +5,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { navigate } from '@/router/routes';
 
 export default function TopBar() {
-  const { apiBase, token, cameraId, viewMode, setImage, image, setViewMode } = useStore();
+  const { apiBase, token, cameraId, viewMode, setImage, image, setViewMode, labelerReturnRoute } = useStore();
   const [imageUrlInput, setImageUrlInput] = useState('');
   const [loadingSnapshot, setLoadingSnapshot] = useState(false);
   const currentBlobUrlRef = useRef<string | null>(null);
@@ -73,7 +73,11 @@ export default function TopBar() {
 
   const isLabeler = viewMode === 'labeler';
 
-  function backToCamera() {
+  function backToOrigin() {
+    if (labelerReturnRoute === 'zones') {
+      navigate('zones');
+      return;
+    }
     setViewMode('cameras');
     navigate('cameras');
   }
@@ -108,8 +112,8 @@ export default function TopBar() {
         <div className="row" style={{ gap: 6, marginRight: 16 }}>
           <span className="badge">Разметка зон</span>
           {cameraId && (
-            <Button variant="ghost" onClick={backToCamera}>
-              Назад к камере
+            <Button variant="ghost" onClick={backToOrigin}>
+              {labelerReturnRoute === 'zones' ? 'Назад к зоне' : 'Назад к камере'}
             </Button>
           )}
         </div>

@@ -94,7 +94,7 @@ function normalizeEditor(editor: CameraEditorState) {
 
 export default function CamerasPage() {
   const store = useStore();
-  const { setViewMode, setCamera, loadCameraMeta } = store;
+  const { setViewMode, setCamera, loadCameraMeta, cameraId, setLabelerReturnRoute } = store;
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -131,7 +131,12 @@ export default function CamerasPage() {
         is_active: filters.isActive === 'all' ? undefined : filters.isActive === 'active'
       });
       setCameras(list);
-      setSelectedId(current => current && list.some(cam => cam.camera_id === current) ? current : list[0]?.camera_id);
+      setSelectedId(current => {
+        if (current && list.some(cam => cam.camera_id === current)) return current;
+        const storedCameraId = cameraId ? parseInt(cameraId, 10) : undefined;
+        if (storedCameraId && list.some(cam => cam.camera_id === storedCameraId)) return storedCameraId;
+        return list[0]?.camera_id;
+      });
     } catch (e: any) {
       setError(String(e));
     } finally {
@@ -227,6 +232,7 @@ export default function CamerasPage() {
   }, [cameras]);
 
   function openLabeler(cam: Camera) {
+    setLabelerReturnRoute('cameras');
     setCamera(String(cam.camera_id));
     loadCameraMeta(cam.camera_id);
     store.loadZones();
@@ -577,6 +583,7 @@ export default function CamerasPage() {
               <Button
                 variant="ghost"
                 onClick={() => {
+                  setLabelerReturnRoute('cameras');
                   setCamera(String(selectedCamera.camera_id));
                   loadCameraMeta(selectedCamera.camera_id);
                   store.setViewMode('cameraMapSelector');

@@ -19,6 +19,7 @@ type State = {
   apiBase: string;
   token?: string;
   cameraId: string;
+  labelerReturnRoute?: 'cameras' | 'zones';
   image?: ImageMeta;
   cameraMeta?: Camera;
 
@@ -40,6 +41,7 @@ type State = {
   setApi(base: string, token?: string): void;
   setViewMode(mode: ViewMode): void;
   setCamera(id: string): void;
+  setLabelerReturnRoute(route?: 'cameras' | 'zones'): void;
   setImage(img: ImageMeta | undefined): void;
 
   loadCameraMeta(id: number): Promise<void>;
@@ -67,6 +69,7 @@ type State = {
 export const useStore = create<State>((set, get) => ({
   apiBase: 'https://api.parktrack.live',
   cameraId: '',
+  labelerReturnRoute: 'cameras',
   image: undefined,
   cameraMeta: undefined,
   viewMode: 'cameras',
@@ -81,6 +84,7 @@ export const useStore = create<State>((set, get) => ({
   setApi(base, token) { set({ apiBase: base, token }); },
   setViewMode(mode) { set({ viewMode: mode }); },
   setCamera(id) { set({ cameraId: id }); },
+  setLabelerReturnRoute(route) { set({ labelerReturnRoute: route }); },
   setImage(img) { set({ image: img }); },
 
   async loadCameraMeta(id) {
