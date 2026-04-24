@@ -125,6 +125,23 @@ export default function DashboardPage() {
     [state.zones]
   );
 
+  const camerasWithoutMap = useMemo(
+    () => state.cameras.filter(camera => !camera.latitude || !camera.longitude).slice(0, 4),
+    [state.cameras]
+  );
+
+  const zonesWithoutGeometry = useMemo(
+    () =>
+      state.zones
+        .filter(zone => {
+          const hasImageGeometry = (zone.image_polygon ?? zone.image_quad)?.length === 4;
+          const hasMapGeometry = Boolean(zone.geometry?.coordinates?.[0]?.length) || zone.points.some(point => point.latitude !== null && point.longitude !== null);
+          return !hasImageGeometry || !hasMapGeometry;
+        })
+        .slice(0, 4),
+    [state.zones]
+  );
+
   return (
     <section className="page-stack">
       <div className="page-heading">
@@ -169,6 +186,100 @@ export default function DashboardPage() {
               <span className="metric-label">Permissions</span>
               <strong>{session.user?.permissions.length ?? 0}</strong>
             </div>
+          </div>
+        </div>
+
+        <div className="section-panel">
+          <h2>Система</h2>
+          <div className="dashboard-summary-list">
+            <div className="dashboard-summary-row">
+              <span className="metric-label">API status</span>
+              <strong>{state.health?.status ?? 'unknown'}</strong>
+            </div>
+            <div className="dashboard-summary-row">
+              <span className="metric-label">Database</span>
+              <strong>{state.health?.database ?? 'unknown'}</strong>
+            </div>
+            <div className="dashboard-summary-row">
+              <span className="metric-label">API version</span>
+              <strong>{state.version?.api_version ?? state.version?.version ?? 'unknown'}</strong>
+            </div>
+            <div className="dashboard-summary-row">
+              <span className="metric-label">Текущий partner</span>
+              <strong>{session.user?.partner_memberships.find(m => m.is_active !== false)?.partner_id ?? '—'}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div className="section-panel">
+          <h2>Быстрые действия</h2>
+          <div className="dashboard-action-grid">
+            <button type="button" className="dashboard-action-card" onClick={() => navigate('cameras')}>
+              <strong>Проверить камеры</strong>
+              <span className="small">Редактирование настроек, snapshot и позиции на карте.</span>
+            </button>
+            <button type="button" className="dashboard-action-card" onClick={() => navigate('zones')}>
+              <strong>Проверить зоны</strong>
+              <span className="small">Список зон, geometry entrypoint’ы и правка свойств.</span>
+            </button>
+            <button type="button" className="dashboard-action-card" onClick={() => navigate('profile')}>
+              <strong>Открыть профиль</strong>
+              <span className="small">Посмотреть текущую сессию и роль администратора.</span>
+            </button>
+            <button type="button" className="dashboard-action-card" onClick={() => navigate('users')}>
+              <strong>Подготовить пользователей</strong>
+              <span className="small">Контрактный раздел для следующего этапа admin-панели.</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="details-grid dashboard-summary-grid">
+        <div className="section-panel">
+          <h2>Камеры без координат</h2>
+          <div className="dashboard-list">
+            {camerasWithoutMap.map(camera => (
+              <button
+                type="button"
+                key={camera.camera_id}
+                className="dashboard-list-item"
+                onClick={() => navigate('cameras')}
+              >
+                <div>
+                  <strong>{camera.title}</strong>
+                  <div className="small">#{camera.camera_id}</div>
+                </div>
+                <div className="dashboard-item-meta">
+                  <span className="small">lat: {camera.latitude ?? '—'}</span>
+                  <span className="small">lng: {camera.longitude ?? '—'}</span>
+                </div>
+              </button>
+            ))}
+            {!camerasWithoutMap.length && <div className="empty-state">Все камеры уже привязаны к карте.</div>}
+          </div>
+        </div>
+
+        <div className="section-panel">
+          <h2>Зоны с неполной геометрией</h2>
+          <div className="dashboard-list">
+            {zonesWithoutGeometry.map(zone => (
+              <button
+                type="button"
+                key={String(zone.id)}
+                className="dashboard-list-item"
+                onClick={() => navigate('zones')}
+              >
+                <div>
+                  <strong>Зона #{String(zone.id)}</strong>
+                  <div className="small">Camera #{zone.camera_id}</div>
+                </div>
+                <div className="dashboard-item-meta">
+                  <span className="small">image: {(zone.image_polygon ?? zone.image_quad)?.length ?? 0}/4</span>
+                  <span className="small">map: {zone.points.filter(point => point.latitude !== null && point.longitude !== null).length}/4</span>
+                </div>
+              </button>
+            ))}
+            {!zonesWithoutGeometry.length && <div className="empty-state">У зон есть базовая геометрия на изображении и на карте.</div>}
           </div>
         </div>
 
