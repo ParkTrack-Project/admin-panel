@@ -82,6 +82,8 @@ function normalizeEditor(editor: ZoneEditorState) {
 
 export default function ZonesAdminPage() {
   const store = useStore();
+  const activeZoneId = useStore(state => state.activeZoneId);
+  const selectZone = useStore(state => state.selectZone);
   const [zones, setZones] = useState<ParkingZone[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -158,10 +160,10 @@ export default function ZonesAdminPage() {
   }, [selectedZone?.id]);
 
   useEffect(() => {
-    if (selectedZoneId) {
-      store.selectZone(selectedZoneId);
+    if (selectedZoneId && String(activeZoneId) !== selectedZoneId) {
+      selectZone(selectedZoneId);
     }
-  }, [selectedZoneId, store]);
+  }, [activeZoneId, selectedZoneId, selectZone]);
 
   useEffect(() => {
     if (selectedZone) {
@@ -424,7 +426,7 @@ export default function ZonesAdminPage() {
                   className={`table-row zones-admin zone-row-button ${isSelected ? 'active' : ''}`}
                   onClick={() => {
                     setSelectedZoneId(String(zone.id));
-                    store.selectZone(zone.id);
+                    selectZone(zone.id);
                   }}
                 >
                   <span>{String(zone.id)}</span>
