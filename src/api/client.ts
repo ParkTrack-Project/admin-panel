@@ -1,8 +1,6 @@
 import { ParkingZone, GeoPoint, PxPoint, Id, SessionUser } from '@/types';
-import { useRequestLog } from './requestLog';
-
-type Config = { baseUrl: string; token?: string };
-let cfg: Config = { baseUrl: 'https://api.parktrack.live' };
+import { apiConfig, request } from './http';
+import { camerasApi, CameraListFilters } from './cameras';
 
 // --- types (according to Swagger schema) ---
 
@@ -10,48 +8,17 @@ export type ErrorResponse = {
   error_description: string;
 };
 
-export type Camera = {
-  camera_id: number;
-  title: string;
-  source: string;
-  image_width: number;
-  image_height: number;
-  calib: any | null;
-  latitude: number;
-  longitude: number;
-  is_active?: boolean;
-  created_at: string; // ISO 8601 format with Z (UTC)
-  updated_at: string; // ISO 8601 format with Z (UTC)
-};
-
-export type CreateCameraRequest = {
-  title: string; // minLength: 1, maxLength: 200
-  source: string;
-  image_width: number; // minimum: 1
-  image_height: number; // minimum: 1
-  calib?: any | null;
-  latitude: number; // -90 to 90
-  longitude: number; // -180 to 180
-};
-
-export type UpdateCameraRequest = {
-  title?: string; // minLength: 1, maxLength: 200
-  source?: string;
-  image_width?: number; // minimum: 1
-  image_height?: number; // minimum: 1
-  calib?: any | null;
-  latitude?: number; // -90 to 90
-  longitude?: number; // -180 to 180
-  is_active?: boolean;
-};
-
-export type CamerasNextResponse = {
-  camera_id: number;
-  source: string;
-  image_width: number;
-  image_height: number;
-  calib?: any | null;
-};
+export type {
+  Camera,
+  CameraBBox,
+  CameraListFilters,
+  CameraMapItem,
+  CameraSnapshot,
+  CamerasNextResponse,
+  CameraView,
+  CreateCameraRequest,
+  UpdateCameraRequest
+} from './cameras';
 
 export type ZonePoint = {
   latitude: number; // -90 to 90
@@ -98,38 +65,7 @@ export type RegisterRequest = {
   phone?: string;
 };
 
-export const apiConfig = {
-  set(baseUrl: string, token?: string) { cfg = { baseUrl, token }; },
-  get() { return cfg; }
-};
-
-async function request<T>(method: 'GET'|'POST'|'PUT'|'DELETE', path: string, body?: any): Promise<T> {
-  const url = `${cfg.baseUrl}${path}`;
-  const headers: Record<string, string> = {
-    'Accept': 'application/json',
-    'Content-Type': 'application/json'
-  };
-  if (cfg.token) headers.Authorization = `Bearer ${cfg.token}`;
-
-  const id = crypto.randomUUID();
-  useRequestLog.getState().add({ id, ts: Date.now(), method, url, headers, body });
-
-  const res = await fetch(url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
-
-  const ct = res.headers.get('content-type') || '';
-  let data: any = undefined;
-  if (ct.includes('application/json')) { try { data = await res.json(); } catch {} }
-  else { try { data = await res.text(); } catch {} }
-
-  useRequestLog.getState().add({ id: id + '-resp', ts: Date.now(), method, url, status: res.status, response: data });
-
-  if (!res.ok) {
-    // Handle error according to Swagger Error schema
-    const errorMessage = data?.error_description || data?.error || data?.message || `HTTP ${res.status}`;
-    throw new Error(errorMessage);
-  }
-  return data as T;
-}
+export { apiConfig } from './http';
 
 // --- helpers & mappers ---
 const gp = (x:number, y:number, longitude:number|null=null, latitude:number|null=null): GeoPoint => ({ x,y,longitude,latitude });
@@ -254,63 +190,32 @@ export const api = {
   },
 
   // --- Cameras ---
-  async listCameras() {
-    return request<Camera[]>('GET', `/cameras`);
+  async listCameras(filters?: CameraListFilters) {
+    return camerasApi.list(filters);
   },
   
   async getCamera(cameraId: number) {
-    return request<Camera>('GET', `/cameras/${encodeURIComponent(cameraId)}`);
+    return camerasApi.get(cameraId);
   },
   
-  async createCamera(data: CreateCameraRequest) {
-    return request<Camera>('POST', `/cameras/new`, data);
+  async createCamera(data: import('./cameras').CreateCameraRequest) {
+    return camerasApi.create(data);
   },
   
-  async updateCamera(cameraId: number, patch: UpdateCameraRequest) {
-    return request<Camera>('PUT', `/cameras/${encodeURIComponent(cameraId)}`, patch);
+  async updateCamera(cameraId: number, patch: import('./cameras').UpdateCameraRequest) {
+    return camerasApi.update(cameraId, patch);
   },
   
   async deleteCamera(cameraId: number) {
-    await request<void>('DELETE', `/cameras/${encodeURIComponent(cameraId)}`);
+    await camerasApi.delete(cameraId);
   },
   
   async getNextCamera() {
-    return request<CamerasNextResponse>('GET', `/cameras/next`);
+    return camerasApi.getNext();
   },
   
-  async getSnapshot(cameraId: number): Promise<{ image_url: string; captured_at?: string; width?: number; height?: number }> {
-    // API returns binary image data (JPEG), not JSON
-    const url = `${cfg.baseUrl}/cameras/${encodeURIComponent(cameraId)}/snapshot`;
-    const headers: Record<string, string> = {};
-    if (cfg.token) headers.Authorization = `Bearer ${cfg.token}`;
-
-    const id = crypto.randomUUID();
-    useRequestLog.getState().add({ id, ts: Date.now(), method: 'GET', url, headers });
-
-    const res = await fetch(url, { method: 'GET', headers });
-
-    useRequestLog.getState().add({ 
-      id: id + '-resp', 
-      ts: Date.now(), 
-      method: 'GET', 
-      url, 
-      status: res.status, 
-      response: `[Binary image data, ${res.headers.get('content-length') || 'unknown'} bytes]` 
-    });
-
-    if (!res.ok) {
-      const errorText = await res.text().catch(() => 'Unknown error');
-      throw new Error(errorText || `HTTP ${res.status}`);
-    }
-
-    // Convert binary response to blob URL for display
-    const blob = await res.blob();
-    const imageUrl = URL.createObjectURL(blob);
-
-    return {
-      image_url: imageUrl,
-      captured_at: res.headers.get('X-Captured-At') || undefined
-    };
+  async getSnapshot(cameraId: number) {
+    return camerasApi.getSnapshot(cameraId);
   },
 
   // --- System ---
