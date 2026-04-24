@@ -12,6 +12,23 @@ type ZoneFilters = {
   maxPay: string;
 };
 
+type ZoneEditorState = {
+  zoneType: ParkingZone['zone_type'];
+  capacity: string;
+  pay: string;
+  partnerId: string;
+  locationType: string;
+  isActive: boolean;
+  isPrivate: boolean;
+  isAccessible: boolean;
+};
+
+type ZoneSaveState = {
+  loading: boolean;
+  error?: string;
+  success?: string;
+};
+
 function formatDate(dateStr?: string) {
   if (!dateStr) return '—';
   try {
@@ -33,12 +50,40 @@ function polygonSummary(zone: ParkingZone) {
   };
 }
 
+function zoneToEditor(zone: ParkingZone): ZoneEditorState {
+  return {
+    zoneType: zone.zone_type,
+    capacity: String(zone.capacity),
+    pay: String(zone.pay),
+    partnerId: zone.partner_id === null || zone.partner_id === undefined ? '' : String(zone.partner_id),
+    locationType: zone.location_type ?? '',
+    isActive: zone.is_active !== false,
+    isPrivate: zone.is_private === true,
+    isAccessible: zone.is_accessible === true
+  };
+}
+
+function normalizeEditor(editor: ZoneEditorState) {
+  return {
+    zoneType: editor.zoneType,
+    capacity: editor.capacity.trim(),
+    pay: editor.pay.trim(),
+    partnerId: editor.partnerId.trim(),
+    locationType: editor.locationType.trim(),
+    isActive: editor.isActive,
+    isPrivate: editor.isPrivate,
+    isAccessible: editor.isAccessible
+  };
+}
+
 export default function ZonesAdminPage() {
   const store = useStore();
   const [zones, setZones] = useState<ParkingZone[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [selectedZoneId, setSelectedZoneId] = useState<string | undefined>();
+  const [editor, setEditor] = useState<ZoneEditorState | null>(null);
+  const [saveState, setSaveState] = useState<ZoneSaveState>({ loading: false });
   const [filters, setFilters] = useState<ZoneFilters>({
     cameraId: '',
     partnerId: '',
@@ -55,6 +100,11 @@ export default function ZonesAdminPage() {
     () => zones.filter(zone => zone.is_active !== false).length,
     [zones]
   );
+
+  const hasEditorChanges = useMemo(() => {
+    if (!selectedZone || !editor) return false;
+    return JSON.stringify(normalizeEditor(editor)) !== JSON.stringify(normalizeEditor(zoneToEditor(selectedZone)));
+  }, [selectedZone, editor]);
 
   async function load() {
     setLoading(true);
@@ -85,6 +135,16 @@ export default function ZonesAdminPage() {
     load();
   }, []);
 
+  useEffect(() => {
+    if (!selectedZone) {
+      setEditor(null);
+      setSaveState({ loading: false });
+      return;
+    }
+    setEditor(zoneToEditor(selectedZone));
+    setSaveState({ loading: false });
+  }, [selectedZone?.id]);
+
   function openZoneInLabeler(zone: ParkingZone) {
     store.setCamera(String(zone.camera_id));
     store.selectZone(zone.id);
@@ -92,6 +152,50 @@ export default function ZonesAdminPage() {
     store.loadZones();
     store.setViewMode('labeler');
     navigate('labeler');
+  }
+
+  async function onSaveZone() {
+    if (!selectedZone || !editor) return;
+
+    const capacity = parseInt(editor.capacity, 10);
+    const pay = parseInt(editor.pay, 10);
+    const partnerId = editor.partnerId.trim() ? parseInt(editor.partnerId, 10) : null;
+
+    if (!Number.isFinite(capacity) || capacity < 1) {
+      setSaveState({ loading: false, error: 'Вместимость зоны должна быть не меньше 1.' });
+      return;
+    }
+
+    if (!Number.isFinite(pay) || pay < 0) {
+      setSaveState({ loading: false, error: 'Цена зоны должна быть неотрицательной.' });
+      return;
+    }
+
+    if (editor.partnerId.trim() && (!Number.isFinite(partnerId) || partnerId === null || partnerId < 1)) {
+      setSaveState({ loading: false, error: 'Partner ID должен быть положительным числом.' });
+      return;
+    }
+
+    setSaveState({ loading: true });
+    try {
+      const updated = await api.updateZone(selectedZone.id, {
+        ...selectedZone,
+        zone_type: editor.zoneType,
+        capacity,
+        pay,
+        partner_id: partnerId,
+        location_type: editor.locationType.trim() || null,
+        is_active: editor.isActive,
+        is_private: editor.isPrivate,
+        is_accessible: editor.isAccessible
+      });
+
+      setZones(prev => prev.map(zone => String(zone.id) === String(updated.id) ? updated : zone));
+      setEditor(zoneToEditor(updated));
+      setSaveState({ loading: false, success: 'Настройки зоны сохранены.' });
+    } catch (err: any) {
+      setSaveState({ loading: false, error: `Ошибка сохранения зоны: ${String(err?.message || err)}` });
+    }
   }
 
   return (
@@ -269,7 +373,120 @@ export default function ZonesAdminPage() {
                 <div className="small">Occupancy updated: {formatDate(selectedZone.occupancy_updated_at)}</div>
               </div>
 
+              {editor && (
+                <div className="zone-settings-grid">
+                  <Field label="Тип зоны">
+                    <Select
+                      value={editor.zoneType}
+                      onChange={e => {
+                        setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                        setEditor(prev => prev ? ({ ...prev, zoneType: e.target.value as ParkingZone['zone_type'] }) : prev);
+                      }}
+                    >
+                      <option value="standard">standard</option>
+                      <option value="parallel">parallel</option>
+                      <option value="disabled">disabled</option>
+                    </Select>
+                  </Field>
+                  <Field label="Вместимость">
+                    <Input
+                      type="number"
+                      min={1}
+                      value={editor.capacity}
+                      onChange={e => {
+                        setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                        setEditor(prev => prev ? ({ ...prev, capacity: e.target.value }) : prev);
+                      }}
+                    />
+                  </Field>
+                  <Field label="Цена">
+                    <Input
+                      type="number"
+                      min={0}
+                      value={editor.pay}
+                      onChange={e => {
+                        setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                        setEditor(prev => prev ? ({ ...prev, pay: e.target.value }) : prev);
+                      }}
+                    />
+                  </Field>
+                  <Field label="Partner ID">
+                    <Input
+                      value={editor.partnerId}
+                      onChange={e => {
+                        setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                        setEditor(prev => prev ? ({ ...prev, partnerId: e.target.value }) : prev);
+                      }}
+                      placeholder="Не задан"
+                    />
+                  </Field>
+                  <Field label="Location Type">
+                    <Input
+                      value={editor.locationType}
+                      onChange={e => {
+                        setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                        setEditor(prev => prev ? ({ ...prev, locationType: e.target.value }) : prev);
+                      }}
+                      placeholder="street / yard / parking_lot / garage"
+                    />
+                  </Field>
+                  <Field label="Флаги">
+                    <div className="zone-flags-grid">
+                      <label className="zone-flag-toggle">
+                        <input
+                          type="checkbox"
+                          checked={editor.isActive}
+                          onChange={e => {
+                            setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                            setEditor(prev => prev ? ({ ...prev, isActive: e.target.checked }) : prev);
+                          }}
+                        />
+                        <span className="small">Активна</span>
+                      </label>
+                      <label className="zone-flag-toggle">
+                        <input
+                          type="checkbox"
+                          checked={editor.isPrivate}
+                          onChange={e => {
+                            setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                            setEditor(prev => prev ? ({ ...prev, isPrivate: e.target.checked }) : prev);
+                          }}
+                        />
+                        <span className="small">Private</span>
+                      </label>
+                      <label className="zone-flag-toggle">
+                        <input
+                          type="checkbox"
+                          checked={editor.isAccessible}
+                          onChange={e => {
+                            setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                            setEditor(prev => prev ? ({ ...prev, isAccessible: e.target.checked }) : prev);
+                          }}
+                        />
+                        <span className="small">Accessible</span>
+                      </label>
+                    </div>
+                  </Field>
+                </div>
+              )}
+
+              {saveState.error && <div className="notice error">{saveState.error}</div>}
+              {saveState.success && <div className="notice">{saveState.success}</div>}
+
               <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                <Button onClick={onSaveZone} disabled={saveState.loading || !editor || !hasEditorChanges}>
+                  {saveState.loading ? 'Сохранение...' : 'Сохранить зону'}
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setEditor(zoneToEditor(selectedZone));
+                    setSaveState({ loading: false });
+                  }}
+                  disabled={saveState.loading || !editor || !hasEditorChanges}
+                >
+                  Сбросить
+                </Button>
                 <Button onClick={() => openZoneInLabeler(selectedZone)}>Открыть в разметке</Button>
                 <Button variant="ghost" onClick={load} disabled={loading}>
                   {loading ? 'Обновление...' : 'Обновить список'}
