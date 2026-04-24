@@ -21,6 +21,7 @@ import { api, apiConfig } from '@/api/client';
 import { useEffect, useRef } from 'react';
 import type { ViewMode } from '@/types';
 import { navigate } from '@/router/routes';
+import GlobalFeedbackHost from '@/feedback/GlobalFeedbackHost';
 
 const routePermissions: Partial<Record<AppRoute, string>> = {
   cameras: 'cameras.view',
@@ -119,16 +120,16 @@ export default function App() {
     }
   }, [route]);
 
+  let content: React.ReactNode;
+
   if (route === 'login' || route === 'register') {
-    return (
+    content = (
       <AppErrorBoundary>
         <AuthPage mode={route} />
       </AppErrorBoundary>
     );
-  }
-
-  if (sessionValidating) {
-    return (
+  } else if (sessionValidating) {
+    content = (
       <AccessStatePage
         title="Проверяем сессию"
         subtitle="Подтягиваем профиль и права доступа из API."
@@ -136,36 +137,41 @@ export default function App() {
         actionRoute="login"
       />
     );
-  }
-
-  if (!sessionUser) {
-    return (
+  } else if (!sessionUser) {
+    content = (
       <AppErrorBoundary>
         <AuthPage mode="login" />
       </AppErrorBoundary>
     );
-  }
-
-  const requiredPermission = routePermissions[route];
-  if (requiredPermission && !sessionHasPermission(requiredPermission)) {
-    return (
-      <AdminShell route={route}>
-        <AccessStatePage
-          title="Доступ ограничен"
-          subtitle="Для этого раздела у текущей сессии недостаточно прав."
-          actionLabel="Открыть профиль"
-          actionRoute="profile"
-        />
-      </AdminShell>
-    );
+  } else {
+    const requiredPermission = routePermissions[route];
+    if (requiredPermission && !sessionHasPermission(requiredPermission)) {
+      content = (
+        <AdminShell route={route}>
+          <AccessStatePage
+            title="Доступ ограничен"
+            subtitle="Для этого раздела у текущей сессии недостаточно прав."
+            actionLabel="Открыть профиль"
+            actionRoute="profile"
+          />
+        </AdminShell>
+      );
+    } else {
+      content = (
+        <AdminShell route={route}>
+          <AppErrorBoundary>
+            {renderRoute(route, viewMode)}
+          </AppErrorBoundary>
+        </AdminShell>
+      );
+    }
   }
 
   return (
-    <AdminShell route={route}>
-      <AppErrorBoundary>
-        {renderRoute(route, viewMode)}
-      </AppErrorBoundary>
-    </AdminShell>
+    <>
+      {content}
+      <GlobalFeedbackHost />
+    </>
   );
 }
 

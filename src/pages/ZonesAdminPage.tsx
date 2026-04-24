@@ -4,6 +4,7 @@ import { Button, Field, Input, Select } from '@/components/UiKit';
 import { useStore } from '@/store/useStore';
 import { navigate } from '@/router/routes';
 import type { ParkingZone } from '@/types';
+import { useFeedbackStore } from '@/feedback/feedbackStore';
 
 type ZoneFilters = {
   cameraId: string;
@@ -26,7 +27,6 @@ type ZoneEditorState = {
 type ZoneSaveState = {
   loading: boolean;
   error?: string;
-  success?: string;
 };
 
 type ZoneCreateState = {
@@ -84,10 +84,11 @@ export default function ZonesAdminPage() {
   const store = useStore();
   const activeZoneId = useStore(state => state.activeZoneId);
   const selectZone = useStore(state => state.selectZone);
+  const notifySuccess = useFeedbackStore(state => state.success);
+  const confirmAction = useFeedbackStore(state => state.confirm);
   const [zones, setZones] = useState<ParkingZone[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
-  const [pageNotice, setPageNotice] = useState<string | undefined>();
   const [selectedZoneId, setSelectedZoneId] = useState<string | undefined>();
   const [editor, setEditor] = useState<ZoneEditorState | null>(null);
   const [saveState, setSaveState] = useState<ZoneSaveState>({ loading: false });
@@ -276,8 +277,8 @@ export default function ZonesAdminPage() {
 
       setZones(prev => prev.map(zone => String(zone.id) === String(updated.id) ? updated : zone));
       setEditor(zoneToEditor(updated));
-      setSaveState({ loading: false, success: 'Настройки зоны сохранены.' });
-      setPageNotice(undefined);
+      setSaveState({ loading: false });
+      notifySuccess('Настройки зоны сохранены.');
     } catch (err: any) {
       setSaveState({ loading: false, error: `Ошибка сохранения зоны: ${String(err?.message || err)}` });
     }
@@ -285,7 +286,14 @@ export default function ZonesAdminPage() {
 
   async function onDeleteZone() {
     if (!selectedZone) return;
-    if (!confirm(`Удалить зону #${selectedZone.id}? Это действие нельзя отменить.`)) {
+    const shouldDelete = await confirmAction({
+      title: 'Удалить зону?',
+      message: `Зона #${selectedZone.id} будет удалена. Это действие нельзя отменить.`,
+      confirmLabel: 'Удалить',
+      cancelLabel: 'Отмена',
+      tone: 'danger'
+    });
+    if (!shouldDelete) {
       return;
     }
 
@@ -297,8 +305,8 @@ export default function ZonesAdminPage() {
       const nextZones = zones.filter(zone => String(zone.id) !== removedId);
       setZones(nextZones);
       setSelectedZoneId(nextZones[0] ? String(nextZones[0].id) : undefined);
-      setPageNotice(`Зона #${removedId} удалена.`);
       setSaveState({ loading: false });
+      notifySuccess(`Зона #${removedId} удалена.`);
     } catch (err: any) {
       setError(`Ошибка удаления зоны: ${String(err?.message || err)}`);
     } finally {
@@ -401,7 +409,6 @@ export default function ZonesAdminPage() {
       </div>
 
       {error && <div className="notice error">{error}</div>}
-      {pageNotice && <div className="notice">{pageNotice}</div>}
 
       <div className="zones-admin-grid">
         <div className="section-panel">
@@ -528,7 +535,7 @@ export default function ZonesAdminPage() {
                     <Select
                       value={editor.zoneType}
                       onChange={e => {
-                        setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                        setSaveState(prev => ({ loading: false, error: undefined }));
                         setEditor(prev => prev ? ({ ...prev, zoneType: e.target.value as ParkingZone['zone_type'] }) : prev);
                       }}
                     >
@@ -543,7 +550,7 @@ export default function ZonesAdminPage() {
                       min={1}
                       value={editor.capacity}
                       onChange={e => {
-                        setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                        setSaveState(prev => ({ loading: false, error: undefined }));
                         setEditor(prev => prev ? ({ ...prev, capacity: e.target.value }) : prev);
                       }}
                     />
@@ -554,7 +561,7 @@ export default function ZonesAdminPage() {
                       min={0}
                       value={editor.pay}
                       onChange={e => {
-                        setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                        setSaveState(prev => ({ loading: false, error: undefined }));
                         setEditor(prev => prev ? ({ ...prev, pay: e.target.value }) : prev);
                       }}
                     />
@@ -563,7 +570,7 @@ export default function ZonesAdminPage() {
                     <Input
                       value={editor.partnerId}
                       onChange={e => {
-                        setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                        setSaveState(prev => ({ loading: false, error: undefined }));
                         setEditor(prev => prev ? ({ ...prev, partnerId: e.target.value }) : prev);
                       }}
                       placeholder="Не задан"
@@ -573,7 +580,7 @@ export default function ZonesAdminPage() {
                     <Input
                       value={editor.locationType}
                       onChange={e => {
-                        setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                        setSaveState(prev => ({ loading: false, error: undefined }));
                         setEditor(prev => prev ? ({ ...prev, locationType: e.target.value }) : prev);
                       }}
                       placeholder="street / yard / parking_lot / garage"
@@ -586,7 +593,7 @@ export default function ZonesAdminPage() {
                           type="checkbox"
                           checked={editor.isActive}
                           onChange={e => {
-                            setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                            setSaveState(prev => ({ loading: false, error: undefined }));
                             setEditor(prev => prev ? ({ ...prev, isActive: e.target.checked }) : prev);
                           }}
                         />
@@ -597,7 +604,7 @@ export default function ZonesAdminPage() {
                           type="checkbox"
                           checked={editor.isPrivate}
                           onChange={e => {
-                            setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                            setSaveState(prev => ({ loading: false, error: undefined }));
                             setEditor(prev => prev ? ({ ...prev, isPrivate: e.target.checked }) : prev);
                           }}
                         />
@@ -608,7 +615,7 @@ export default function ZonesAdminPage() {
                           type="checkbox"
                           checked={editor.isAccessible}
                           onChange={e => {
-                            setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                            setSaveState(prev => ({ loading: false, error: undefined }));
                             setEditor(prev => prev ? ({ ...prev, isAccessible: e.target.checked }) : prev);
                           }}
                         />
@@ -620,8 +627,6 @@ export default function ZonesAdminPage() {
               )}
 
               {saveState.error && <div className="notice error">{saveState.error}</div>}
-              {saveState.success && <div className="notice">{saveState.success}</div>}
-
               <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
                 <Button onClick={onSaveZone} disabled={saveState.loading || !editor || !hasEditorChanges}>
                   {saveState.loading ? 'Сохранение...' : 'Сохранить зону'}
@@ -637,7 +642,7 @@ export default function ZonesAdminPage() {
                   Сбросить
                 </Button>
                 <Button onClick={() => openZoneImageGeometry(selectedZone)}>Открыть в разметке</Button>
-                <Button className="danger" onClick={onDeleteZone} disabled={deleteLoading}>
+                <Button variant="danger" onClick={onDeleteZone} disabled={deleteLoading}>
                   {deleteLoading ? 'Удаление...' : 'Удалить зону'}
                 </Button>
                 <Button variant="ghost" onClick={load} disabled={loading}>

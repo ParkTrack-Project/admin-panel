@@ -5,6 +5,7 @@ import { Button, Field, Input, Select, Textarea } from './UiKit';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L, { LatLngExpression } from 'leaflet';
 import { navigate } from '@/router/routes';
+import { useFeedbackStore } from '@/feedback/feedbackStore';
 
 const defaultIcon = L.icon({
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
@@ -63,7 +64,6 @@ type CameraEditorState = {
 type CameraSaveState = {
   loading: boolean;
   error?: string;
-  success?: string;
 };
 
 function formatDate(dateStr?: string): string {
@@ -104,6 +104,8 @@ function normalizeEditor(editor: CameraEditorState) {
 export default function CamerasPage() {
   const store = useStore();
   const { setViewMode, setCamera, loadCameraMeta, cameraId, setLabelerReturnRoute } = store;
+  const notifySuccess = useFeedbackStore(state => state.success);
+  const confirmAction = useFeedbackStore(state => state.confirm);
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -120,7 +122,6 @@ export default function CamerasPage() {
   const [snapshotReloadKey, setSnapshotReloadKey] = useState(0);
   const [editor, setEditor] = useState<CameraEditorState | null>(null);
   const [saveState, setSaveState] = useState<CameraSaveState>({ loading: false });
-  const [pageNotice, setPageNotice] = useState<string | undefined>();
 
   const selectedCamera = useMemo(
     () => cameras.find(cam => cam.camera_id === selectedId),
@@ -253,7 +254,7 @@ export default function CamerasPage() {
     setDeletingId(cameraId);
     try {
       await api.deleteCamera(cameraId);
-      setPageNotice('Камера удалена.');
+      notifySuccess('Камера удалена.');
       await loadCameras();
     } catch (e: any) {
       setError(`Ошибка удаления камеры: ${String(e)}`);
@@ -269,7 +270,7 @@ export default function CamerasPage() {
       const created = await api.createCamera(data);
       await loadCameras();
       setSelectedId(created.camera_id);
-      setPageNotice('Камера создана.');
+      notifySuccess('Камера создана.');
       setShowAddCamera(false);
     } catch (e: any) {
       setError(`Ошибка создания камеры: ${String(e)}`);
@@ -330,8 +331,8 @@ export default function CamerasPage() {
         prev.map(cam => cam.camera_id === updated.camera_id ? updated : cam)
       );
       setEditor(cameraToEditor(updated));
-      setSaveState({ loading: false, success: 'Настройки камеры сохранены.' });
-      setPageNotice(undefined);
+      setSaveState({ loading: false });
+      notifySuccess('Настройки камеры сохранены.');
     } catch (e: any) {
       setSaveState({ loading: false, error: `Ошибка сохранения камеры: ${String(e)}` });
     }
@@ -372,8 +373,6 @@ export default function CamerasPage() {
         </div>
 
         {error && <div className="notice error" style={{ marginBottom: 12 }}>{error}</div>}
-        {pageNotice && <div className="notice" style={{ marginBottom: 12 }}>{pageNotice}</div>}
-
         <div className="section-panel" style={{ marginBottom: 12 }}>
           <div className="table-header camera-list-header">
             <span>Камера</span>
@@ -452,7 +451,7 @@ export default function CamerasPage() {
                   <Input
                     value={editor.title}
                     onChange={e => {
-                      setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                      setSaveState(prev => ({ loading: false, error: undefined }));
                       setEditor(prev => prev ? ({ ...prev, title: e.target.value }) : prev);
                     }}
                     placeholder="Название камеры"
@@ -462,7 +461,7 @@ export default function CamerasPage() {
                   <Input
                     value={editor.source}
                     onChange={e => {
-                      setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                      setSaveState(prev => ({ loading: false, error: undefined }));
                       setEditor(prev => prev ? ({ ...prev, source: e.target.value }) : prev);
                     }}
                     placeholder="https://... или rtsp://..."
@@ -474,7 +473,7 @@ export default function CamerasPage() {
                     min={1}
                     value={editor.imageWidth}
                     onChange={e => {
-                      setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                      setSaveState(prev => ({ loading: false, error: undefined }));
                       setEditor(prev => prev ? ({ ...prev, imageWidth: e.target.value }) : prev);
                     }}
                   />
@@ -485,7 +484,7 @@ export default function CamerasPage() {
                     min={1}
                     value={editor.imageHeight}
                     onChange={e => {
-                      setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                      setSaveState(prev => ({ loading: false, error: undefined }));
                       setEditor(prev => prev ? ({ ...prev, imageHeight: e.target.value }) : prev);
                     }}
                   />
@@ -496,7 +495,7 @@ export default function CamerasPage() {
                     step="any"
                     value={editor.latitude}
                     onChange={e => {
-                      setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                      setSaveState(prev => ({ loading: false, error: undefined }));
                       setEditor(prev => prev ? ({ ...prev, latitude: e.target.value }) : prev);
                     }}
                   />
@@ -507,7 +506,7 @@ export default function CamerasPage() {
                     step="any"
                     value={editor.longitude}
                     onChange={e => {
-                      setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                      setSaveState(prev => ({ loading: false, error: undefined }));
                       setEditor(prev => prev ? ({ ...prev, longitude: e.target.value }) : prev);
                     }}
                   />
@@ -516,7 +515,7 @@ export default function CamerasPage() {
                   <Textarea
                     value={editor.calib}
                     onChange={e => {
-                      setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                      setSaveState(prev => ({ loading: false, error: undefined }));
                       setEditor(prev => prev ? ({ ...prev, calib: e.target.value }) : prev);
                     }}
                     placeholder='{"image_width": 1920, ...}'
@@ -530,7 +529,7 @@ export default function CamerasPage() {
                       type="checkbox"
                       checked={editor.isActive}
                       onChange={e => {
-                        setSaveState(prev => ({ loading: false, success: prev.success, error: undefined }));
+                        setSaveState(prev => ({ loading: false, error: undefined }));
                         setEditor(prev => prev ? ({ ...prev, isActive: e.target.checked }) : prev);
                       }}
                     />
@@ -541,8 +540,6 @@ export default function CamerasPage() {
             )}
 
             {saveState.error && <div className="notice error">{saveState.error}</div>}
-            {saveState.success && <div className="notice">{saveState.success}</div>}
-
             <div className="camera-preview">
               <div className="camera-preview-header">
                 <h3>Распознанные автомобили</h3>
@@ -602,9 +599,16 @@ export default function CamerasPage() {
                 Положение на карте
               </Button>
               <Button
-                className="danger"
+                variant="danger"
                 onClick={async () => {
-                  if (confirm(`Удалить камеру "${selectedCamera.title}"? Это действие нельзя отменить.`)) {
+                  const shouldDelete = await confirmAction({
+                    title: 'Удалить камеру?',
+                    message: `Камера "${selectedCamera.title}" будет удалена из системы.`,
+                    confirmLabel: 'Удалить',
+                    cancelLabel: 'Отмена',
+                    tone: 'danger'
+                  });
+                  if (shouldDelete) {
                     await onDeleteCamera(selectedCamera.camera_id);
                   }
                 }}
@@ -694,15 +698,17 @@ function AddCameraForm({
   const [latitude, setLatitude] = useState('59.9386');
   const [longitude, setLongitude] = useState('30.3141');
   const [calib, setCalib] = useState('');
+  const [error, setError] = useState<string | undefined>();
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setError(undefined);
     let calibParsed: any = null;
     if (calib.trim()) {
       try {
         calibParsed = JSON.parse(calib);
       } catch {
-        alert('Ошибка парсинга JSON в calib');
+        setError('Ошибка парсинга JSON в calib.');
         return;
       }
     }
@@ -721,6 +727,7 @@ function AddCameraForm({
     <div className="section-panel" style={{ marginTop: 12 }}>
       <h4 style={{ marginTop: 0 }}>Добавить камеру</h4>
       <form onSubmit={handleSubmit}>
+        {error && <div className="notice error" style={{ marginBottom: 12 }}>{error}</div>}
         <Field label="Title *">
           <Input
             value={title}
