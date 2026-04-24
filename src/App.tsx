@@ -9,9 +9,10 @@ import AdminShell from '@/layout/AdminShell';
 import AccessStatePage from '@/pages/AccessStatePage';
 import AuthPage from '@/pages/AuthPage';
 import DashboardPage from '@/pages/DashboardPage';
+import PartnersAdminPage from '@/pages/PartnersAdminPage';
 import ProfilePage from '@/pages/ProfilePage';
-import ResourcePlaceholderPage from '@/pages/ResourcePlaceholderPage';
 import SourcesPage from '@/pages/SourcesPage';
+import UsersAdminPage from '@/pages/UsersAdminPage';
 import ZonesAdminPage from '@/pages/ZonesAdminPage';
 import { AppRoute, useHashRoute } from '@/router/routes';
 import { useSessionStore } from '@/auth/sessionStore';
@@ -149,30 +150,8 @@ export default function App() {
 function renderRoute(route: AppRoute, viewMode: ViewMode) {
   if (route === 'dashboard') return <DashboardPage />;
   if (route === 'profile') return <ProfilePage />;
-  if (route === 'users') {
-    return (
-      <ResourcePlaceholderPage
-        title="Пользователи"
-        subtitle="Учётные записи, роли и статусы"
-        endpoints={['GET /users', 'GET /users/<user_id>', 'POST /users', 'PUT /users/<user_id>', 'DELETE /users/<user_id>']}
-      />
-    );
-  }
-  if (route === 'partners') {
-    return (
-      <ResourcePlaceholderPage
-        title="Партнёры"
-        subtitle="Организации, сотрудники и права доступа"
-        endpoints={[
-          'GET /partners',
-          'GET /partners/<partner_id>',
-          'POST /partners',
-          'PUT /partners/<partner_id>',
-          'GET /partners/<partner_id>/members'
-        ]}
-      />
-    );
-  }
+  if (route === 'users') return <UsersAdminPage />;
+  if (route === 'partners') return <PartnersAdminPage />;
   if (route === 'zones') return <ZonesAdminPage />;
   if (route === 'sources') return <SourcesPage />;
   if (route === 'cameras') {

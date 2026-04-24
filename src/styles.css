@@ -644,6 +644,61 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   max-width: 560px;
 }
 
+.contract-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  gap: 16px;
+}
+
+.contract-row-button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.contract-row-button.active {
+  background: #f3faf5;
+}
+
+.contract-detail-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.contract-detail-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.contract-memberships,
+.contract-meta-block {
+  display: grid;
+  gap: 10px;
+}
+
+.table-header.users-contract,
+.table-row.users-contract {
+  grid-template-columns: 70px minmax(220px, 1fr) 140px 90px 110px;
+}
+
+.table-header.partners-contract,
+.table-row.partners-contract {
+  grid-template-columns: 70px minmax(180px, 1fr) 140px 90px;
+}
+
+.table-header.memberships-contract,
+.table-row.memberships-contract {
+  grid-template-columns: 70px 160px 1fr 1fr 1fr;
+}
+
+.table-header.contract-endpoints,
+.table-row.contract-endpoints {
+  grid-template-columns: minmax(280px, 1fr) 180px;
+}
+
 @media (max-width: 900px) {
   .admin-app {
     grid-template-columns: 1fr;
@@ -678,6 +733,11 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
 
   .dashboard-metric-grid,
   .dashboard-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .contract-grid,
+  .contract-detail-grid {
     grid-template-columns: 1fr;
   }
 
