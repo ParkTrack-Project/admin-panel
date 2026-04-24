@@ -306,6 +306,11 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   grid-template-columns: 80px 100px 1fr 90px 90px 90px;
 }
 
+.table-header.zones-admin,
+.table-row.zones-admin {
+  grid-template-columns: 70px 80px 110px 70px 80px 70px 90px minmax(90px, 1fr);
+}
+
 .table-header.sources,
 .table-row.sources {
   grid-template-columns: 80px 150px minmax(220px, 1fr) 120px 150px;
@@ -496,6 +501,45 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   background: #0f1711;
 }
 
+.zones-admin-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.95fr);
+  gap: 16px;
+}
+
+.zone-row-button {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.zone-row-button.active {
+  background: #f3faf5;
+}
+
+.zone-detail-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.zone-details-grid,
+.zone-meta-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.zone-geometry-summary {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fbf8;
+}
+
 @media (max-width: 900px) {
   .admin-app {
     grid-template-columns: 1fr;
@@ -526,6 +570,16 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   .metric-grid,
   .details-grid {
     grid-template-columns: 1fr;
+  }
+
+  .zones-admin-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .table-header.zones-admin,
+  .table-row.zones-admin {
+    grid-template-columns: 70px 80px 110px 70px 80px 70px 90px minmax(120px, 1fr);
+    min-width: 760px;
   }
 
   .camera-settings-grid {
