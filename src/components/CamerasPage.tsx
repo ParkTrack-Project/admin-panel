@@ -15,17 +15,26 @@ const defaultIcon = L.icon({
 });
 L.Marker.prototype.options.icon = defaultIcon;
 
+function hasCoordinates(latitude?: number | null, longitude?: number | null): latitude is number {
+  return typeof latitude === 'number'
+    && Number.isFinite(latitude)
+    && typeof longitude === 'number'
+    && Number.isFinite(longitude);
+}
+
 function MapAutoCenter({ cameras, selectedId }: { cameras: Camera[]; selectedId?: number }) {
   const map = useMap();
 
   useEffect(() => {
     if (!cameras.length) return;
-    const selected = cameras.find(c => c.camera_id === selectedId && c.latitude && c.longitude);
+    const selected = cameras.find(c => c.camera_id === selectedId && hasCoordinates(c.latitude, c.longitude));
     if (selected) {
       map.setView([selected.latitude, selected.longitude], 17);
       return;
     }
-    const pts = cameras.filter(c => c.latitude && c.longitude).map(c => [c.latitude, c.longitude] as [number, number]);
+    const pts = cameras
+      .filter(c => hasCoordinates(c.latitude, c.longitude))
+      .map(c => [c.latitude, c.longitude] as [number, number]);
     if (!pts.length) return;
     const bounds = L.latLngBounds(pts);
     map.fitBounds(bounds.pad(0.2));
@@ -226,7 +235,7 @@ export default function CamerasPage() {
   }, [selectedCamera?.camera_id]);
 
   const center: LatLngExpression = useMemo(() => {
-    const first = cameras.find(c => c.latitude && c.longitude);
+    const first = cameras.find(c => hasCoordinates(c.latitude, c.longitude));
     if (first) return [first.latitude, first.longitude];
     return [59.9386, 30.3141];
   }, [cameras]);
@@ -623,7 +632,7 @@ export default function CamerasPage() {
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
           <MapAutoCenter cameras={cameras} selectedId={selectedId} />
-          {cameras.filter(c => c.latitude && c.longitude).map(cam => {
+          {cameras.filter(c => hasCoordinates(c.latitude, c.longitude)).map(cam => {
             const isActive = cam.camera_id === selectedId;
             const isHover = cam.camera_id === hoverId;
             const isCameraActive = cam.is_active !== false;

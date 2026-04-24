@@ -14,6 +14,12 @@ import { api, Camera } from '@/api/client';
 let tmpZoneId = -1;
 
 const toGeo = (p: PxPoint): GeoPoint => ({ x: p.x, y: p.y, longitude: null, latitude: null });
+const hasCoordinates = (latitude?: number | null, longitude?: number | null) => (
+  typeof latitude === 'number'
+  && Number.isFinite(latitude)
+  && typeof longitude === 'number'
+  && Number.isFinite(longitude)
+);
 
 type State = {
   apiBase: string;
@@ -224,15 +230,17 @@ export const useStore = create<State>((set, get) => ({
       if (isNewZone) {
         // For new zones, use camera coordinates as default if points don't have geo coordinates
         const cameraMeta = get().cameraMeta;
-        if (cameraMeta && cameraMeta.latitude && cameraMeta.longitude) {
+        const fallbackLatitude = cameraMeta?.latitude;
+        const fallbackLongitude = cameraMeta?.longitude;
+        if (hasCoordinates(fallbackLatitude, fallbackLongitude)) {
           const hasMissingCoords = current.points.some(p => p.latitude === null || p.longitude === null);
           if (hasMissingCoords) {
             zoneToSave = {
               ...current,
               points: current.points.map(p => ({
                 ...p,
-                latitude: p.latitude ?? cameraMeta.latitude,
-                longitude: p.longitude ?? cameraMeta.longitude
+                latitude: p.latitude ?? fallbackLatitude,
+                longitude: p.longitude ?? fallbackLongitude
               })) as any
             };
           }

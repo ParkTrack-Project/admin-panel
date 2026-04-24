@@ -29,12 +29,19 @@ function MapAutoFocus({ point, camera }: { point: LatLng | null; camera: Camera 
       map.setView(point, 17);
       return;
     }
-    if (camera?.latitude && camera?.longitude) {
+    if (hasCoordinates(camera?.latitude, camera?.longitude)) {
       map.setView([camera.latitude, camera.longitude], 17);
     }
   }, [point, camera, map]);
 
   return null;
+}
+
+function hasCoordinates(latitude?: number | null, longitude?: number | null): latitude is number {
+  return typeof latitude === 'number'
+    && Number.isFinite(latitude)
+    && typeof longitude === 'number'
+    && Number.isFinite(longitude);
 }
 
 export default function CameraMapSelector() {
@@ -47,26 +54,46 @@ export default function CameraMapSelector() {
   const [lngInput, setLngInput] = useState('');
 
   useEffect(() => {
+    let cancelled = false;
+
     async function load() {
-      if (!cameraId) return;
+      if (!cameraId) {
+        setCamera(null);
+        setPoint(null);
+        setLatInput('');
+        setLngInput('');
+        return;
+      }
       setLoading(true);
       setError(undefined);
       try {
         const cam = await api.getCamera(parseInt(cameraId, 10));
+        if (cancelled) return;
         setCamera(cam);
-        if (cam.latitude && cam.longitude) {
+        if (hasCoordinates(cam.latitude, cam.longitude)) {
           const newPoint = new L.LatLng(cam.latitude, cam.longitude);
           setPoint(newPoint);
           setLatInput(cam.latitude.toString());
           setLngInput(cam.longitude.toString());
+        } else {
+          setPoint(null);
+          setLatInput('');
+          setLngInput('');
         }
       } catch (e: any) {
-        setError(String(e));
+        if (!cancelled) {
+          setError(String(e?.message || e));
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     }
     load();
+    return () => {
+      cancelled = true;
+    };
   }, [cameraId]);
 
   useEffect(() => {
@@ -96,7 +123,7 @@ export default function CameraMapSelector() {
 
   const center: LatLngExpression = useMemo(() => {
     if (point) return point;
-    if (camera && camera.latitude && camera.longitude) {
+    if (hasCoordinates(camera?.latitude, camera?.longitude)) {
       return [camera.latitude, camera.longitude];
     }
     return [59.9386, 30.3141];

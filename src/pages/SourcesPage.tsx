@@ -23,7 +23,29 @@ export default function SourcesPage() {
   }
 
   useEffect(() => {
-    load();
+    let active = true;
+
+    async function safeLoad() {
+      setLoading(true);
+      setError(undefined);
+      try {
+        const nextCameras = await api.listCameras();
+        if (!active) return;
+        setCameras(nextCameras);
+      } catch (err: any) {
+        if (!active) return;
+        setError(String(err?.message || err));
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+
+    safeLoad();
+    return () => {
+      active = false;
+    };
   }, []);
 
   const items = useMemo(() => {

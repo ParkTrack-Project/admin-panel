@@ -6,6 +6,13 @@ import L, { LatLng, LatLngExpression } from 'leaflet';
 
 type LatLngTuple = [number, number];
 
+function hasCoordinates(latitude?: number | null, longitude?: number | null): latitude is number {
+  return typeof latitude === 'number'
+    && Number.isFinite(latitude)
+    && typeof longitude === 'number'
+    && Number.isFinite(longitude);
+}
+
 function ClickHandler({ onClick }: { onClick: (pos: LatLng) => void }) {
   useMapEvents({
     click(e) {
@@ -28,8 +35,12 @@ function MapAutoFit({ points }: { points: LatLng[] }) {
 }
 
 export default function ZoneMapSelector() {
-  const store = useStore();
-  const { cameraId, zones, activeZoneId, setViewMode, cameraMeta } = store;
+  const zones = useStore(state => state.zones);
+  const activeZoneId = useStore(state => state.activeZoneId);
+  const setViewMode = useStore(state => state.setViewMode);
+  const cameraMeta = useStore(state => state.cameraMeta);
+  const updateZone = useStore(state => state.updateZone);
+  const saveZone = useStore(state => state.saveZone);
   const zone = zones.find(z => String(z.id) === String(activeZoneId));
 
   const [points, setPoints] = useState<LatLng[]>([]);
@@ -62,7 +73,7 @@ export default function ZoneMapSelector() {
       const lng = points.reduce((s, p) => s + p.lng, 0) / points.length;
       return [lat, lng];
     }
-    if (cameraMeta && cameraMeta.latitude && cameraMeta.longitude) {
+    if (hasCoordinates(cameraMeta?.latitude, cameraMeta?.longitude)) {
       return [cameraMeta.latitude, cameraMeta.longitude];
     }
     return [59.9386, 30.3141];
@@ -81,16 +92,14 @@ export default function ZoneMapSelector() {
       const resetPoints = zone.points.map((pt, i) => {
         return { ...pt, latitude: null, longitude: null };
       }) as any;
-      store.updateZone(zone.id, { points: resetPoints });
+      updateZone(zone.id, { points: resetPoints });
     }
   }
 
   async function onSave() {
     if (!zone) return;
     if (points.length !== 4) {
-      const msg = 'Необходимо отметить все 4 точки на карте перед сохранением';
-      setError(msg);
-      alert(msg);
+      setError('Необходимо отметить все 4 точки на карте перед сохранением.');
       return;
     }
     try {
@@ -105,8 +114,8 @@ export default function ZoneMapSelector() {
         return pt;
       }) as any;
 
-      store.updateZone(zone.id, { points: updatedPoints });
-      await store.saveZone(zone.id);
+      updateZone(zone.id, { points: updatedPoints });
+      await saveZone(zone.id);
 
       setViewMode('labeler');
     } catch (e: any) {
@@ -144,7 +153,7 @@ export default function ZoneMapSelector() {
         <div className="row" style={{ marginTop: 12, gap: 8 }}>
           <Button onClick={onSave} disabled={!zone || loading}>Сохранить</Button>
           <Button className="ghost" onClick={onCancel}>Отмена</Button>
-          <Button className="ghost" onClick={onReset}>Сбросить</Button>
+          <Button className="ghost" onClick={onReset} disabled={!zone}>Сбросить</Button>
         </div>
       </div>
 
@@ -205,7 +214,7 @@ export default function ZoneMapSelector() {
                       }
                       return pt;
                     }) as any;
-                    store.updateZone(zone.id, { points: updatedZonePoints });
+                    updateZone(zone.id, { points: updatedZonePoints });
                   }
                 }
               }}

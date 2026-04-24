@@ -3,7 +3,16 @@ import { useSessionStore } from '@/auth/sessionStore';
 export default function ProfilePage() {
   const user = useSessionStore(s => s.user);
 
-  if (!user) return null;
+  if (!user) {
+    return (
+      <section className="page-stack">
+        <div className="empty-state">Профиль пока недоступен. Войдите в систему ещё раз.</div>
+      </section>
+    );
+  }
+
+  const roles = user.global_roles.length > 0 ? user.global_roles.join(', ') : '—';
+  const memberships = user.partner_memberships ?? [];
 
   return (
     <section className="page-stack">
@@ -17,14 +26,14 @@ export default function ProfilePage() {
       <div className="details-grid">
         <Detail label="ID" value={user.user_id} />
         <Detail label="Имя" value={user.full_name || '—'} />
-        <Detail label="Роли" value={user.global_roles.join(', ') || '—'} />
+        <Detail label="Роли" value={roles} />
         <Detail label="Права" value={user.permissions.length} />
       </div>
 
       <div className="section-panel">
         <h2>Партнёрские доступы</h2>
         <div className="table-list">
-          {user.partner_memberships.map(m => (
+          {memberships.map(m => (
             <div className="table-row" key={m.partner_id}>
               <div>#{m.partner_id}</div>
               <div>{m.role}</div>
@@ -33,7 +42,7 @@ export default function ProfilePage() {
               <div>{m.delete_scope}</div>
             </div>
           ))}
-          {user.partner_memberships.length === 0 && <div className="empty-state">Нет партнёрских доступов</div>}
+          {memberships.length === 0 && <div className="empty-state">Нет партнёрских доступов</div>}
         </div>
       </div>
     </section>
