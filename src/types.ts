@@ -16,9 +16,23 @@ export type ParkingZone = {
   capacity: number;
   pay: number;
   occupied?: number;
+  free_count?: number;
   confidence?: number;
+  confidence_level?: 'low' | 'medium' | 'high' | string | null;
   image_quad: [PxPoint, PxPoint, PxPoint, PxPoint];
+  image_polygon?: [PxPoint, PxPoint, PxPoint, PxPoint];
+  geometry?: {
+    type: 'Polygon';
+    coordinates: Array<Array<[number, number]>>;
+  };
   points: [GeoPoint, GeoPoint, GeoPoint, GeoPoint];
+  partner_id?: number | null;
+  created_by_user_id?: number | null;
+  is_active?: boolean;
+  location_type?: 'street' | 'yard' | 'parking_lot' | 'garage' | string | null;
+  is_private?: boolean | null;
+  is_accessible?: boolean | null;
+  occupancy_updated_at?: string;
 
   created_at?: string;           // ISO 8601 format with Z (UTC)
   updated_at?: string;           // ISO 8601 format with Z (UTC)
