@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSessionStore } from '@/auth/sessionStore';
 import { Button, Field, Input, Select } from '@/components/UiKit';
 import type { PartnerMembership } from '@/types';
@@ -67,6 +67,16 @@ export default function UsersAdminPage() {
   }, [users, query, roleFilter, statusFilter]);
 
   const selectedUser = filteredUsers.find(user => user.user_id === selectedUserId) ?? filteredUsers[0];
+
+  useEffect(() => {
+    if (!filteredUsers.length) {
+      setSelectedUserId(undefined);
+      return;
+    }
+    if (!selectedUserId || !filteredUsers.some(user => user.user_id === selectedUserId)) {
+      setSelectedUserId(filteredUsers[0].user_id);
+    }
+  }, [filteredUsers, selectedUserId]);
 
   return (
     <section className="page-stack">

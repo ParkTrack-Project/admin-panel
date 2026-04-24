@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSessionStore } from '@/auth/sessionStore';
 import { Button, Field, Input, Select } from '@/components/UiKit';
 import type { PartnerMembership } from '@/types';
@@ -69,6 +69,16 @@ export default function PartnersAdminPage() {
   }, [partners, query, statusFilter]);
 
   const selectedPartner = filteredPartners.find(partner => partner.partner_id === selectedPartnerId) ?? filteredPartners[0];
+
+  useEffect(() => {
+    if (!filteredPartners.length) {
+      setSelectedPartnerId(undefined);
+      return;
+    }
+    if (!selectedPartnerId || !filteredPartners.some(partner => partner.partner_id === selectedPartnerId)) {
+      setSelectedPartnerId(filteredPartners[0].partner_id);
+    }
+  }, [filteredPartners, selectedPartnerId]);
 
   return (
     <section className="page-stack">

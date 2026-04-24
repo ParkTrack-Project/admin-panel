@@ -1,3 +1,4 @@
+import AppErrorBoundary from '@/components/AppErrorBoundary';
 import TopBar from '@/components/TopBar';
 import ImageViewport from '@/components/ImageViewport';
 import Sidebar from '@/components/Sidebar';
@@ -31,39 +32,48 @@ const routePermissions: Partial<Record<AppRoute, string>> = {
 
 export default function App() {
   const route = useHashRoute();
-  const session = useSessionStore();
-  const { viewMode, apiBase, token, setViewMode } = useStore();
+  const sessionUser = useSessionStore(state => state.user);
+  const sessionAccessToken = useSessionStore(state => state.accessToken);
+  const sessionValidating = useSessionStore(state => state.validating);
+  const sessionHasPermission = useSessionStore(state => state.hasPermission);
+  const sessionLogout = useSessionStore(state => state.logout);
+  const sessionSetSession = useSessionStore(state => state.setSession);
+  const sessionSetValidating = useSessionStore(state => state.setValidating);
+  const viewMode = useStore(state => state.viewMode);
+  const apiBase = useStore(state => state.apiBase);
+  const token = useStore(state => state.token);
+  const setViewMode = useStore(state => state.setViewMode);
   const validatedTokenRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
-    apiConfig.set(apiBase, session.accessToken || token);
-  }, [apiBase, session.accessToken, token]);
+    apiConfig.set(apiBase, sessionAccessToken || token);
+  }, [apiBase, sessionAccessToken, token]);
 
   useEffect(() => {
     apiConfig.setUnauthorizedHandler(() => {
-      session.logout();
+      sessionLogout();
       navigate('login');
     });
     return () => apiConfig.setUnauthorizedHandler(undefined);
-  }, [session]);
+  }, [sessionLogout]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function validateSession() {
-      if (!session.accessToken || !session.user || session.accessToken === 'dev-admin-token') {
-        validatedTokenRef.current = session.accessToken;
+      if (!sessionAccessToken || !sessionUser || sessionAccessToken === 'dev-admin-token') {
+        validatedTokenRef.current = sessionAccessToken;
         return;
       }
-      if (validatedTokenRef.current === session.accessToken) return;
+      if (validatedTokenRef.current === sessionAccessToken) return;
 
-      session.setValidating(true);
+      sessionSetValidating(true);
       try {
         const profile = await api.auth.me();
         if (cancelled) return;
-        validatedTokenRef.current = session.accessToken;
-        session.setSession({
-          accessToken: session.accessToken,
+        validatedTokenRef.current = sessionAccessToken;
+        sessionSetSession({
+          accessToken: sessionAccessToken,
           user: {
             ...profile,
             permissions: profile.permissions ?? [],
@@ -73,11 +83,11 @@ export default function App() {
       } catch (error: any) {
         if (cancelled) return;
         validatedTokenRef.current = undefined;
-        session.logout();
+        sessionLogout();
         navigate('login');
       } finally {
         if (!cancelled) {
-          session.setValidating(false);
+          sessionSetValidating(false);
         }
       }
     }
@@ -86,7 +96,13 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [apiBase, session.accessToken, session.user, session.logout, session.setSession, session.setValidating]);
+  }, [apiBase, sessionAccessToken, sessionUser, sessionLogout, sessionSetSession, sessionSetValidating]);
+
+  useEffect(() => {
+    if ((route === 'login' || route === 'register') && sessionUser) {
+      navigate('dashboard');
+    }
+  }, [route, sessionUser]);
 
   useEffect(() => {
     if (route === 'cameras' && viewMode !== 'cameras') {
@@ -104,14 +120,14 @@ export default function App() {
   }, [route]);
 
   if (route === 'login' || route === 'register') {
-    if (session.user) {
-      navigate('dashboard');
-      return null;
-    }
-    return <AuthPage mode={route} />;
+    return (
+      <AppErrorBoundary>
+        <AuthPage mode={route} />
+      </AppErrorBoundary>
+    );
   }
 
-  if (session.validating) {
+  if (sessionValidating) {
     return (
       <AccessStatePage
         title="Проверяем сессию"
@@ -122,12 +138,16 @@ export default function App() {
     );
   }
 
-  if (!session.user) {
-    return <AuthPage mode="login" />;
+  if (!sessionUser) {
+    return (
+      <AppErrorBoundary>
+        <AuthPage mode="login" />
+      </AppErrorBoundary>
+    );
   }
 
   const requiredPermission = routePermissions[route];
-  if (requiredPermission && !session.hasPermission(requiredPermission)) {
+  if (requiredPermission && !sessionHasPermission(requiredPermission)) {
     return (
       <AdminShell route={route}>
         <AccessStatePage
@@ -142,7 +162,9 @@ export default function App() {
 
   return (
     <AdminShell route={route}>
-      {renderRoute(route, viewMode)}
+      <AppErrorBoundary>
+        {renderRoute(route, viewMode)}
+      </AppErrorBoundary>
     </AdminShell>
   );
 }

@@ -644,6 +644,10 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   max-width: 560px;
 }
 
+.access-state-panel h1 {
+  margin-top: 0;
+}
+
 .contract-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
