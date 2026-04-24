@@ -447,6 +447,25 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   gap: 10px;
 }
 
+.camera-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.camera-settings-grid .col:last-child,
+.camera-settings-grid .col:nth-last-child(2) {
+  grid-column: span 2;
+}
+
+.camera-status-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+}
+
 .camera-preview {
   margin-top: 8px;
   border: 1px solid var(--border);
@@ -507,6 +526,15 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   .metric-grid,
   .details-grid {
     grid-template-columns: 1fr;
+  }
+
+  .camera-settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .camera-settings-grid .col:last-child,
+  .camera-settings-grid .col:nth-last-child(2) {
+    grid-column: auto;
   }
 
   .legacy-labeler-grid,

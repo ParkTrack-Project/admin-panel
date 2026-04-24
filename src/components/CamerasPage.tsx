@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { api, Camera, CameraSnapshot, CreateCameraRequest } from '@/api/client';
-import { Button, Field, Input, Select } from './UiKit';
+import { Button, Field, Input, Select, Textarea } from './UiKit';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L, { LatLngExpression } from 'leaflet';
 import { navigate } from '@/router/routes';
@@ -40,6 +40,45 @@ type SnapshotState = {
   data?: CameraSnapshot;
 };
 
+type CameraEditorState = {
+  title: string;
+  source: string;
+  imageWidth: string;
+  imageHeight: string;
+  latitude: string;
+  longitude: string;
+  calib: string;
+  isActive: boolean;
+};
+
+type CameraSaveState = {
+  loading: boolean;
+  error?: string;
+  success?: string;
+};
+
+function formatDate(dateStr?: string): string {
+  if (!dateStr) return '—';
+  try {
+    return new Date(dateStr).toLocaleString('ru-RU');
+  } catch {
+    return dateStr;
+  }
+}
+
+function cameraToEditor(camera: Camera): CameraEditorState {
+  return {
+    title: camera.title || '',
+    source: camera.source || '',
+    imageWidth: String(camera.image_width ?? ''),
+    imageHeight: String(camera.image_height ?? ''),
+    latitude: String(camera.latitude ?? ''),
+    longitude: String(camera.longitude ?? ''),
+    calib: camera.calib ? JSON.stringify(camera.calib, null, 2) : '',
+    isActive: camera.is_active !== false
+  };
+}
+
 export default function CamerasPage() {
   const store = useStore();
   const { setViewMode, setCamera, loadCameraMeta } = store;
@@ -57,6 +96,8 @@ export default function CamerasPage() {
   });
   const [snapshot, setSnapshot] = useState<SnapshotState>({ loading: false });
   const [snapshotReloadKey, setSnapshotReloadKey] = useState(0);
+  const [editor, setEditor] = useState<CameraEditorState | null>(null);
+  const [saveState, setSaveState] = useState<CameraSaveState>({ loading: false });
 
   const selectedCamera = useMemo(
     () => cameras.find(cam => cam.camera_id === selectedId),
@@ -151,6 +192,16 @@ export default function CamerasPage() {
     };
   }, [selectedCamera?.camera_id, snapshotReloadKey]);
 
+  useEffect(() => {
+    if (!selectedCamera) {
+      setEditor(null);
+      setSaveState({ loading: false });
+      return;
+    }
+    setEditor(cameraToEditor(selectedCamera));
+    setSaveState({ loading: false });
+  }, [selectedCamera?.camera_id]);
+
   const center: LatLngExpression = useMemo(() => {
     const first = cameras.find(c => c.latitude && c.longitude);
     if (first) return [first.latitude, first.longitude];
@@ -188,6 +239,64 @@ export default function CamerasPage() {
       setError(`Ошибка создания камеры: ${String(e)}`);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function onSaveCamera() {
+    if (!selectedCamera || !editor) return;
+
+    const title = editor.title.trim();
+    const source = editor.source.trim();
+    const imageWidth = parseInt(editor.imageWidth, 10);
+    const imageHeight = parseInt(editor.imageHeight, 10);
+    const latitude = parseFloat(editor.latitude);
+    const longitude = parseFloat(editor.longitude);
+
+    if (!title || !source) {
+      setSaveState({ loading: false, error: 'Название и источник камеры обязательны.' });
+      return;
+    }
+
+    if (!Number.isFinite(imageWidth) || imageWidth < 1 || !Number.isFinite(imageHeight) || imageHeight < 1) {
+      setSaveState({ loading: false, error: 'Размер изображения должен быть больше 0.' });
+      return;
+    }
+
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      setSaveState({ loading: false, error: 'Координаты камеры должны быть корректными числами.' });
+      return;
+    }
+
+    let calibParsed: any = null;
+    if (editor.calib.trim()) {
+      try {
+        calibParsed = JSON.parse(editor.calib);
+      } catch {
+        setSaveState({ loading: false, error: 'Ошибка парсинга JSON в calib.' });
+        return;
+      }
+    }
+
+    setSaveState({ loading: true });
+    try {
+      const updated = await api.updateCamera(selectedCamera.camera_id, {
+        title,
+        source,
+        image_width: imageWidth,
+        image_height: imageHeight,
+        latitude,
+        longitude,
+        calib: calibParsed,
+        is_active: editor.isActive
+      });
+
+      setCameras(prev =>
+        prev.map(cam => cam.camera_id === updated.camera_id ? updated : cam)
+      );
+      setEditor(cameraToEditor(updated));
+      setSaveState({ loading: false, success: 'Настройки камеры сохранены.' });
+    } catch (e: any) {
+      setSaveState({ loading: false, error: `Ошибка сохранения камеры: ${String(e)}` });
     }
   }
 
@@ -293,8 +402,84 @@ export default function CamerasPage() {
               Координаты: {selectedCamera.latitude}, {selectedCamera.longitude}
             </div>
             <div className="small">
-              Обновлено: {new Date(selectedCamera.updated_at).toLocaleString('ru-RU')}
+              Создано: {formatDate(selectedCamera.created_at)}
             </div>
+            <div className="small">
+              Обновлено: {formatDate(selectedCamera.updated_at)}
+            </div>
+
+            {editor && (
+              <div className="camera-settings-grid">
+                <Field label="Название">
+                  <Input
+                    value={editor.title}
+                    onChange={e => setEditor(prev => prev ? ({ ...prev, title: e.target.value }) : prev)}
+                    placeholder="Название камеры"
+                  />
+                </Field>
+                <Field label="Источник">
+                  <Input
+                    value={editor.source}
+                    onChange={e => setEditor(prev => prev ? ({ ...prev, source: e.target.value }) : prev)}
+                    placeholder="https://... или rtsp://..."
+                  />
+                </Field>
+                <Field label="Ширина">
+                  <Input
+                    type="number"
+                    min={1}
+                    value={editor.imageWidth}
+                    onChange={e => setEditor(prev => prev ? ({ ...prev, imageWidth: e.target.value }) : prev)}
+                  />
+                </Field>
+                <Field label="Высота">
+                  <Input
+                    type="number"
+                    min={1}
+                    value={editor.imageHeight}
+                    onChange={e => setEditor(prev => prev ? ({ ...prev, imageHeight: e.target.value }) : prev)}
+                  />
+                </Field>
+                <Field label="Широта">
+                  <Input
+                    type="number"
+                    step="any"
+                    value={editor.latitude}
+                    onChange={e => setEditor(prev => prev ? ({ ...prev, latitude: e.target.value }) : prev)}
+                  />
+                </Field>
+                <Field label="Долгота">
+                  <Input
+                    type="number"
+                    step="any"
+                    value={editor.longitude}
+                    onChange={e => setEditor(prev => prev ? ({ ...prev, longitude: e.target.value }) : prev)}
+                  />
+                </Field>
+                <Field label="Calib (JSON)">
+                  <Textarea
+                    value={editor.calib}
+                    onChange={e => setEditor(prev => prev ? ({ ...prev, calib: e.target.value }) : prev)}
+                    placeholder='{"image_width": 1920, ...}'
+                    rows={7}
+                    style={{ fontFamily: 'monospace', fontSize: '12px' }}
+                  />
+                </Field>
+                <Field label="Статус">
+                  <label className="camera-status-toggle">
+                    <input
+                      type="checkbox"
+                      checked={editor.isActive}
+                      onChange={e => setEditor(prev => prev ? ({ ...prev, isActive: e.target.checked }) : prev)}
+                    />
+                    <span className="small">Камера активна</span>
+                  </label>
+                </Field>
+              </div>
+            )}
+
+            {saveState.error && <div className="notice error">{saveState.error}</div>}
+            {saveState.success && <div className="notice">{saveState.success}</div>}
 
             <div className="camera-preview">
               <div className="camera-preview-header">
@@ -320,6 +505,16 @@ export default function CamerasPage() {
             </div>
 
             <div className="row" style={{ gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+              <Button onClick={onSaveCamera} disabled={saveState.loading || !editor}>
+                {saveState.loading ? 'Сохранение...' : 'Сохранить настройки'}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => setEditor(cameraToEditor(selectedCamera))}
+                disabled={saveState.loading || !editor}
+              >
+                Сбросить
+              </Button>
               <Button onClick={() => openLabeler(selectedCamera)}>Настроить и размечать</Button>
               <Button
                 variant="ghost"
