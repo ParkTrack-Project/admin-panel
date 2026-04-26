@@ -135,6 +135,27 @@ export type PartnerListResponse = {
   offset: number;
 };
 
+export type PartnerListFilters = {
+  q?: string;
+  is_active?: boolean;
+  top?: number;
+  offset?: number;
+};
+
+export type CreatePartnerRequest = {
+  legal_name: string;
+  slug: string;
+  contact_email: string;
+  contact_phone: string;
+};
+
+export type UpdatePartnerRequest = {
+  legal_name?: string;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  is_active?: boolean;
+};
+
 export type PartnerMemberResponse = {
   partner_membership_id: number;
   user_id: number;
@@ -152,6 +173,21 @@ export type PartnerMemberListResponse = {
   total: number;
   top: number;
   offset: number;
+};
+
+export type InvitePartnerMemberRequest = {
+  user_id: number;
+  user_role: string;
+  read_scope: string;
+  write_scope: string;
+  delete_scope: string;
+};
+
+export type UpdatePartnerMemberRequest = {
+  user_role?: string;
+  read_scope?: string;
+  write_scope?: string;
+  delete_scope?: string;
 };
 
 export { apiConfig } from './http';
@@ -214,12 +250,46 @@ export const api = {
   },
 
   partners: {
-    async list() {
-      return request<PartnerListResponse>('GET', '/partners');
+    async list(filters: PartnerListFilters = {}) {
+      const query = new URLSearchParams();
+      if (filters.q) query.set('q', filters.q);
+      if (filters.is_active !== undefined) query.set('is_active', String(filters.is_active));
+      if (filters.top !== undefined) query.set('top', String(filters.top));
+      if (filters.offset !== undefined) query.set('offset', String(filters.offset));
+      const suffix = query.size ? `?${query.toString()}` : '';
+      return request<PartnerListResponse>('GET', `/partners${suffix}`);
+    },
+
+    async get(partnerId: number) {
+      return request<PartnerResponse>('GET', `/partners/${encodeURIComponent(partnerId)}`);
+    },
+
+    async create(data: CreatePartnerRequest) {
+      return request<{ partner_id: number }>('POST', '/partners/new', data);
+    },
+
+    async update(partnerId: number, data: UpdatePartnerRequest) {
+      return request<PartnerResponse>('PUT', `/partners/${encodeURIComponent(partnerId)}`, data);
+    },
+
+    async remove(partnerId: number) {
+      await request<void>('DELETE', `/partners/${encodeURIComponent(partnerId)}`);
     },
 
     async listMembers(partnerId: number) {
       return request<PartnerMemberListResponse>('GET', `/partners/${encodeURIComponent(partnerId)}/members`);
+    },
+
+    async inviteMember(partnerId: number, data: InvitePartnerMemberRequest) {
+      return request<{ partner_membership_id: number }>('POST', `/partners/${encodeURIComponent(partnerId)}/members/invite`, data);
+    },
+
+    async updateMember(partnerId: number, userId: number, data: UpdatePartnerMemberRequest) {
+      return request<PartnerMemberResponse>('PUT', `/partners/${encodeURIComponent(partnerId)}/members/${encodeURIComponent(userId)}`, data);
+    },
+
+    async removeMember(partnerId: number, userId: number) {
+      await request<void>('DELETE', `/partners/${encodeURIComponent(partnerId)}/members/${encodeURIComponent(userId)}`);
     }
   },
 
