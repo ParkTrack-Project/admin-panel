@@ -72,6 +72,29 @@ export type RegisterRequest = {
   phone?: string;
 };
 
+export type UpdateMeRequest = {
+  full_name?: string;
+  phone?: string | null;
+};
+
+export type UpdatePasswordRequest = {
+  old_password: string;
+  new_password: string;
+};
+
+export type UserProfileResponse = {
+  user_id: number;
+  email: string;
+  full_name: string | null;
+  phone?: string | null;
+  global_role?: string;
+  global_roles?: string[];
+  is_active?: boolean;
+  is_email_verified?: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
 export { apiConfig } from './http';
 
 // --- public API ---
@@ -92,6 +115,20 @@ export const api = {
 
     async me() {
       return request<SessionUser>('GET', '/auth/me');
+    }
+  },
+
+  users: {
+    async me() {
+      return request<UserProfileResponse>('GET', '/users/me');
+    },
+
+    async updateMe(data: UpdateMeRequest) {
+      return request<UserProfileResponse>('PUT', '/users/me', data);
+    },
+
+    async updatePassword(data: UpdatePasswordRequest) {
+      await request<void>('PUT', '/users/me/password', data);
     }
   },
 

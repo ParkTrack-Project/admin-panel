@@ -776,6 +776,21 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   gap: 10px;
 }
 
+.profile-panels-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.profile-form-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.profile-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .table-header.users-contract,
 .table-row.users-contract {
   grid-template-columns: 70px minmax(220px, 1fr) 140px 90px 110px;

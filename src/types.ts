@@ -86,4 +86,8 @@ export type SessionUser = {
   global_roles: Array<GlobalRole | string>;
   permissions: string[];
   partner_memberships: PartnerMembership[];
+  is_active?: boolean;
+  is_email_verified?: boolean;
+  created_at?: string;
+  updated_at?: string;
 };
