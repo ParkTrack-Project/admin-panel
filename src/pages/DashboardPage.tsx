@@ -176,8 +176,8 @@ export default function DashboardPage() {
               <strong>{session.user?.full_name || session.user?.email || '—'}</strong>
             </div>
             <div className="dashboard-summary-row">
-              <span className="metric-label">Глобальные роли</span>
-              <strong>{session.user?.global_roles.join(', ') || '—'}</strong>
+              <span className="metric-label">Глобальная роль</span>
+              <strong>{session.user?.global_role || '—'}</strong>
             </div>
             <div className="dashboard-summary-row">
               <span className="metric-label">Партнёры</span>

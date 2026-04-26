@@ -10,7 +10,7 @@ type AdminUser = {
   email: string;
   full_name: string | null;
   phone: string | null;
-  global_roles: string[];
+  global_role: string;
   is_active: boolean;
   is_email_verified: boolean;
   created_at?: string;
@@ -31,7 +31,7 @@ function mapUser(input: UserProfileResponse): AdminUser {
     email: input.email,
     full_name: input.full_name,
     phone: input.phone ?? null,
-    global_roles: input.global_roles ?? (input.global_role ? [input.global_role] : ['user']),
+    global_role: input.global_role ?? input.global_roles?.[0] ?? 'user',
     is_active: input.is_active !== false,
     is_email_verified: input.is_email_verified !== false,
     created_at: input.created_at,
@@ -44,7 +44,7 @@ function userToEditor(user: AdminUser): UserEditorState {
     email: user.email,
     fullName: user.full_name ?? '',
     phone: user.phone ?? '',
-    globalRole: user.global_roles[0] ?? 'user',
+    globalRole: user.global_role,
     isActive: user.is_active
   };
 }
@@ -96,7 +96,7 @@ export default function UsersAdminPage() {
       const matchesQuery = !query.trim()
         || user.email.toLowerCase().includes(query.toLowerCase())
         || (user.full_name ?? '').toLowerCase().includes(query.toLowerCase());
-      const matchesRole = roleFilter === 'all' || user.global_roles.includes(roleFilter);
+      const matchesRole = roleFilter === 'all' || user.global_role === roleFilter;
       const matchesStatus = statusFilter === 'all'
         || (statusFilter === 'active' ? user.is_active : !user.is_active);
       return matchesQuery && matchesRole && matchesStatus;
@@ -324,7 +324,7 @@ export default function UsersAdminPage() {
         </div>
         <div className="metric-card">
           <div className="metric-label">Ролей</div>
-          <div className="metric-value">{new Set(users.flatMap(user => user.global_roles)).size}</div>
+          <div className="metric-value">{new Set(users.map(user => user.global_role)).size}</div>
         </div>
         <div className="metric-card">
           <div className="metric-label">Memberships</div>
@@ -377,7 +377,7 @@ export default function UsersAdminPage() {
               >
                 <span>{user.user_id}</span>
                 <span>{user.email}</span>
-                <span>{user.global_roles.join(', ')}</span>
+                <span>{user.global_role}</span>
                 <span className={`status-pill ${user.is_active ? 'active' : 'paused'}`}>
                   {user.is_active ? 'active' : 'inactive'}
                 </span>

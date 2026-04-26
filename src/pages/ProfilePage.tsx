@@ -24,7 +24,7 @@ export default function ProfilePage() {
   const [profileError, setProfileError] = useState<string | undefined>();
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [passwordError, setPasswordError] = useState<string | undefined>();
-  const roles = user?.global_roles.length ? user.global_roles.join(', ') : '—';
+  const role = user?.global_role ?? '—';
   const memberships = user?.partner_memberships ?? [];
   const isDevSession = accessToken === 'dev-admin-token';
   const hasProfileChanges = useMemo(() => (
@@ -96,7 +96,7 @@ export default function ProfilePage() {
             email: updated.email,
             full_name: updated.full_name,
             phone: updated.phone ?? null,
-            global_roles: updated.global_roles ?? (updated.global_role ? [updated.global_role] : currentUser.global_roles),
+            global_role: updated.global_role ?? updated.global_roles?.[0] ?? currentUser.global_role,
             is_active: updated.is_active ?? currentUser.is_active,
             is_email_verified: updated.is_email_verified ?? currentUser.is_email_verified,
             created_at: updated.created_at ?? currentUser.created_at,
@@ -169,7 +169,7 @@ export default function ProfilePage() {
         <Detail label="ID" value={user.user_id} />
         <Detail label="Имя" value={user.full_name || '—'} />
         <Detail label="Телефон" value={user.phone || '—'} />
-        <Detail label="Роли" value={roles} />
+        <Detail label="Глобальная роль" value={role} />
         <Detail label="Права" value={user.permissions.length} />
         <Detail label="Email verified" value={user.is_email_verified === false ? 'Нет' : 'Да'} />
         <Detail label="Статус" value={user.is_active === false ? 'Неактивен' : 'Активен'} />

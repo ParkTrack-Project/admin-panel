@@ -83,7 +83,7 @@ export type SessionUser = {
   email: string;
   full_name: string | null;
   phone?: string | null;
-  global_roles: Array<GlobalRole | string>;
+  global_role: GlobalRole | string;
   permissions: string[];
   partner_memberships: PartnerMembership[];
   is_active?: boolean;

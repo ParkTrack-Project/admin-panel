@@ -48,7 +48,8 @@ export type AuthUserResponse = {
   user_id: number;
   email: string;
   full_name: string | null;
-  global_roles: string[];
+  global_role?: string;
+  global_roles?: string[];
   permissions?: string[];
   partner_memberships?: SessionUser['partner_memberships'];
 };
@@ -57,7 +58,7 @@ export type AuthResponse = {
   access_token: string;
   token_type: string;
   expires_in: number;
-  user: AuthUserResponse;
+  user: SessionUser;
 };
 
 export type LoginRequest = {
@@ -192,16 +193,51 @@ export type UpdatePartnerMemberRequest = {
 
 export { apiConfig } from './http';
 
+function normalizeGlobalRole(input: { global_role?: string; global_roles?: string[] }) {
+  return input.global_role ?? input.global_roles?.[0] ?? 'user';
+}
+
+function normalizeSessionUser(input: AuthUserResponse): SessionUser {
+  return {
+    user_id: input.user_id,
+    email: input.email,
+    full_name: input.full_name,
+    global_role: normalizeGlobalRole(input),
+    permissions: input.permissions ?? [],
+    partner_memberships: input.partner_memberships ?? []
+  };
+}
+
 // --- public API ---
 export const api = {
   // --- Auth ---
   auth: {
     async register(data: RegisterRequest) {
-      return request<AuthResponse>('POST', '/auth/register', data);
+      const response = await request<{
+        access_token: string;
+        token_type: string;
+        expires_in: number;
+        user: AuthUserResponse;
+      }>('POST', '/auth/register', data);
+
+      return {
+        ...response,
+        user: normalizeSessionUser(response.user)
+      } satisfies AuthResponse;
     },
 
     async login(data: LoginRequest) {
-      return request<AuthResponse>('POST', '/auth/login', data);
+      const response = await request<{
+        access_token: string;
+        token_type: string;
+        expires_in: number;
+        user: AuthUserResponse;
+      }>('POST', '/auth/login', data);
+
+      return {
+        ...response,
+        user: normalizeSessionUser(response.user)
+      } satisfies AuthResponse;
     },
 
     async logout() {
@@ -209,7 +245,8 @@ export const api = {
     },
 
     async me() {
-      return request<SessionUser>('GET', '/auth/me');
+      const response = await request<AuthUserResponse>('GET', '/auth/me');
+      return normalizeSessionUser(response);
     }
   },
 

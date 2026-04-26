@@ -21,10 +21,29 @@ type SessionState = SessionSnapshot & {
   isAdmin: () => boolean;
 };
 
+type StoredSessionUser = SessionUser & {
+  global_roles?: string[];
+};
+
+function normalizeStoredUser(user?: StoredSessionUser): SessionUser | undefined {
+  if (!user) return undefined;
+  return {
+    ...user,
+    global_role: user.global_role ?? user.global_roles?.[0] ?? 'user',
+    permissions: user.permissions ?? [],
+    partner_memberships: user.partner_memberships ?? []
+  };
+}
+
 function loadStoredSession(): SessionSnapshot {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) as SessionSnapshot : {};
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as SessionSnapshot & { user?: StoredSessionUser };
+    return {
+      ...parsed,
+      user: normalizeStoredUser(parsed.user)
+    };
   } catch {
     return {};
   }
@@ -46,7 +65,7 @@ function normalizeCurrentPartnerId(snapshot: SessionSnapshot) {
   if (!snapshot.user) return undefined;
 
   const memberships = activeMembershipsOf(snapshot.user);
-  const isAdmin = snapshot.user.global_roles.includes('admin');
+  const isAdmin = snapshot.user.global_role === 'admin';
 
   if (snapshot.currentPartnerId !== undefined) {
     const hasMembership = memberships.some(membership => membership.partner_id === snapshot.currentPartnerId);
@@ -113,7 +132,7 @@ function buildDemoUser(): SessionUser {
     user_id: 1,
     email: 'admin@parktrack.local',
     full_name: 'ParkTrack Admin',
-    global_roles: ['admin'],
+    global_role: 'admin',
     permissions: adminPermissions,
     partner_memberships: [demoMembership]
   };
@@ -128,11 +147,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   validating: false,
 
   setSession(snapshot) {
+    const normalizedUser = normalizeStoredUser(snapshot.user);
     const nextSnapshot = {
       accessToken: snapshot.accessToken,
-      user: snapshot.user,
+      user: normalizedUser,
       currentPartnerId: normalizeCurrentPartnerId({
         ...snapshot,
+        user: normalizedUser,
         currentPartnerId: snapshot.currentPartnerId ?? get().currentPartnerId
       })
     };
@@ -177,12 +198,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   hasPermission(permission) {
     const user = get().user;
     if (!user) return false;
-    if (user.global_roles.includes('admin')) return true;
+    if (user.global_role === 'admin') return true;
     if (user.permissions.includes(permission)) return true;
     return user.partner_memberships.some(m => m.is_active !== false && m.permissions.includes(permission));
   },
 
   isAdmin() {
-    return get().user?.global_roles.includes('admin') ?? false;
+    return get().user?.global_role === 'admin';
   }
 }));
