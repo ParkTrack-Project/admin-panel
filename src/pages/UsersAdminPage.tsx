@@ -69,7 +69,9 @@ function formatDate(dateStr?: string) {
 }
 
 export default function UsersAdminPage() {
-  const session = useSessionStore();
+  const canManageUsers = useSessionStore(state => state.hasPermission('admin.users.manage'));
+  const canViewPartnerMembers = useSessionStore(state => state.hasPermission('partner_members.view'));
+  const canViewPartners = useSessionStore(state => state.hasPermission('admin.partners.view'));
   const notifySuccess = useFeedbackStore(state => state.success);
   const confirmAction = useFeedbackStore(state => state.confirm);
   const [query, setQuery] = useState('');
@@ -132,8 +134,9 @@ export default function UsersAdminPage() {
   }
 
   async function loadMemberships() {
-    if (!session.hasPermission('partner_members.view')) {
+    if (!canViewPartnerMembers || !canViewPartners) {
       setMembershipsByUserId({});
+      setMembershipsError(undefined);
       return;
     }
 
@@ -184,7 +187,7 @@ export default function UsersAdminPage() {
 
   useEffect(() => {
     loadMemberships();
-  }, []);
+  }, [canViewPartnerMembers, canViewPartners]);
 
   useEffect(() => {
     if (!filteredUsers.length) {
@@ -305,7 +308,9 @@ export default function UsersAdminPage() {
           <h1>Пользователи</h1>
           <p>Реальный список пользователей, редактирование профиля и статуса через текущий backend.</p>
         </div>
-        <Button disabled>Создание пользователя ждёт backend endpoint</Button>
+        <Button disabled>
+          {canManageUsers ? 'Создание пользователя ждёт backend endpoint' : 'Недостаточно прав для создания'}
+        </Button>
       </div>
 
       <div className="metric-grid">
@@ -420,6 +425,7 @@ export default function UsersAdminPage() {
               <div className="profile-form-grid">
                 <Field label="Email">
                   <Input
+                    disabled={!canManageUsers}
                     value={editor.email}
                     onChange={e => {
                       setSaveError(undefined);
@@ -429,6 +435,7 @@ export default function UsersAdminPage() {
                 </Field>
                 <Field label="Полное имя">
                   <Input
+                    disabled={!canManageUsers}
                     value={editor.fullName}
                     onChange={e => {
                       setSaveError(undefined);
@@ -438,6 +445,7 @@ export default function UsersAdminPage() {
                 </Field>
                 <Field label="Телефон">
                   <Input
+                    disabled={!canManageUsers}
                     value={editor.phone}
                     onChange={e => {
                       setSaveError(undefined);
@@ -448,6 +456,7 @@ export default function UsersAdminPage() {
                 </Field>
                 <Field label="Глобальная роль">
                   <Select
+                    disabled={!canManageUsers}
                     value={editor.globalRole}
                     onChange={e => {
                       setSaveError(undefined);
@@ -461,6 +470,7 @@ export default function UsersAdminPage() {
                 <Field label="Статус">
                   <label className="zone-flag-toggle">
                     <input
+                      disabled={!canManageUsers}
                       type="checkbox"
                       checked={editor.isActive}
                       onChange={e => {
@@ -477,8 +487,14 @@ export default function UsersAdminPage() {
 
               <div className="contract-memberships">
                 <h3>Partner Memberships</h3>
+                {!canViewPartnerMembers && (
+                  <div className="notice warning">Недостаточно прав для просмотра членств в партнёрах.</div>
+                )}
+                {canViewPartnerMembers && !canViewPartners && (
+                  <div className="notice warning">Нет доступа к списку партнёров, поэтому членства пользователя неполные.</div>
+                )}
                 {membershipsLoading && <div className="empty-state">Загрузка членств...</div>}
-                {!membershipsLoading && (
+                {!membershipsLoading && canViewPartnerMembers && canViewPartners && (
                   <>
                     <div className="table-header memberships-contract">
                       <span>Partner</span>
@@ -514,14 +530,14 @@ export default function UsersAdminPage() {
                     setSaveError(undefined);
                     setEditor(userToEditor(selectedUser));
                   }}
-                  disabled={saveLoading || !hasEditorChanges}
+                  disabled={saveLoading || !hasEditorChanges || !canManageUsers}
                 >
                   Сбросить
                 </Button>
-                <Button onClick={onSaveUser} disabled={saveLoading || !hasEditorChanges}>
+                <Button onClick={onSaveUser} disabled={saveLoading || !hasEditorChanges || !canManageUsers}>
                   {saveLoading ? 'Сохранение...' : 'Сохранить пользователя'}
                 </Button>
-                <Button variant="danger" onClick={onDeactivateUser} disabled={saveLoading}>
+                <Button variant="danger" onClick={onDeactivateUser} disabled={saveLoading || !canManageUsers}>
                   Деактивировать
                 </Button>
               </div>
