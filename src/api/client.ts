@@ -95,6 +95,65 @@ export type UserProfileResponse = {
   updated_at?: string;
 };
 
+export type UserListResponse = {
+  items: UserProfileResponse[];
+  total: number;
+  top: number;
+  offset: number;
+};
+
+export type UserListFilters = {
+  q?: string;
+  is_active?: boolean;
+  top?: number;
+  offset?: number;
+};
+
+export type AdminUpdateUserRequest = {
+  email?: string;
+  full_name?: string | null;
+  phone?: string | null;
+  global_role?: string;
+  is_active?: boolean;
+};
+
+export type PartnerResponse = {
+  partner_id: number;
+  legal_name: string;
+  slug: string;
+  contact_email: string | null;
+  contact_phone: string | null;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type PartnerListResponse = {
+  items: PartnerResponse[];
+  total: number;
+  top: number;
+  offset: number;
+};
+
+export type PartnerMemberResponse = {
+  partner_membership_id: number;
+  user_id: number;
+  email: string;
+  full_name: string | null;
+  user_role: string;
+  read_scope: string;
+  write_scope: string;
+  delete_scope: string;
+  created_at?: string;
+};
+
+export type PartnerMemberListResponse = {
+  items: PartnerMemberResponse[];
+  total: number;
+  top: number;
+  offset: number;
+};
+
 export { apiConfig } from './http';
 
 // --- public API ---
@@ -129,6 +188,38 @@ export const api = {
 
     async updatePassword(data: UpdatePasswordRequest) {
       await request<void>('PUT', '/users/me/password', data);
+    },
+
+    async list(filters: UserListFilters = {}) {
+      const query = new URLSearchParams();
+      if (filters.q) query.set('q', filters.q);
+      if (filters.is_active !== undefined) query.set('is_active', String(filters.is_active));
+      if (filters.top !== undefined) query.set('top', String(filters.top));
+      if (filters.offset !== undefined) query.set('offset', String(filters.offset));
+      const suffix = query.size ? `?${query.toString()}` : '';
+      return request<UserListResponse>('GET', `/users${suffix}`);
+    },
+
+    async get(userId: number) {
+      return request<UserProfileResponse>('GET', `/users/${encodeURIComponent(userId)}`);
+    },
+
+    async update(userId: number, data: AdminUpdateUserRequest) {
+      return request<UserProfileResponse>('PUT', `/users/${encodeURIComponent(userId)}`, data);
+    },
+
+    async remove(userId: number) {
+      await request<void>('DELETE', `/users/${encodeURIComponent(userId)}`);
+    }
+  },
+
+  partners: {
+    async list() {
+      return request<PartnerListResponse>('GET', '/partners');
+    },
+
+    async listMembers(partnerId: number) {
+      return request<PartnerMemberListResponse>('GET', `/partners/${encodeURIComponent(partnerId)}/members`);
     }
   },
 
