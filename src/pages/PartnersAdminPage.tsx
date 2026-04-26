@@ -198,7 +198,10 @@ export default function PartnersAdminPage() {
   }
 
   async function loadUserOptions() {
-    if (!canViewUsers) return;
+    if (!canViewUsers) {
+      setUserOptions([]);
+      return;
+    }
     try {
       const response = await api.users.list({ top: 100, offset: 0 });
       setUserOptions(response.items);
@@ -208,8 +211,11 @@ export default function PartnersAdminPage() {
 
   useEffect(() => {
     loadPartners();
-    loadUserOptions();
   }, []);
+
+  useEffect(() => {
+    loadUserOptions();
+  }, [canViewUsers]);
 
   useEffect(() => {
     if (!filteredPartners.length) {
@@ -625,6 +631,7 @@ export default function PartnersAdminPage() {
               <div className="profile-form-grid">
                 <Field label="Название">
                   <Input
+                    disabled={!canManagePartners}
                     value={editor.legalName}
                     onChange={e => {
                       setSaveError(undefined);
@@ -637,6 +644,7 @@ export default function PartnersAdminPage() {
                 </Field>
                 <Field label="Contact email">
                   <Input
+                    disabled={!canManagePartners}
                     value={editor.contactEmail}
                     onChange={e => {
                       setSaveError(undefined);
@@ -646,6 +654,7 @@ export default function PartnersAdminPage() {
                 </Field>
                 <Field label="Contact phone">
                   <Input
+                    disabled={!canManagePartners}
                     value={editor.contactPhone}
                     onChange={e => {
                       setSaveError(undefined);
@@ -656,6 +665,7 @@ export default function PartnersAdminPage() {
                 <Field label="Статус">
                   <label className="zone-flag-toggle">
                     <input
+                      disabled={!canManagePartners}
                       type="checkbox"
                       checked={editor.isActive}
                       onChange={e => {
@@ -677,7 +687,7 @@ export default function PartnersAdminPage() {
                     setSaveError(undefined);
                     setEditor(partnerToEditor(selectedPartner));
                   }}
-                  disabled={saveLoading || !hasPartnerChanges}
+                  disabled={saveLoading || !hasPartnerChanges || !canManagePartners}
                 >
                   Сбросить
                 </Button>
@@ -731,6 +741,7 @@ export default function PartnersAdminPage() {
                   <div className="profile-form-grid">
                     <Field label="Role">
                       <Select
+                        disabled={!canUpdateMembers}
                         value={memberEditor.userRole}
                         onChange={e => {
                           setMemberSaveError(undefined);
@@ -742,6 +753,7 @@ export default function PartnersAdminPage() {
                     </Field>
                     <Field label="Read scope">
                       <Select
+                        disabled={!canUpdateMembers}
                         value={memberEditor.readScope}
                         onChange={e => {
                           setMemberSaveError(undefined);
@@ -753,6 +765,7 @@ export default function PartnersAdminPage() {
                     </Field>
                     <Field label="Write scope">
                       <Select
+                        disabled={!canUpdateMembers}
                         value={memberEditor.writeScope}
                         onChange={e => {
                           setMemberSaveError(undefined);
@@ -764,6 +777,7 @@ export default function PartnersAdminPage() {
                     </Field>
                     <Field label="Delete scope">
                       <Select
+                        disabled={!canUpdateMembers}
                         value={memberEditor.deleteScope}
                         onChange={e => {
                           setMemberSaveError(undefined);
@@ -782,7 +796,7 @@ export default function PartnersAdminPage() {
                         setMemberSaveError(undefined);
                         setMemberEditor(memberToEditor(selectedMember));
                       }}
-                      disabled={memberSaveLoading || !hasMemberChanges}
+                      disabled={memberSaveLoading || !hasMemberChanges || !canUpdateMembers}
                     >
                       Сбросить
                     </Button>
@@ -799,11 +813,12 @@ export default function PartnersAdminPage() {
               <div className="section-panel profile-form-panel" style={{ padding: 12 }}>
                 <h2>Добавить сотрудника</h2>
                 {!canInviteMembers && <div className="notice warning">Недостаточно прав для добавления сотрудников.</div>}
+                {canInviteMembers && !canViewUsers && <div className="notice warning">Нет доступа к списку пользователей, поэтому выбрать сотрудника нельзя.</div>}
                 <div className="profile-form-grid">
                   <Field label="Пользователь">
                     <Select
                       value={inviteForm.userId}
-                      disabled={!canInviteMembers}
+                      disabled={!canInviteMembers || !canViewUsers}
                       onChange={e => {
                         setInviteError(undefined);
                         setInviteForm(prev => ({ ...prev, userId: e.target.value }));
@@ -820,7 +835,7 @@ export default function PartnersAdminPage() {
                   <Field label="Role">
                     <Select
                       value={inviteForm.userRole}
-                      disabled={!canInviteMembers}
+                      disabled={!canInviteMembers || !canViewUsers}
                       onChange={e => setInviteForm(prev => ({ ...prev, userRole: e.target.value }))}
                     >
                       {memberRoleOptions.map(role => <option key={role} value={role}>{role}</option>)}
@@ -829,7 +844,7 @@ export default function PartnersAdminPage() {
                   <Field label="Read scope">
                     <Select
                       value={inviteForm.readScope}
-                      disabled={!canInviteMembers}
+                      disabled={!canInviteMembers || !canViewUsers}
                       onChange={e => setInviteForm(prev => ({ ...prev, readScope: e.target.value }))}
                     >
                       {scopeOptions.map(scope => <option key={scope} value={scope}>{scope}</option>)}
@@ -838,7 +853,7 @@ export default function PartnersAdminPage() {
                   <Field label="Write scope">
                     <Select
                       value={inviteForm.writeScope}
-                      disabled={!canInviteMembers}
+                      disabled={!canInviteMembers || !canViewUsers}
                       onChange={e => setInviteForm(prev => ({ ...prev, writeScope: e.target.value }))}
                     >
                       {scopeOptions.map(scope => <option key={scope} value={scope}>{scope}</option>)}
@@ -847,7 +862,7 @@ export default function PartnersAdminPage() {
                   <Field label="Delete scope">
                     <Select
                       value={inviteForm.deleteScope}
-                      disabled={!canInviteMembers}
+                      disabled={!canInviteMembers || !canViewUsers}
                       onChange={e => setInviteForm(prev => ({ ...prev, deleteScope: e.target.value }))}
                     >
                       {scopeOptions.map(scope => <option key={scope} value={scope}>{scope}</option>)}
@@ -856,7 +871,7 @@ export default function PartnersAdminPage() {
                 </div>
                 {inviteError && <div className="notice error">{inviteError}</div>}
                 <div className="row" style={{ justifyContent: 'flex-end' }}>
-                  <Button onClick={onInviteMember} disabled={inviteLoading || !canInviteMembers}>
+                  <Button onClick={onInviteMember} disabled={inviteLoading || !canInviteMembers || !canViewUsers}>
                     {inviteLoading ? 'Добавление...' : 'Добавить сотрудника'}
                   </Button>
                 </div>
