@@ -33,11 +33,12 @@ export function buildQuery(params: Record<string, string | number | boolean | un
 
 export async function request<T>(method: HttpMethod, path: string, body?: any): Promise<T> {
   const url = `${cfg.baseUrl}${path}`;
+  const isDemoToken = cfg.token === 'dev-admin-token';
   const headers: Record<string, string> = {
     'Accept': 'application/json',
     'Content-Type': 'application/json'
   };
-  if (cfg.token) headers.Authorization = `Bearer ${cfg.token}`;
+  if (cfg.token && !isDemoToken) headers.Authorization = `Bearer ${cfg.token}`;
 
   const id = crypto.randomUUID();
   useRequestLog.getState().add({ id, ts: Date.now(), method, url, headers, body });
@@ -55,7 +56,7 @@ export async function request<T>(method: HttpMethod, path: string, body?: any): 
   useRequestLog.getState().add({ id: id + '-resp', ts: Date.now(), method, url, status: res.status, response: data });
 
   if (!res.ok) {
-    if (res.status === 401 && unauthorizedHandler && !path.startsWith('/auth/')) {
+    if (res.status === 401 && unauthorizedHandler && !path.startsWith('/auth/') && !isDemoToken) {
       unauthorizedHandler();
     }
     const errorMessage = data?.error_description || data?.error || data?.message || `HTTP ${res.status}`;
@@ -67,8 +68,9 @@ export async function request<T>(method: HttpMethod, path: string, body?: any): 
 
 export async function requestBlob(path: string): Promise<{ blob: Blob; headers: Headers }> {
   const url = `${cfg.baseUrl}${path}`;
+  const isDemoToken = cfg.token === 'dev-admin-token';
   const headers: Record<string, string> = {};
-  if (cfg.token) headers.Authorization = `Bearer ${cfg.token}`;
+  if (cfg.token && !isDemoToken) headers.Authorization = `Bearer ${cfg.token}`;
 
   const id = crypto.randomUUID();
   useRequestLog.getState().add({ id, ts: Date.now(), method: 'GET', url, headers });
@@ -85,7 +87,7 @@ export async function requestBlob(path: string): Promise<{ blob: Blob; headers: 
   });
 
   if (!res.ok) {
-    if (res.status === 401 && unauthorizedHandler && !path.startsWith('/auth/')) {
+    if (res.status === 401 && unauthorizedHandler && !path.startsWith('/auth/') && !isDemoToken) {
       unauthorizedHandler();
     }
     const errorText = await res.text().catch(() => 'Unknown error');
