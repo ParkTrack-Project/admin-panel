@@ -7,7 +7,8 @@ import { Button, Field, Input } from '@/components/UiKit';
 
 export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   const session = useSessionStore();
-  const { apiBase } = useStore();
+  const apiBase = useStore(state => state.apiBase);
+  const setApi = useStore(state => state.setApi);
   const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
@@ -61,6 +62,15 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
         </div>
 
         <form className="auth-form" onSubmit={submit}>
+          <Field label="API Base">
+            <Input
+              value={apiBase}
+              onChange={e => setApi(e.target.value)}
+              placeholder="http://localhost:8000/api/v1"
+              spellCheck={false}
+            />
+          </Field>
+
           <Field label="Email">
             <Input
               type="email"

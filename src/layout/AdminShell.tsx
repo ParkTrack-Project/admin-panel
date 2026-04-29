@@ -21,7 +21,9 @@ const navItems: NavItem[] = [
 
 export default function AdminShell({ route, children }: { route: AppRoute; children: React.ReactNode }) {
   const session = useSessionStore();
-  const { apiBase, token } = useStore();
+  const apiBase = useStore(state => state.apiBase);
+  const token = useStore(state => state.token);
+  const setApi = useStore(state => state.setApi);
   const activeMemberships = (session.user?.partner_memberships ?? []).filter(m => m.is_active !== false);
   const membershipOptions = activeMemberships.filter(
     (membership, index, all) => all.findIndex(item => item.partner_id === membership.partner_id) === index
@@ -59,7 +61,7 @@ export default function AdminShell({ route, children }: { route: AppRoute; child
           <Field label="API Base">
             <Input
               value={apiBase}
-              onChange={e => useStore.setState({ apiBase: e.target.value })}
+              onChange={e => setApi(e.target.value, token)}
               placeholder="https://api.parktrack.live"
             />
           </Field>
