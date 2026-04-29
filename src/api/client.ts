@@ -191,6 +191,33 @@ export type UpdatePartnerMemberRequest = {
   delete_scope?: string;
 };
 
+export type DataSource = {
+  source_id: number;
+  partner_id: number | null;
+  entity_type: string;
+  entity_id: number;
+  source_type: string;
+  title: string;
+  status: string;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type SourceListResponse = {
+  items: DataSource[];
+  total: number;
+  top: number;
+  offset: number;
+};
+
+export type SourceListFilters = {
+  partner_id?: number;
+  is_active?: boolean;
+  top?: number;
+  offset?: number;
+};
+
 export { apiConfig } from './http';
 
 function normalizeGlobalRole(input: { global_role?: string; global_roles?: string[] }) {
@@ -327,6 +354,22 @@ export const api = {
 
     async removeMember(partnerId: number, userId: number) {
       await request<void>('DELETE', `/partners/${encodeURIComponent(partnerId)}/members/${encodeURIComponent(userId)}`);
+    }
+  },
+
+  sources: {
+    async list(filters: SourceListFilters = {}) {
+      const query = new URLSearchParams();
+      if (filters.partner_id !== undefined) query.set('partner_id', String(filters.partner_id));
+      if (filters.is_active !== undefined) query.set('is_active', String(filters.is_active));
+      if (filters.top !== undefined) query.set('top', String(filters.top));
+      if (filters.offset !== undefined) query.set('offset', String(filters.offset));
+      const suffix = query.size ? `?${query.toString()}` : '';
+      return request<SourceListResponse>('GET', `/sources${suffix}`);
+    },
+
+    async get(sourceId: number) {
+      return request<DataSource>('GET', `/sources/${encodeURIComponent(sourceId)}`);
     }
   },
 
