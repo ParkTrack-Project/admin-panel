@@ -96,6 +96,11 @@ export type UserProfileResponse = {
   updated_at?: string;
 };
 
+type RawUserProfileEnvelope = {
+  user: UserProfileResponse;
+  partner_memberships?: SessionUser['partner_memberships'];
+};
+
 export type UserListResponse = {
   items: UserProfileResponse[];
   total: number;
@@ -127,6 +132,11 @@ export type PartnerResponse = {
   is_active: boolean;
   created_at?: string;
   updated_at?: string;
+};
+
+type RawPartnerResponse = Omit<PartnerResponse, 'legal_name'> & {
+  legal_name?: string;
+  name?: string;
 };
 
 export type PartnerListResponse = {
@@ -235,6 +245,26 @@ function normalizeSessionUser(input: AuthUserResponse): SessionUser {
   };
 }
 
+function normalizeUserProfileResponse(input: UserProfileResponse | RawUserProfileEnvelope): UserProfileResponse {
+  if ('user' in input) {
+    return input.user;
+  }
+  return input;
+}
+
+function normalizePartnerResponse(input: RawPartnerResponse): PartnerResponse {
+  return {
+    partner_id: input.partner_id,
+    legal_name: input.legal_name ?? input.name ?? '',
+    slug: input.slug,
+    contact_email: input.contact_email,
+    contact_phone: input.contact_phone,
+    is_active: input.is_active,
+    created_at: input.created_at,
+    updated_at: input.updated_at
+  };
+}
+
 // --- public API ---
 export const api = {
   // --- Auth ---
@@ -279,7 +309,8 @@ export const api = {
 
   users: {
     async me() {
-      return request<UserProfileResponse>('GET', '/users/me');
+      const response = await request<UserProfileResponse | RawUserProfileEnvelope>('GET', '/users/me');
+      return normalizeUserProfileResponse(response);
     },
 
     async updateMe(data: UpdateMeRequest) {
@@ -321,11 +352,16 @@ export const api = {
       if (filters.top !== undefined) query.set('top', String(filters.top));
       if (filters.offset !== undefined) query.set('offset', String(filters.offset));
       const suffix = query.size ? `?${query.toString()}` : '';
-      return request<PartnerListResponse>('GET', `/partners${suffix}`);
+      const response = await request<{ items: RawPartnerResponse[]; total: number; top: number; offset: number }>('GET', `/partners${suffix}`);
+      return {
+        ...response,
+        items: response.items.map(normalizePartnerResponse)
+      } satisfies PartnerListResponse;
     },
 
     async get(partnerId: number) {
-      return request<PartnerResponse>('GET', `/partners/${encodeURIComponent(partnerId)}`);
+      const response = await request<RawPartnerResponse>('GET', `/partners/${encodeURIComponent(partnerId)}`);
+      return normalizePartnerResponse(response);
     },
 
     async create(data: CreatePartnerRequest) {
@@ -333,7 +369,8 @@ export const api = {
     },
 
     async update(partnerId: number, data: UpdatePartnerRequest) {
-      return request<PartnerResponse>('PUT', `/partners/${encodeURIComponent(partnerId)}`, data);
+      const response = await request<RawPartnerResponse>('PUT', `/partners/${encodeURIComponent(partnerId)}`, data);
+      return normalizePartnerResponse(response);
     },
 
     async remove(partnerId: number) {
@@ -345,7 +382,7 @@ export const api = {
     },
 
     async inviteMember(partnerId: number, data: InvitePartnerMemberRequest) {
-      return request<{ partner_membership_id: number }>('POST', `/partners/${encodeURIComponent(partnerId)}/members/invite`, data);
+      return request<{ partner_membership_id: number }>('POST', `/partners/${encodeURIComponent(partnerId)}/members`, data);
     },
 
     async updateMember(partnerId: number, userId: number, data: UpdatePartnerMemberRequest) {
