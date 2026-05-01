@@ -56,8 +56,11 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
+          build-args: |
+            VITE_API_BASE_URL={{ env.VITE_API_BASE_URL }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
+          platforms: linux/amd64,linux/arm64
           cache-to: type=gha,mode=max
