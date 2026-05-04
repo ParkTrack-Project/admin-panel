@@ -1,3 +1,4 @@
+import AppErrorBoundary from '@/components/AppErrorBoundary';
 import TopBar from '@/components/TopBar';
 import ImageViewport from '@/components/ImageViewport';
 import Sidebar from '@/components/Sidebar';
@@ -5,30 +6,213 @@ import CamerasPage from '@/components/CamerasPage';
 import CameraMapSelector from '@/components/CameraMapSelector';
 import ZoneMapSelector from '@/components/ZoneMapSelector';
 import { useStore } from '@/store/useStore';
+import AdminShell from '@/layout/AdminShell';
+import AccessStatePage from '@/pages/AccessStatePage';
+import AuthPage from '@/pages/AuthPage';
+import DashboardPage from '@/pages/DashboardPage';
+import PartnersAdminPage from '@/pages/PartnersAdminPage';
+import ProfilePage from '@/pages/ProfilePage';
+import SourcesPage from '@/pages/SourcesPage';
+import UsersAdminPage from '@/pages/UsersAdminPage';
+import ZonesAdminPage from '@/pages/ZonesAdminPage';
+import { AppRoute, useHashRoute } from '@/router/routes';
+import { useSessionStore } from '@/auth/sessionStore';
+import { api, apiConfig } from '@/api/client';
+import { useEffect, useRef } from 'react';
+import type { ViewMode } from '@/types';
+import { navigate } from '@/router/routes';
+import GlobalFeedbackHost from '@/feedback/GlobalFeedbackHost';
+
+const routePermissions: Partial<Record<AppRoute, string>> = {
+  cameras: 'cameras.view',
+  zones: 'zones.view',
+  sources: 'sources.view',
+  users: 'admin.users.view',
+  partners: 'admin.partners.view'
+};
 
 export default function App() {
-  const { viewMode } = useStore();
+  const route = useHashRoute();
+  const sessionUser = useSessionStore(state => state.user);
+  const sessionAccessToken = useSessionStore(state => state.accessToken);
+  const sessionValidating = useSessionStore(state => state.validating);
+  const sessionHasPermission = useSessionStore(state => state.hasPermission);
+  const sessionLogout = useSessionStore(state => state.logout);
+  const sessionSetSession = useSessionStore(state => state.setSession);
+  const sessionSetValidating = useSessionStore(state => state.setValidating);
+  const viewMode = useStore(state => state.viewMode);
+  const apiBase = useStore(state => state.apiBase);
+  const token = useStore(state => state.token);
+  const setViewMode = useStore(state => state.setViewMode);
+  const validatedTokenRef = useRef<string | undefined>(undefined);
 
-  let main: JSX.Element;
-  if (viewMode === 'labeler') {
-    main = (
-      <>
-        <Sidebar />
-        <ImageViewport />
-      </>
+  useEffect(() => {
+    apiConfig.set(apiBase, sessionAccessToken || token);
+  }, [apiBase, sessionAccessToken, token]);
+
+  useEffect(() => {
+    apiConfig.setUnauthorizedHandler(() => {
+      sessionLogout();
+      navigate('login');
+    });
+    return () => apiConfig.setUnauthorizedHandler(undefined);
+  }, [sessionLogout]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function validateSession() {
+      if (!sessionAccessToken || !sessionUser || sessionAccessToken === 'dev-admin-token') {
+        validatedTokenRef.current = sessionAccessToken;
+        return;
+      }
+      if (validatedTokenRef.current === sessionAccessToken) return;
+
+      sessionSetValidating(true);
+      try {
+        const profile = await api.auth.me();
+        if (cancelled) return;
+        validatedTokenRef.current = sessionAccessToken;
+        sessionSetSession({
+          accessToken: sessionAccessToken,
+          user: {
+            ...profile,
+            permissions: profile.permissions ?? [],
+            partner_memberships: profile.partner_memberships ?? []
+          }
+        });
+      } catch (error: any) {
+        if (cancelled) return;
+        validatedTokenRef.current = undefined;
+        sessionLogout();
+        navigate('login');
+      } finally {
+        if (!cancelled) {
+          sessionSetValidating(false);
+        }
+      }
+    }
+
+    validateSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, sessionAccessToken, sessionUser, sessionLogout, sessionSetSession, sessionSetValidating]);
+
+  useEffect(() => {
+    if ((route === 'login' || route === 'register') && sessionUser) {
+      navigate('dashboard');
+    }
+  }, [route, sessionUser]);
+
+  useEffect(() => {
+    if (route === 'cameras' && viewMode !== 'cameras') {
+      setViewMode('cameras');
+    }
+    if (route === 'labeler' && viewMode === 'cameras') {
+      setViewMode('labeler');
+    }
+  }, [route, viewMode, setViewMode]);
+
+  useEffect(() => {
+    if (route === 'labeler' && !useStore.getState().cameraId) {
+      navigate('cameras');
+    }
+  }, [route]);
+
+  let content: React.ReactNode;
+
+  if (route === 'login' || route === 'register') {
+    content = (
+      <AppErrorBoundary>
+        <AuthPage mode={route} />
+      </AppErrorBoundary>
     );
-  } else if (viewMode === 'cameras') {
-    main = <CamerasPage />;
-  } else if (viewMode === 'cameraMapSelector') {
-    main = <CameraMapSelector />;
+  } else if (sessionValidating) {
+    content = (
+      <AccessStatePage
+        title="Проверяем сессию"
+        subtitle="Подтягиваем профиль и права доступа из API."
+        actionLabel="Ко входу"
+        actionRoute="login"
+      />
+    );
+  } else if (!sessionUser) {
+    content = (
+      <AppErrorBoundary>
+        <AuthPage mode="login" />
+      </AppErrorBoundary>
+    );
   } else {
-    main = <ZoneMapSelector />;
+    const requiredPermission = routePermissions[route];
+    if (requiredPermission && !sessionHasPermission(requiredPermission)) {
+      content = (
+        <AdminShell route={route}>
+          <AccessStatePage
+            title="Доступ ограничен"
+            subtitle="Для этого раздела у текущей сессии недостаточно прав."
+            actionLabel="Открыть профиль"
+            actionRoute="profile"
+          />
+        </AdminShell>
+      );
+    } else {
+      content = (
+        <AdminShell route={route}>
+          <AppErrorBoundary>
+            {renderRoute(route, viewMode)}
+          </AppErrorBoundary>
+        </AdminShell>
+      );
+    }
   }
 
   return (
-    <div className="app">
-      <TopBar />
-      {main}
-    </div>
+    <>
+      {content}
+      <GlobalFeedbackHost />
+    </>
   );
+}
+
+function renderRoute(route: AppRoute, viewMode: ViewMode) {
+  if (route === 'dashboard') return <DashboardPage />;
+  if (route === 'profile') return <ProfilePage />;
+  if (route === 'users') return <UsersAdminPage />;
+  if (route === 'partners') return <PartnersAdminPage />;
+  if (route === 'zones') return <ZonesAdminPage />;
+  if (route === 'sources') return <SourcesPage />;
+  if (route === 'cameras') {
+    return (
+      <div className="legacy-map-grid">
+        <CamerasPage />
+      </div>
+    );
+  }
+  if (route === 'labeler') {
+    if (viewMode === 'cameraMapSelector') {
+      return (
+        <div className="legacy-map-grid">
+          <CameraMapSelector />
+        </div>
+      );
+    }
+    if (viewMode === 'zoneMapSelector') {
+      return (
+        <div className="legacy-map-grid">
+          <ZoneMapSelector />
+        </div>
+      );
+    }
+
+    return (
+      <div className="legacy-labeler-grid">
+        <TopBar />
+        <Sidebar />
+        <ImageViewport />
+      </div>
+    );
+  }
+
+  return <DashboardPage />;
 }

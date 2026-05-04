@@ -1,18 +1,22 @@
 import { useStore } from '@/store/useStore';
 import { apiConfig, api } from '@/api/client';
+import { useSessionStore } from '@/auth/sessionStore';
 import { Button, Field, Input, FilePicker } from './UiKit';
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { navigate } from '@/router/routes';
 
 export default function TopBar() {
-  const { apiBase, token, cameraId, viewMode, setViewMode, setImage, image } = useStore();
+  const { apiBase, token, cameraId, viewMode, setImage, image, setViewMode, labelerReturnRoute } = useStore();
+  const sessionAccessToken = useSessionStore(state => state.accessToken);
   const [imageUrlInput, setImageUrlInput] = useState('');
   const [loadingSnapshot, setLoadingSnapshot] = useState(false);
   const currentBlobUrlRef = useRef<string | null>(null);
   const loadedCameraIdRef = useRef<string | null>(null);
+  const effectiveToken = token ?? sessionAccessToken;
 
   useEffect(() => {
-    apiConfig.set(apiBase, token);
-  }, [apiBase, token]);
+    apiConfig.set(apiBase, effectiveToken);
+  }, [apiBase, effectiveToken]);
 
   async function loadImageFromUrl() {
     const url = imageUrlInput.trim();
@@ -32,7 +36,7 @@ export default function TopBar() {
     
     setLoadingSnapshot(true);
     try {
-      apiConfig.set(apiBase, token);
+      apiConfig.set(apiBase, effectiveToken);
       const snap = await api.getSnapshot(parseInt(cameraId, 10));
       
       if (snap?.image_url) {
@@ -64,13 +68,22 @@ export default function TopBar() {
     } finally {
       setLoadingSnapshot(false);
     }
-  }, [cameraId, apiBase, token, setImage, image]);
+  }, [cameraId, apiBase, effectiveToken, setImage, image]);
 
   function fitToView(img: { naturalWidth: number; naturalHeight: number; url: string }) {
     useStore.getState().setView(1, 0, 0);
   }
 
   const isLabeler = viewMode === 'labeler';
+
+  function backToOrigin() {
+    if (labelerReturnRoute === 'zones') {
+      navigate('zones');
+      return;
+    }
+    setViewMode('cameras');
+    navigate('cameras');
+  }
 
   // Cleanup blob URLs on unmount to prevent memory leaks
   useEffect(() => {
@@ -100,18 +113,12 @@ export default function TopBar() {
     <div className="topbar">
       <div className="row" style={{ gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <div className="row" style={{ gap: 6, marginRight: 16 }}>
-          <Button
-            variant={isLabeler ? 'primary' : 'ghost'}
-            onClick={() => setViewMode('labeler')}
-          >
-            Labeler
-          </Button>
-          <Button
-            variant={viewMode === 'cameras' ? 'primary' : 'ghost'}
-            onClick={() => setViewMode('cameras')}
-          >
-            Cameras
-          </Button>
+          <span className="badge">Разметка зон</span>
+          {cameraId && (
+            <Button variant="ghost" onClick={backToOrigin}>
+              {labelerReturnRoute === 'zones' ? 'Назад к зоне' : 'Назад к камере'}
+            </Button>
+          )}
         </div>
 
         {isLabeler && (
@@ -126,7 +133,7 @@ placeholder="https://api.parktrack.live"
 
         <Field label="Token">
           <Input
-            value={token ?? ''}
+            value={effectiveToken ?? ''}
             onChange={e => useStore.setState({ token: e.target.value })}
             placeholder="вставьте токен"
           />

@@ -12,13 +12,48 @@ import { clockwiseSort } from '@/geometry/poly';
 import { api, Camera } from '@/api/client';
 
 let tmpZoneId = -1;
+const API_BASE_STORAGE_KEY = 'parktrack.api-base.v1';
+
+function detectDefaultApiBase() {
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1') {
+      return 'http://localhost:8000/api/v1';
+    }
+  }
+  return 'https://api.parktrack.live';
+}
+
+function loadStoredApiBase() {
+  if (typeof window === 'undefined') return detectDefaultApiBase();
+  try {
+    return localStorage.getItem(API_BASE_STORAGE_KEY) || detectDefaultApiBase();
+  } catch {
+    return detectDefaultApiBase();
+  }
+}
+
+function storeApiBase(apiBase: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(API_BASE_STORAGE_KEY, apiBase);
+  } catch {
+  }
+}
 
 const toGeo = (p: PxPoint): GeoPoint => ({ x: p.x, y: p.y, longitude: null, latitude: null });
+const hasCoordinates = (latitude?: number | null, longitude?: number | null) => (
+  typeof latitude === 'number'
+  && Number.isFinite(latitude)
+  && typeof longitude === 'number'
+  && Number.isFinite(longitude)
+);
 
 type State = {
   apiBase: string;
   token?: string;
   cameraId: string;
+  labelerReturnRoute?: 'cameras' | 'zones';
   image?: ImageMeta;
   cameraMeta?: Camera;
 
@@ -40,6 +75,7 @@ type State = {
   setApi(base: string, token?: string): void;
   setViewMode(mode: ViewMode): void;
   setCamera(id: string): void;
+  setLabelerReturnRoute(route?: 'cameras' | 'zones'): void;
   setImage(img: ImageMeta | undefined): void;
 
   loadCameraMeta(id: number): Promise<void>;
@@ -65,8 +101,9 @@ type State = {
 };
 
 export const useStore = create<State>((set, get) => ({
-  apiBase: 'https://api.parktrack.live',
+  apiBase: loadStoredApiBase(),
   cameraId: '',
+  labelerReturnRoute: 'cameras',
   image: undefined,
   cameraMeta: undefined,
   viewMode: 'cameras',
@@ -78,9 +115,13 @@ export const useStore = create<State>((set, get) => ({
   offsetY: 0,
   loading: false,
 
-  setApi(base, token) { set({ apiBase: base, token }); },
+  setApi(base, token) {
+    storeApiBase(base);
+    set({ apiBase: base, token });
+  },
   setViewMode(mode) { set({ viewMode: mode }); },
   setCamera(id) { set({ cameraId: id }); },
+  setLabelerReturnRoute(route) { set({ labelerReturnRoute: route }); },
   setImage(img) { set({ image: img }); },
 
   async loadCameraMeta(id) {
@@ -220,15 +261,17 @@ export const useStore = create<State>((set, get) => ({
       if (isNewZone) {
         // For new zones, use camera coordinates as default if points don't have geo coordinates
         const cameraMeta = get().cameraMeta;
-        if (cameraMeta && cameraMeta.latitude && cameraMeta.longitude) {
+        const fallbackLatitude = cameraMeta?.latitude;
+        const fallbackLongitude = cameraMeta?.longitude;
+        if (hasCoordinates(fallbackLatitude, fallbackLongitude)) {
           const hasMissingCoords = current.points.some(p => p.latitude === null || p.longitude === null);
           if (hasMissingCoords) {
             zoneToSave = {
               ...current,
               points: current.points.map(p => ({
                 ...p,
-                latitude: p.latitude ?? cameraMeta.latitude,
-                longitude: p.longitude ?? cameraMeta.longitude
+                latitude: p.latitude ?? fallbackLatitude,
+                longitude: p.longitude ?? fallbackLongitude
               })) as any
             };
           }

@@ -1,8 +1,7 @@
-  import { ParkingZone, GeoPoint, PxPoint, Id } from '@/types';
-import { useRequestLog } from './requestLog';
-
-type Config = { baseUrl: string; token?: string };
-let cfg: Config = { baseUrl: 'https://api.parktrack.live' };
+import { ParkingZone, Id, SessionUser } from '@/types';
+import { apiConfig, request } from './http';
+import { camerasApi, CameraListFilters } from './cameras';
+import { zonesApi, ZoneListFilters } from './zones';
 
 // --- types (according to Swagger schema) ---
 
@@ -10,258 +9,458 @@ export type ErrorResponse = {
   error_description: string;
 };
 
-export type Camera = {
-  camera_id: number;
-  title: string;
-  source: string;
-  image_width: number;
-  image_height: number;
-  calib: any | null;
-  latitude: number;
-  longitude: number;
-  is_active?: boolean;
-  created_at: string; // ISO 8601 format with Z (UTC)
-  updated_at: string; // ISO 8601 format with Z (UTC)
-};
-
-export type CreateCameraRequest = {
-  title: string; // minLength: 1, maxLength: 200
-  source: string;
-  image_width: number; // minimum: 1
-  image_height: number; // minimum: 1
-  calib?: any | null;
-  latitude: number; // -90 to 90
-  longitude: number; // -180 to 180
-};
-
-export type UpdateCameraRequest = {
-  title?: string; // minLength: 1, maxLength: 200
-  source?: string;
-  image_width?: number; // minimum: 1
-  image_height?: number; // minimum: 1
-  calib?: any | null;
-  latitude?: number; // -90 to 90
-  longitude?: number; // -180 to 180
-  is_active?: boolean;
-};
-
-export type CamerasNextResponse = {
-  camera_id: number;
-  source: string;
-  image_width: number;
-  image_height: number;
-  calib?: any | null;
-};
-
-export type ZonePoint = {
-  latitude: number; // -90 to 90
-  longitude: number; // -180 to 180
-  x: number; // minimum: 0
-  y: number; // minimum: 0
-};
+export type {
+  Camera,
+  CameraBBox,
+  CameraListFilters,
+  CameraMapItem,
+  CameraSnapshotOptions,
+  CameraSnapshot,
+  CamerasNextResponse,
+  CameraView,
+  CreateCameraRequest,
+  UpdateCameraRequest
+} from './cameras';
+export type {
+  ZoneBBox,
+  ZoneConfidenceLevel,
+  ZoneCoordinatePair,
+  ZoneGeometry,
+  ZoneImagePolygon,
+  ZoneListFilters,
+  ZoneLocationType,
+  ZoneMapItem,
+  ZonePoint,
+  ZoneView
+} from './zones';
 
 export type HealthResponse = {
   status?: string;
+  database?: string;
 };
 
 export type VersionResponse = {
+  api_version?: string;
   version?: string;
 };
 
-export const apiConfig = {
-  set(baseUrl: string, token?: string) { cfg = { baseUrl, token }; },
-  get() { return cfg; }
+export type AuthUserResponse = {
+  user_id: number;
+  email: string;
+  full_name: string | null;
+  global_role?: string;
+  global_roles?: string[];
+  permissions?: string[];
+  partner_memberships?: SessionUser['partner_memberships'];
 };
 
-async function request<T>(method: 'GET'|'POST'|'PUT'|'DELETE', path: string, body?: any): Promise<T> {
-  const url = `${cfg.baseUrl}${path}`;
-  const headers: Record<string, string> = {
-    'Accept': 'application/json',
-    'Content-Type': 'application/json'
-  };
-  if (cfg.token) headers.Authorization = `Bearer ${cfg.token}`;
+export type AuthResponse = {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  user: SessionUser;
+};
 
-  const id = crypto.randomUUID();
-  useRequestLog.getState().add({ id, ts: Date.now(), method, url, headers, body });
+export type LoginRequest = {
+  login: string;
+  password: string;
+};
 
-  const res = await fetch(url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+export type RegisterRequest = {
+  email: string;
+  password: string;
+  full_name?: string;
+  phone?: string;
+};
 
-  const ct = res.headers.get('content-type') || '';
-  let data: any = undefined;
-  if (ct.includes('application/json')) { try { data = await res.json(); } catch {} }
-  else { try { data = await res.text(); } catch {} }
+export type UpdateMeRequest = {
+  full_name?: string;
+  phone?: string | null;
+};
 
-  useRequestLog.getState().add({ id: id + '-resp', ts: Date.now(), method, url, status: res.status, response: data });
+export type UpdatePasswordRequest = {
+  old_password: string;
+  new_password: string;
+};
 
-  if (!res.ok) {
-    // Handle error according to Swagger Error schema
-    const errorMessage = data?.error_description || data?.error || data?.message || `HTTP ${res.status}`;
-    throw new Error(errorMessage);
-  }
-  return data as T;
+export type UserProfileResponse = {
+  user_id: number;
+  email: string;
+  full_name: string | null;
+  phone?: string | null;
+  global_role?: string;
+  global_roles?: string[];
+  is_active?: boolean;
+  is_email_verified?: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+type RawUserProfileEnvelope = {
+  user: UserProfileResponse;
+  partner_memberships?: SessionUser['partner_memberships'];
+};
+
+export type UserListResponse = {
+  items: UserProfileResponse[];
+  total: number;
+  top: number;
+  offset: number;
+};
+
+export type UserListFilters = {
+  q?: string;
+  is_active?: boolean;
+  top?: number;
+  offset?: number;
+};
+
+export type AdminUpdateUserRequest = {
+  email?: string;
+  full_name?: string | null;
+  phone?: string | null;
+  global_role?: string;
+  is_active?: boolean;
+};
+
+export type PartnerResponse = {
+  partner_id: number;
+  legal_name: string;
+  slug: string;
+  contact_email: string | null;
+  contact_phone: string | null;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+type RawPartnerResponse = Omit<PartnerResponse, 'legal_name'> & {
+  legal_name?: string;
+  name?: string;
+};
+
+export type PartnerListResponse = {
+  items: PartnerResponse[];
+  total: number;
+  top: number;
+  offset: number;
+};
+
+export type PartnerListFilters = {
+  q?: string;
+  is_active?: boolean;
+  top?: number;
+  offset?: number;
+};
+
+export type CreatePartnerRequest = {
+  legal_name: string;
+  slug: string;
+  contact_email: string;
+  contact_phone: string;
+};
+
+export type UpdatePartnerRequest = {
+  legal_name?: string;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  is_active?: boolean;
+};
+
+export type PartnerMemberResponse = {
+  partner_membership_id: number;
+  user_id: number;
+  email: string;
+  full_name: string | null;
+  user_role: string;
+  read_scope: string;
+  write_scope: string;
+  delete_scope: string;
+  created_at?: string;
+};
+
+export type PartnerMemberListResponse = {
+  items: PartnerMemberResponse[];
+  total: number;
+  top: number;
+  offset: number;
+};
+
+export type InvitePartnerMemberRequest = {
+  user_id: number;
+  user_role: string;
+  read_scope: string;
+  write_scope: string;
+  delete_scope: string;
+};
+
+export type UpdatePartnerMemberRequest = {
+  user_role?: string;
+  read_scope?: string;
+  write_scope?: string;
+  delete_scope?: string;
+};
+
+export type DataSource = {
+  source_id: number;
+  partner_id: number | null;
+  entity_type: string;
+  entity_id: number;
+  source_type: string;
+  title: string;
+  status: string;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type SourceListResponse = {
+  items: DataSource[];
+  total: number;
+  top: number;
+  offset: number;
+};
+
+export type SourceListFilters = {
+  partner_id?: number;
+  is_active?: boolean;
+  top?: number;
+  offset?: number;
+};
+
+export { apiConfig } from './http';
+
+function normalizeGlobalRole(input: { global_role?: string; global_roles?: string[] }) {
+  return input.global_role ?? input.global_roles?.[0] ?? 'user';
 }
 
-// --- helpers & mappers ---
-const gp = (x:number, y:number, longitude:number|null=null, latitude:number|null=null): GeoPoint => ({ x,y,longitude,latitude });
-const px = (p: GeoPoint): PxPoint => ({ x: p.x, y: p.y });
-
-function mapZoneFromAPI(z: any): ParkingZone {
-  const pts = (z.points || []).map((p: any) => gp(+p.x, +p.y, p.longitude ?? null, p.latitude ?? null)) as GeoPoint[];
-  const quad = pts.slice(0,4).map(px) as [PxPoint, PxPoint, PxPoint, PxPoint];
-
+function normalizeSessionUser(input: AuthUserResponse): SessionUser {
   return {
-    id: z.zone_id as Id,
-    camera_id: +z.camera_id,
-    zone_type: z.zone_type,
-    capacity: +z.capacity,
-    pay: +z.pay,
-    image_quad: quad,
-    points: pts.slice(0,4) as any, // Preserve clockwise order
-    created_at: z.created_at,
-    updated_at: z.updated_at,
-    occupied: z.occupied !== undefined ? +z.occupied : undefined,
-    confidence: z.confidence !== undefined ? +z.confidence : undefined
+    user_id: input.user_id,
+    email: input.email,
+    full_name: input.full_name,
+    global_role: normalizeGlobalRole(input),
+    permissions: input.permissions ?? [],
+    partner_memberships: input.partner_memberships ?? []
   };
 }
 
-function buildCreateZoneBody(z: ParkingZone) {
-  const points = z.points.slice(0, 4).map((p, idx) => {
-    if (p.latitude === null || p.longitude === null) {
-      throw new Error(`Point ${idx + 1} is missing coordinates (latitude/longitude). Please set coordinates on the map first.`);
-    }
-    return {
-      latitude: p.latitude,
-      longitude: p.longitude,
-      // API requires integer coordinates, not floats
-      x: Math.round(p.x),
-      y: Math.round(p.y)
-    } as ZonePoint;
-  });
-
-  return {
-    camera_id: z.camera_id,
-    zone_type: z.zone_type,
-    capacity: z.capacity,
-    pay: z.pay,
-    points
-  };
-}
-
-function buildUpdateZoneBody(z: ParkingZone) {
-  const body: any = {};
-  
-  if (z.zone_type !== undefined) body.zone_type = z.zone_type;
-  if (z.capacity !== undefined) body.capacity = z.capacity;
-  if (z.pay !== undefined) body.pay = z.pay;
-  if (z.occupied !== undefined) body.occupied = z.occupied;
-  if (z.confidence !== undefined) body.confidence = z.confidence;
-  if (z.camera_id !== undefined) body.camera_id = z.camera_id;
-  
-  if (z.points && z.points.length === 4) {
-    body.points = z.points.map((p, idx) => {
-      if (p.latitude === null || p.longitude === null) {
-        throw new Error(`Point ${idx + 1} is missing coordinates (latitude/longitude). Please set coordinates on the map first.`);
-      }
-      return {
-        latitude: p.latitude,
-        longitude: p.longitude,
-        // API requires integer coordinates, not floats
-        x: Math.round(p.x),
-        y: Math.round(p.y)
-      } as ZonePoint;
-    });
+function normalizeUserProfileResponse(input: UserProfileResponse | RawUserProfileEnvelope): UserProfileResponse {
+  if ('user' in input) {
+    return input.user;
   }
+  return input;
+}
 
-  return body;
+function normalizePartnerResponse(input: RawPartnerResponse): PartnerResponse {
+  return {
+    partner_id: input.partner_id,
+    legal_name: input.legal_name ?? input.name ?? '',
+    slug: input.slug,
+    contact_email: input.contact_email,
+    contact_phone: input.contact_phone,
+    is_active: input.is_active,
+    created_at: input.created_at,
+    updated_at: input.updated_at
+  };
 }
 
 // --- public API ---
 export const api = {
+  // --- Auth ---
+  auth: {
+    async register(data: RegisterRequest) {
+      const response = await request<{
+        access_token: string;
+        token_type: string;
+        expires_in: number;
+        user: AuthUserResponse;
+      }>('POST', '/auth/register', data);
+
+      return {
+        ...response,
+        user: normalizeSessionUser(response.user)
+      } satisfies AuthResponse;
+    },
+
+    async login(data: LoginRequest) {
+      const response = await request<{
+        access_token: string;
+        token_type: string;
+        expires_in: number;
+        user: AuthUserResponse;
+      }>('POST', '/auth/login', data);
+
+      return {
+        ...response,
+        user: normalizeSessionUser(response.user)
+      } satisfies AuthResponse;
+    },
+
+    async logout() {
+      await request<void>('POST', '/auth/logout');
+    },
+
+    async me() {
+      const response = await request<AuthUserResponse>('GET', '/auth/me');
+      return normalizeSessionUser(response);
+    }
+  },
+
+  users: {
+    async me() {
+      const response = await request<UserProfileResponse | RawUserProfileEnvelope>('GET', '/users/me');
+      return normalizeUserProfileResponse(response);
+    },
+
+    async updateMe(data: UpdateMeRequest) {
+      return request<UserProfileResponse>('PUT', '/users/me', data);
+    },
+
+    async updatePassword(data: UpdatePasswordRequest) {
+      await request<void>('PUT', '/users/me/password', data);
+    },
+
+    async list(filters: UserListFilters = {}) {
+      const query = new URLSearchParams();
+      if (filters.q) query.set('q', filters.q);
+      if (filters.is_active !== undefined) query.set('is_active', String(filters.is_active));
+      if (filters.top !== undefined) query.set('top', String(filters.top));
+      if (filters.offset !== undefined) query.set('offset', String(filters.offset));
+      const suffix = query.size ? `?${query.toString()}` : '';
+      return request<UserListResponse>('GET', `/users${suffix}`);
+    },
+
+    async get(userId: number) {
+      return request<UserProfileResponse>('GET', `/users/${encodeURIComponent(userId)}`);
+    },
+
+    async update(userId: number, data: AdminUpdateUserRequest) {
+      return request<UserProfileResponse>('PUT', `/users/${encodeURIComponent(userId)}`, data);
+    },
+
+    async remove(userId: number) {
+      await request<void>('DELETE', `/users/${encodeURIComponent(userId)}`);
+    }
+  },
+
+  partners: {
+    async list(filters: PartnerListFilters = {}) {
+      const query = new URLSearchParams();
+      if (filters.q) query.set('q', filters.q);
+      if (filters.is_active !== undefined) query.set('is_active', String(filters.is_active));
+      if (filters.top !== undefined) query.set('top', String(filters.top));
+      if (filters.offset !== undefined) query.set('offset', String(filters.offset));
+      const suffix = query.size ? `?${query.toString()}` : '';
+      const response = await request<{ items: RawPartnerResponse[]; total: number; top: number; offset: number }>('GET', `/partners${suffix}`);
+      return {
+        ...response,
+        items: response.items.map(normalizePartnerResponse)
+      } satisfies PartnerListResponse;
+    },
+
+    async get(partnerId: number) {
+      const response = await request<RawPartnerResponse>('GET', `/partners/${encodeURIComponent(partnerId)}`);
+      return normalizePartnerResponse(response);
+    },
+
+    async create(data: CreatePartnerRequest) {
+      return request<{ partner_id: number }>('POST', '/partners/new', data);
+    },
+
+    async update(partnerId: number, data: UpdatePartnerRequest) {
+      const response = await request<RawPartnerResponse>('PUT', `/partners/${encodeURIComponent(partnerId)}`, data);
+      return normalizePartnerResponse(response);
+    },
+
+    async remove(partnerId: number) {
+      await request<void>('DELETE', `/partners/${encodeURIComponent(partnerId)}`);
+    },
+
+    async listMembers(partnerId: number) {
+      return request<PartnerMemberListResponse>('GET', `/partners/${encodeURIComponent(partnerId)}/members`);
+    },
+
+    async inviteMember(partnerId: number, data: InvitePartnerMemberRequest) {
+      return request<{ partner_membership_id: number }>('POST', `/partners/${encodeURIComponent(partnerId)}/members`, data);
+    },
+
+    async updateMember(partnerId: number, userId: number, data: UpdatePartnerMemberRequest) {
+      return request<PartnerMemberResponse>('PUT', `/partners/${encodeURIComponent(partnerId)}/members/${encodeURIComponent(userId)}`, data);
+    },
+
+    async removeMember(partnerId: number, userId: number) {
+      await request<void>('DELETE', `/partners/${encodeURIComponent(partnerId)}/members/${encodeURIComponent(userId)}`);
+    }
+  },
+
+  sources: {
+    async list(filters: SourceListFilters = {}) {
+      const query = new URLSearchParams();
+      if (filters.partner_id !== undefined) query.set('partner_id', String(filters.partner_id));
+      if (filters.is_active !== undefined) query.set('is_active', String(filters.is_active));
+      if (filters.top !== undefined) query.set('top', String(filters.top));
+      if (filters.offset !== undefined) query.set('offset', String(filters.offset));
+      const suffix = query.size ? `?${query.toString()}` : '';
+      return request<SourceListResponse>('GET', `/sources${suffix}`);
+    },
+
+    async get(sourceId: number) {
+      return request<DataSource>('GET', `/sources/${encodeURIComponent(sourceId)}`);
+    }
+  },
+
   // --- Parking Zones ---
-  async listZones(cameraId?: number) {
-    const q = cameraId ? `?camera_id=${encodeURIComponent(cameraId)}` : '';
-    const arr = await request<any[]>('GET', `/zones${q}`);
-    return arr.map(mapZoneFromAPI);
+  async listZones(cameraIdOrFilters?: number | ZoneListFilters) {
+    if (typeof cameraIdOrFilters === 'number') {
+      return zonesApi.list({ camera_id: cameraIdOrFilters });
+    }
+    return zonesApi.list(cameraIdOrFilters);
   },
   
   async getZone(zoneId: Id) {
-    const z = await request<any>('GET', `/zones/${encodeURIComponent(String(zoneId))}`);
-    return mapZoneFromAPI(z);
+    return zonesApi.get(zoneId);
   },
   
   async createZone(z: ParkingZone) {
-    const body = buildCreateZoneBody(z);
-    const resp = await request<any>('POST', `/zones/new`, body);
-    return resp; // Returns { zone_id } or full zone object
+    return zonesApi.create(z);
   },
   
   async updateZone(zoneId: Id, z: ParkingZone) {
-    const updated = await request<any>('PUT', `/zones/${encodeURIComponent(String(zoneId))}`, buildUpdateZoneBody(z));
-    return mapZoneFromAPI(updated);
+    return zonesApi.update(zoneId, z);
   },
   
   async deleteZone(zoneId: Id) {
-    await request<void>('DELETE', `/zones/${encodeURIComponent(String(zoneId))}`);
+    await zonesApi.delete(zoneId);
   },
 
   // --- Cameras ---
-  async listCameras() {
-    return request<Camera[]>('GET', `/cameras`);
+  async listCameras(filters?: CameraListFilters) {
+    return camerasApi.list(filters);
   },
   
   async getCamera(cameraId: number) {
-    return request<Camera>('GET', `/cameras/${encodeURIComponent(cameraId)}`);
+    return camerasApi.get(cameraId);
   },
   
-  async createCamera(data: CreateCameraRequest) {
-    return request<Camera>('POST', `/cameras/new`, data);
+  async createCamera(data: import('./cameras').CreateCameraRequest) {
+    return camerasApi.create(data);
   },
   
-  async updateCamera(cameraId: number, patch: UpdateCameraRequest) {
-    return request<Camera>('PUT', `/cameras/${encodeURIComponent(cameraId)}`, patch);
+  async updateCamera(cameraId: number, patch: import('./cameras').UpdateCameraRequest) {
+    return camerasApi.update(cameraId, patch);
   },
   
   async deleteCamera(cameraId: number) {
-    await request<void>('DELETE', `/cameras/${encodeURIComponent(cameraId)}`);
+    await camerasApi.delete(cameraId);
   },
   
   async getNextCamera() {
-    return request<CamerasNextResponse>('GET', `/cameras/next`);
+    return camerasApi.getNext();
   },
   
-  async getSnapshot(cameraId: number): Promise<{ image_url: string; captured_at?: string; width?: number; height?: number }> {
-    // API returns binary image data (JPEG), not JSON
-    const url = `${cfg.baseUrl}/cameras/${encodeURIComponent(cameraId)}/snapshot`;
-    const headers: Record<string, string> = {};
-    if (cfg.token) headers.Authorization = `Bearer ${cfg.token}`;
-
-    const id = crypto.randomUUID();
-    useRequestLog.getState().add({ id, ts: Date.now(), method: 'GET', url, headers });
-
-    const res = await fetch(url, { method: 'GET', headers });
-
-    useRequestLog.getState().add({ 
-      id: id + '-resp', 
-      ts: Date.now(), 
-      method: 'GET', 
-      url, 
-      status: res.status, 
-      response: `[Binary image data, ${res.headers.get('content-length') || 'unknown'} bytes]` 
-    });
-
-    if (!res.ok) {
-      const errorText = await res.text().catch(() => 'Unknown error');
-      throw new Error(errorText || `HTTP ${res.status}`);
-    }
-
-    // Convert binary response to blob URL for display
-    const blob = await res.blob();
-    const imageUrl = URL.createObjectURL(blob);
-
-    return {
-      image_url: imageUrl,
-      captured_at: res.headers.get('X-Captured-At') || undefined
-    };
+  async getSnapshot(cameraId: number, options?: import('./cameras').CameraSnapshotOptions) {
+    return camerasApi.getSnapshot(cameraId, options);
   },
 
   // --- System ---
