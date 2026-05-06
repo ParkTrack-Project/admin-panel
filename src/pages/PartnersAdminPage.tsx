@@ -705,7 +705,7 @@ export default function PartnersAdminPage() {
                 {membersError && <div className="notice warning">{membersError}</div>}
                 {membersLoading && <div className="empty-state">Загрузка сотрудников...</div>}
                 {!membersLoading && canViewMembers && (
-                  <>
+                  <div className="table-scroll">
                     <div className="table-header memberships-contract">
                       <span>User</span>
                       <span>Role</span>
@@ -730,7 +730,7 @@ export default function PartnersAdminPage() {
                       ))}
                       {!members.length && <div className="empty-state">У партнёра пока нет сотрудников.</div>}
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
 

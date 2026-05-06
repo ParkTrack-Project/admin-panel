@@ -828,8 +828,8 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
 
 .table-header.memberships-contract,
 .table-row.memberships-contract {
-  grid-template-columns: 70px 160px 1fr 1fr 1fr;
-  min-width: 680px;
+  grid-template-columns: minmax(300px, 1fr) 180px 110px 110px 110px;
+  min-width: 820px;
 }
 
 .table-header.contract-endpoints,
