@@ -12,33 +12,21 @@ import { clockwiseSort } from '@/geometry/poly';
 import { api, Camera } from '@/api/client';
 
 let tmpZoneId = -1;
-const API_BASE_STORAGE_KEY = 'parktrack.api-base.v1';
 
 function detectDefaultApiBase() {
+  const configuredBase = import.meta.env.VITE_API_BASE?.trim();
+  if (configuredBase) {
+    return configuredBase.replace(/\/+$/, '');
+  }
+
   if (typeof window !== 'undefined') {
     const host = window.location.hostname;
     if (host === 'localhost' || host === '127.0.0.1') {
       return 'http://localhost:8000/api/v1';
     }
   }
+
   return 'https://api.parktrack.live';
-}
-
-function loadStoredApiBase() {
-  if (typeof window === 'undefined') return detectDefaultApiBase();
-  try {
-    return localStorage.getItem(API_BASE_STORAGE_KEY) || detectDefaultApiBase();
-  } catch {
-    return detectDefaultApiBase();
-  }
-}
-
-function storeApiBase(apiBase: string) {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(API_BASE_STORAGE_KEY, apiBase);
-  } catch {
-  }
 }
 
 const toGeo = (p: PxPoint): GeoPoint => ({ x: p.x, y: p.y, longitude: null, latitude: null });
@@ -72,7 +60,6 @@ type State = {
   error?: string;
   info?: string;
 
-  setApi(base: string, token?: string): void;
   setViewMode(mode: ViewMode): void;
   setCamera(id: string): void;
   setLabelerReturnRoute(route?: 'cameras' | 'zones'): void;
@@ -101,7 +88,7 @@ type State = {
 };
 
 export const useStore = create<State>((set, get) => ({
-  apiBase: loadStoredApiBase(),
+  apiBase: detectDefaultApiBase(),
   cameraId: '',
   labelerReturnRoute: 'cameras',
   image: undefined,
@@ -115,10 +102,6 @@ export const useStore = create<State>((set, get) => ({
   offsetY: 0,
   loading: false,
 
-  setApi(base, token) {
-    storeApiBase(base);
-    set({ apiBase: base, token });
-  },
   setViewMode(mode) { set({ viewMode: mode }); },
   setCamera(id) { set({ cameraId: id }); },
   setLabelerReturnRoute(route) { set({ labelerReturnRoute: route }); },

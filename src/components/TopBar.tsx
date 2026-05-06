@@ -121,16 +121,6 @@ export default function TopBar() {
           )}
         </div>
 
-        {isLabeler && (
-          <Field label="API Base">
-            <Input
-              value={apiBase}
-              onChange={e => useStore.setState({ apiBase: e.target.value })}
-placeholder="https://api.parktrack.live"
-            />
-          </Field>
-        )}
-
         <Field label="Token">
           <Input
             value={effectiveToken ?? ''}

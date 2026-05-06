@@ -1,7 +1,6 @@
-import { Button, Field, Input, Select } from '@/components/UiKit';
+import { Button, Field, Select } from '@/components/UiKit';
 import { useSessionStore } from '@/auth/sessionStore';
 import { AppRoute, navigate } from '@/router/routes';
-import { useStore } from '@/store/useStore';
 
 type NavItem = {
   route: AppRoute;
@@ -21,9 +20,6 @@ const navItems: NavItem[] = [
 
 export default function AdminShell({ route, children }: { route: AppRoute; children: React.ReactNode }) {
   const session = useSessionStore();
-  const apiBase = useStore(state => state.apiBase);
-  const token = useStore(state => state.token);
-  const setApi = useStore(state => state.setApi);
   const activeMemberships = (session.user?.partner_memberships ?? []).filter(m => m.is_active !== false);
   const membershipOptions = activeMemberships.filter(
     (membership, index, all) => all.findIndex(item => item.partner_id === membership.partner_id) === index
@@ -58,13 +54,6 @@ export default function AdminShell({ route, children }: { route: AppRoute; child
 
       <header className="admin-header">
         <div className="admin-header-left">
-          <Field label="API Base">
-            <Input
-              value={apiBase}
-              onChange={e => setApi(e.target.value, token)}
-              placeholder="https://api.parktrack.live"
-            />
-          </Field>
           {canSwitchPartner && (
             <Field label="Партнёр">
               <Select
@@ -88,7 +77,7 @@ export default function AdminShell({ route, children }: { route: AppRoute; child
         <div className="admin-header-user">
           <div>
             <div className="admin-user-name">{session.user?.full_name || session.user?.email}</div>
-            <div className="small">{token || session.accessToken ? 'Сессия активна' : 'Без токена'}</div>
+            <div className="small">{session.accessToken ? 'Сессия активна' : 'Без токена'}</div>
           </div>
           <Button variant="ghost" onClick={() => session.logout()}>Выйти</Button>
         </div>

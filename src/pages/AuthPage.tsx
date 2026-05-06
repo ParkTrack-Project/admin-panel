@@ -1,14 +1,11 @@
 import { FormEvent, useState } from 'react';
-import { api, apiConfig } from '@/api/client';
+import { api } from '@/api/client';
 import { useSessionStore } from '@/auth/sessionStore';
 import { navigate } from '@/router/routes';
-import { useStore } from '@/store/useStore';
 import { Button, Field, Input } from '@/components/UiKit';
 
 export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   const session = useSessionStore();
-  const apiBase = useStore(state => state.apiBase);
-  const setApi = useStore(state => state.setApi);
   const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
@@ -24,7 +21,6 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
     setError(undefined);
 
     try {
-      apiConfig.set(apiBase);
       const response = isRegister
         ? await api.auth.register({ email, password, full_name: fullName || undefined, phone: phone || undefined })
         : await api.auth.login({ login: email, password });
@@ -62,15 +58,6 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
         </div>
 
         <form className="auth-form" onSubmit={submit}>
-          <Field label="API Base">
-            <Input
-              value={apiBase}
-              onChange={e => setApi(e.target.value)}
-              placeholder="http://localhost:8000/api/v1"
-              spellCheck={false}
-            />
-          </Field>
-
           <Field label="Email">
             <Input
               type="email"
