@@ -3,7 +3,7 @@ import { useSessionStore } from '@/auth/sessionStore';
 import { api, type UserProfileResponse, type PartnerMemberResponse, type PartnerResponse } from '@/api/client';
 import { Button, Field, Input, Select } from '@/components/UiKit';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
-import type { PartnerMembership } from '@/types';
+import type { AccessScope, PartnerMembership } from '@/types';
 
 type AdminUser = {
   user_id: number;
@@ -23,6 +23,14 @@ type UserEditorState = {
   phone: string;
   globalRole: string;
   isActive: boolean;
+};
+
+type AddPartnerState = {
+  partnerId: string;
+  userRole: string;
+  readScope: AccessScope | string;
+  writeScope: AccessScope | string;
+  deleteScope: AccessScope | string;
 };
 
 function mapUser(input: UserProfileResponse): AdminUser {
@@ -68,9 +76,13 @@ function formatDate(dateStr?: string) {
   }
 }
 
+const scopeOptions: Array<AccessScope | string> = ['none', 'own', 'assigned', 'own_or_assigned', 'partner_all', 'global_all'];
+const memberRoleOptions = ['partner_owner', 'partner_admin', 'partner_manager', 'partner_analyst', 'partner_viewer'];
+
 export default function UsersAdminPage() {
   const canManageUsers = useSessionStore(state => state.hasPermission('admin.users.manage'));
   const canViewPartnerMembers = useSessionStore(state => state.hasPermission('partner_members.view'));
+  const canInvitePartnerMembers = useSessionStore(state => state.hasPermission('partner_members.invite'));
   const canViewPartners = useSessionStore(state => state.hasPermission('admin.partners.view'));
   const notifySuccess = useFeedbackStore(state => state.success);
   const confirmAction = useFeedbackStore(state => state.confirm);
@@ -88,8 +100,18 @@ export default function UsersAdminPage() {
   const [saveLoading, setSaveLoading] = useState(false);
   const [saveError, setSaveError] = useState<string | undefined>();
   const [membershipsByUserId, setMembershipsByUserId] = useState<Record<number, PartnerMembership[]>>({});
+  const [partnerOptions, setPartnerOptions] = useState<PartnerResponse[]>([]);
   const [membershipsLoading, setMembershipsLoading] = useState(false);
   const [membershipsError, setMembershipsError] = useState<string | undefined>();
+  const [addPartnerForm, setAddPartnerForm] = useState<AddPartnerState>({
+    partnerId: '',
+    userRole: 'partner_viewer',
+    readScope: 'own',
+    writeScope: 'own',
+    deleteScope: 'own'
+  });
+  const [addPartnerLoading, setAddPartnerLoading] = useState(false);
+  const [addPartnerError, setAddPartnerError] = useState<string | undefined>();
 
   const filteredUsers = useMemo(() => {
     return users.filter(user => {
@@ -134,8 +156,9 @@ export default function UsersAdminPage() {
   }
 
   async function loadMemberships() {
-    if (!canViewPartnerMembers || !canViewPartners) {
+    if (!canViewPartners) {
       setMembershipsByUserId({});
+      setPartnerOptions([]);
       setMembershipsError(undefined);
       return;
     }
@@ -145,6 +168,13 @@ export default function UsersAdminPage() {
     try {
       const partnersResponse = await api.partners.list();
       const partnerItems: PartnerResponse[] = partnersResponse.items;
+      setPartnerOptions(partnerItems);
+
+      if (!canViewPartnerMembers) {
+        setMembershipsByUserId({});
+        return;
+      }
+
       const responses = await Promise.all(
         partnerItems.map(async partner => {
           try {
@@ -176,6 +206,7 @@ export default function UsersAdminPage() {
       setMembershipsByUserId(nextMemberships);
     } catch (err: any) {
       setMembershipsError(String(err?.message || err));
+      setPartnerOptions([]);
     } finally {
       setMembershipsLoading(false);
     }
@@ -293,6 +324,41 @@ export default function UsersAdminPage() {
       await loadUsers();
     } catch (err: any) {
       setSaveError(String(err?.message || err));
+    }
+  }
+
+  async function onAddUserToPartner() {
+    if (!selectedUser) return;
+
+    const partnerId = parseInt(addPartnerForm.partnerId, 10);
+    if (!Number.isFinite(partnerId) || partnerId < 1) {
+      setAddPartnerError('Выберите партнёра.');
+      return;
+    }
+
+    setAddPartnerLoading(true);
+    setAddPartnerError(undefined);
+    try {
+      await api.partners.inviteMember(partnerId, {
+        user_id: selectedUser.user_id,
+        user_role: addPartnerForm.userRole,
+        read_scope: addPartnerForm.readScope,
+        write_scope: addPartnerForm.writeScope,
+        delete_scope: addPartnerForm.deleteScope
+      });
+      notifySuccess('Пользователь добавлен к партнёру.');
+      setAddPartnerForm({
+        partnerId: '',
+        userRole: 'partner_viewer',
+        readScope: 'own',
+        writeScope: 'own',
+        deleteScope: 'own'
+      });
+      await loadMemberships();
+    } catch (err: any) {
+      setAddPartnerError(String(err?.message || err));
+    } finally {
+      setAddPartnerLoading(false);
     }
   }
 
@@ -519,6 +585,77 @@ export default function UsersAdminPage() {
                       )}
                     </div>
                   </div>
+                )}
+
+                {canInvitePartnerMembers && canViewPartners && (
+                  <div className="partner-attach-panel">
+                    <h3>Добавить к партнёру</h3>
+                    <div className="profile-form-grid">
+                      <Field label="Партнёр">
+                        <Select
+                          value={addPartnerForm.partnerId}
+                          onChange={e => {
+                            setAddPartnerError(undefined);
+                            setAddPartnerForm(prev => ({ ...prev, partnerId: e.target.value }));
+                          }}
+                        >
+                          <option value="">Выберите партнёра</option>
+                          {partnerOptions.map(partner => (
+                            <option key={partner.partner_id} value={partner.partner_id}>
+                              {partner.legal_name} · #{partner.partner_id}
+                            </option>
+                          ))}
+                        </Select>
+                      </Field>
+                      <Field label="Role">
+                        <Select
+                          value={addPartnerForm.userRole}
+                          onChange={e => {
+                            setAddPartnerError(undefined);
+                            setAddPartnerForm(prev => ({ ...prev, userRole: e.target.value }));
+                          }}
+                        >
+                          {memberRoleOptions.map(role => <option key={role} value={role}>{role}</option>)}
+                        </Select>
+                      </Field>
+                      <Field label="Read scope">
+                        <Select
+                          value={addPartnerForm.readScope}
+                          onChange={e => setAddPartnerForm(prev => ({ ...prev, readScope: e.target.value }))}
+                        >
+                          {scopeOptions.map(scope => <option key={scope} value={scope}>{scope}</option>)}
+                        </Select>
+                      </Field>
+                      <Field label="Write scope">
+                        <Select
+                          value={addPartnerForm.writeScope}
+                          onChange={e => setAddPartnerForm(prev => ({ ...prev, writeScope: e.target.value }))}
+                        >
+                          {scopeOptions.map(scope => <option key={scope} value={scope}>{scope}</option>)}
+                        </Select>
+                      </Field>
+                      <Field label="Delete scope">
+                        <Select
+                          value={addPartnerForm.deleteScope}
+                          onChange={e => setAddPartnerForm(prev => ({ ...prev, deleteScope: e.target.value }))}
+                        >
+                          {scopeOptions.map(scope => <option key={scope} value={scope}>{scope}</option>)}
+                        </Select>
+                      </Field>
+                    </div>
+                    {addPartnerError && <div className="notice error">{addPartnerError}</div>}
+                    <div className="row" style={{ justifyContent: 'flex-end' }}>
+                      <Button
+                        onClick={onAddUserToPartner}
+                        disabled={addPartnerLoading || !addPartnerForm.partnerId || membershipsLoading}
+                      >
+                        {addPartnerLoading ? 'Добавление...' : 'Добавить к партнёру'}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {canInvitePartnerMembers && !canViewPartners && (
+                  <div className="notice warning">Нет доступа к списку партнёров, поэтому добавить пользователя к партнёру отсюда нельзя.</div>
                 )}
               </div>
 
