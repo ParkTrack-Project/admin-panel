@@ -152,8 +152,8 @@ export default function ZoneMapSelector() {
 
         <div className="row" style={{ marginTop: 12, gap: 8 }}>
           <Button onClick={onSave} disabled={!zone || loading}>Сохранить</Button>
-          <Button className="ghost" onClick={onCancel}>Отмена</Button>
-          <Button className="ghost" onClick={onReset} disabled={!zone}>Сбросить</Button>
+          <Button variant="ghost" onClick={onCancel}>Отмена</Button>
+          <Button variant="ghost" onClick={onReset} disabled={!zone}>Сбросить</Button>
         </div>
       </div>
 

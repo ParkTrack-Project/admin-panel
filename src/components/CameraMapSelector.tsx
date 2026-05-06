@@ -191,7 +191,7 @@ export default function CameraMapSelector() {
 
         <div className="row" style={{ marginTop: 12, gap: 8 }}>
           <Button onClick={onSave} disabled={!point || loading}>Сохранить</Button>
-          <Button className="ghost" onClick={onCancel}>Отмена</Button>
+          <Button variant="ghost" onClick={onCancel}>Отмена</Button>
         </div>
       </div>
 

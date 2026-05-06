@@ -145,13 +145,13 @@ export default function Sidebar() {
 
       <div className="col">
         <Button onClick={startDrawZone}>+ Добавить зону</Button>
-        <Button className="ghost" onClick={openCameraOnMap}>
+        <Button variant="ghost" onClick={openCameraOnMap}>
           Отметить камеру на карте
         </Button>
         {s.tool === 'drawZone' && s.zoneDraft && s.zoneDraft.length > 0 && (
-          <Button className="danger" onClick={()=>s.zoneDraftClear()}>Отменить рисование</Button>
+          <Button variant="danger" onClick={()=>s.zoneDraftClear()}>Отменить рисование</Button>
         )}
-        <Button className="ghost" onClick={()=>s.loadZones()}>Загрузить зоны (GET)</Button>
+        <Button variant="ghost" onClick={()=>s.loadZones()}>Обновить зоны</Button>
       </div>
 
       <h4>Зоны</h4>
@@ -198,14 +198,14 @@ export default function Sidebar() {
 
           <div className="row" style={{gap:8}}>
             <Button onClick={()=>s.setTool('editZone')}>Редактировать вершины</Button>
-            <Button className="ghost" onClick={finishEditing}>Готово</Button>
+            <Button variant="ghost" onClick={finishEditing}>Готово</Button>
           </div>
           <div className="row" style={{gap:8}}>
-            <Button onClick={()=>s.saveZone(zone.id)}>Сохранить зону (PUT/POST)</Button>
-            <Button className="danger" onClick={()=>s.removeZone(zone.id)}>Удалить зону (DELETE)</Button>
+            <Button onClick={()=>s.saveZone(zone.id)}>Сохранить зону</Button>
+            <Button variant="danger" onClick={()=>s.removeZone(zone.id)}>Удалить зону</Button>
           </div>
           <div className="row" style={{gap:8}}>
-            <Button className="ghost" onClick={openZoneOnMap}>
+            <Button variant="ghost" onClick={openZoneOnMap}>
               Отметить зону на карте
             </Button>
           </div>

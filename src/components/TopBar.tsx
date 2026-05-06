@@ -121,14 +121,6 @@ export default function TopBar() {
           )}
         </div>
 
-        <Field label="Token">
-          <Input
-            value={effectiveToken ?? ''}
-            onChange={e => useStore.setState({ token: e.target.value })}
-            placeholder="вставьте токен"
-          />
-        </Field>
-
         {isLabeler && (
           <Field label="Image URL">
             <div className="row" style={{ gap: 6, alignItems: 'center' }}>
