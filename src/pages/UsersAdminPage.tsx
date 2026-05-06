@@ -350,9 +350,6 @@ export default function UsersAdminPage() {
             <option value="inactive">Неактивные</option>
           </Select>
         </Field>
-        <Button variant="ghost" onClick={loadUsers} disabled={loading}>
-          {loading ? 'Загрузка...' : 'Применить'}
-        </Button>
       </div>
 
       {error && <div className="notice error">{error}</div>}
