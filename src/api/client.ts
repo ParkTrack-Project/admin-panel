@@ -156,8 +156,8 @@ export type PartnerListFilters = {
 export type CreatePartnerRequest = {
   legal_name: string;
   slug: string;
-  contact_email: string;
-  contact_phone: string;
+  contact_email?: string | null;
+  contact_phone?: string | null;
 };
 
 export type UpdatePartnerRequest = {

@@ -349,7 +349,7 @@ export default function PartnersAdminPage() {
     const contactEmail = createForm.contactEmail.trim();
     const contactPhone = createForm.contactPhone.trim();
 
-    if (!legalName || !slug || !contactEmail || !contactPhone) {
+    if (!legalName || !slug) {
       setCreateError('Заполните все обязательные поля.');
       return;
     }
@@ -360,8 +360,8 @@ export default function PartnersAdminPage() {
       const response = await api.partners.create({
         legal_name: legalName,
         slug,
-        contact_email: contactEmail,
-        contact_phone: contactPhone
+        contact_email: contactEmail || undefined,
+        contact_phone: contactPhone || undefined
       });
       await loadPartners();
       setSelectedPartnerId(response.partner_id);
