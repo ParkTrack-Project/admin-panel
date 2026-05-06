@@ -25,11 +25,16 @@ type StoredSessionUser = SessionUser & {
   global_roles?: string[];
 };
 
+function normalizeGlobalRole(role?: string) {
+  const normalized = role?.trim().toLowerCase().replace(/^globalrole\./, '');
+  return normalized === 'admin' ? 'admin' : 'user';
+}
+
 function normalizeStoredUser(user?: StoredSessionUser): SessionUser | undefined {
   if (!user) return undefined;
   return {
     ...user,
-    global_role: user.global_role ?? user.global_roles?.[0] ?? 'user',
+    global_role: normalizeGlobalRole(user.global_role ?? user.global_roles?.[0]),
     permissions: user.permissions ?? [],
     partner_memberships: user.partner_memberships ?? []
   };
@@ -61,11 +66,15 @@ function activeMembershipsOf(user?: SessionUser) {
   return (user?.partner_memberships ?? []).filter(membership => membership.is_active !== false);
 }
 
+function hasAdminRole(user?: SessionUser) {
+  return normalizeGlobalRole(user?.global_role) === 'admin';
+}
+
 function normalizeCurrentPartnerId(snapshot: SessionSnapshot) {
   if (!snapshot.user) return undefined;
 
   const memberships = activeMembershipsOf(snapshot.user);
-  const isAdmin = snapshot.user.global_role === 'admin';
+  const isAdmin = hasAdminRole(snapshot.user);
 
   if (snapshot.currentPartnerId !== undefined) {
     const hasMembership = memberships.some(membership => membership.partner_id === snapshot.currentPartnerId);
@@ -198,12 +207,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   hasPermission(permission) {
     const user = get().user;
     if (!user) return false;
-    if (user.global_role === 'admin') return true;
+    if (hasAdminRole(user)) return true;
     if (user.permissions.includes(permission)) return true;
     return user.partner_memberships.some(m => m.is_active !== false && m.permissions.includes(permission));
   },
 
   isAdmin() {
-    return get().user?.global_role === 'admin';
+    return hasAdminRole(get().user);
   }
 }));
