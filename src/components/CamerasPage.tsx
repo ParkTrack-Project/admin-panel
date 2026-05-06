@@ -656,8 +656,10 @@ export default function CamerasPage() {
                   setLabelerReturnRoute('cameras');
                   setCamera(String(selectedCamera.camera_id));
                   loadCameraMeta(selectedCamera.camera_id);
-                  store.setViewMode('cameraMapSelector');
                   navigate('labeler');
+                  window.setTimeout(() => {
+                    store.setViewMode('cameraMapSelector');
+                  }, 0);
                 }}
               >
                 Положение на карте

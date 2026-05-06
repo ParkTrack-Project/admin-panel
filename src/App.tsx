@@ -120,9 +120,6 @@ export default function App() {
   }, [route, sessionUser]);
 
   useEffect(() => {
-    if (route === 'cameras' && viewMode !== 'cameras') {
-      setViewMode('cameras');
-    }
     if (route === 'labeler' && viewMode === 'cameras') {
       setViewMode('labeler');
     }

@@ -205,8 +205,10 @@ export default function ZonesAdminPage() {
     try {
       await prepareZoneWorkspace(zone);
       store.setTool('select');
-      store.setViewMode('zoneMapSelector');
       navigate('labeler');
+      window.setTimeout(() => {
+        store.setViewMode('zoneMapSelector');
+      }, 0);
     } catch (err: any) {
       setError(`Не удалось открыть карту зоны: ${String(err?.message || err)}`);
     }
