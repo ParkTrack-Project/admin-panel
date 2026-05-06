@@ -4,7 +4,23 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
 type Config = { baseUrl: string; token?: string };
 
-let cfg: Config = { baseUrl: 'https://api.parktrack.live' };
+function detectDefaultApiBase() {
+  const configuredBase = import.meta.env.VITE_API_BASE?.trim();
+  if (configuredBase) {
+    return configuredBase.replace(/\/+$/, '');
+  }
+
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1') {
+      return 'http://localhost:8000/api/v1';
+    }
+  }
+
+  return 'https://api.parktrack.live';
+}
+
+let cfg: Config = { baseUrl: detectDefaultApiBase() };
 let unauthorizedHandler: (() => void) | undefined;
 
 type ValidationIssue = {
@@ -16,7 +32,7 @@ type ValidationIssue = {
 
 export const apiConfig = {
   set(baseUrl: string, token?: string) {
-    cfg = { baseUrl, token };
+    cfg = { baseUrl: baseUrl.replace(/\/+$/, ''), token };
   },
   setUnauthorizedHandler(handler?: () => void) {
     unauthorizedHandler = handler;
@@ -168,7 +184,7 @@ export async function request<T>(method: HttpMethod, path: string, body?: any): 
   try {
     res = await fetch(url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
   } catch {
-    throw new Error('Не удалось подключиться к API. Проверьте доступность сервера.');
+    throw new Error(`Не удалось подключиться к API (${cfg.baseUrl}). Проверьте доступность сервера.`);
   }
 
   const ct = res.headers.get('content-type') || '';
@@ -205,7 +221,7 @@ export async function requestBlob(path: string): Promise<{ blob: Blob; headers: 
   try {
     res = await fetch(url, { method: 'GET', headers });
   } catch {
-    throw new Error('Не удалось подключиться к API. Проверьте доступность сервера.');
+    throw new Error(`Не удалось подключиться к API (${cfg.baseUrl}). Проверьте доступность сервера.`);
   }
 
   useRequestLog.getState().add({
