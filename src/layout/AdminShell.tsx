@@ -1,6 +1,8 @@
 import { Button, Field, Select } from '@/components/UiKit';
 import { useSessionStore } from '@/auth/sessionStore';
 import { AppRoute, navigate } from '@/router/routes';
+import { api, type PartnerResponse } from '@/api/client';
+import { useEffect, useMemo, useState } from 'react';
 
 type NavItem = {
   route: AppRoute;
@@ -20,11 +22,44 @@ const navItems: NavItem[] = [
 
 export default function AdminShell({ route, children }: { route: AppRoute; children: React.ReactNode }) {
   const session = useSessionStore();
+  const canViewPartners = useSessionStore(state => state.hasPermission('admin.partners.view'));
+  const [partners, setPartners] = useState<PartnerResponse[]>([]);
   const activeMemberships = (session.user?.partner_memberships ?? []).filter(m => m.is_active !== false);
   const membershipOptions = activeMemberships.filter(
     (membership, index, all) => all.findIndex(item => item.partner_id === membership.partner_id) === index
   );
+  const partnerNameById = useMemo(
+    () => new Map(partners.map(partner => [partner.partner_id, partner.legal_name])),
+    [partners]
+  );
   const canSwitchPartner = session.isAdmin() || membershipOptions.length > 0;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPartners() {
+      if (!canViewPartners) {
+        setPartners([]);
+        return;
+      }
+
+      try {
+        const response = await api.partners.list({ top: 200, offset: 0 });
+        if (!cancelled) {
+          setPartners(response.items);
+        }
+      } catch {
+        if (!cancelled) {
+          setPartners([]);
+        }
+      }
+    }
+
+    loadPartners();
+    return () => {
+      cancelled = true;
+    };
+  }, [canViewPartners]);
 
   return (
     <div className="admin-app">
@@ -66,7 +101,7 @@ export default function AdminShell({ route, children }: { route: AppRoute; child
                 {session.isAdmin() && <option value="all">Все партнёры</option>}
                 {membershipOptions.map(m => (
                   <option key={m.partner_id} value={m.partner_id}>
-                    #{m.partner_id} · {m.role}
+                    {partnerNameById.get(m.partner_id) ?? `#${m.partner_id}`} · {m.role}
                   </option>
                 ))}
               </Select>
