@@ -7,16 +7,16 @@ import { useEffect, useMemo, useState } from 'react';
 type NavItem = {
   route: AppRoute;
   label: string;
-  permission?: string;
+  permissions?: string[];
 };
 
 const navItems: NavItem[] = [
   { route: 'dashboard', label: 'Обзор' },
-  { route: 'cameras', label: 'Камеры', permission: 'cameras.view' },
-  { route: 'zones', label: 'Зоны', permission: 'zones.view' },
-  { route: 'sources', label: 'Источники', permission: 'sources.view' },
-  { route: 'users', label: 'Пользователи', permission: 'admin.users.view' },
-  { route: 'partners', label: 'Партнёры', permission: 'admin.partners.view' },
+  { route: 'cameras', label: 'Камеры', permissions: ['cameras.view'] },
+  { route: 'zones', label: 'Зоны', permissions: ['zones.view'] },
+  { route: 'sources', label: 'Источники', permissions: ['sources.view'] },
+  { route: 'users', label: 'Пользователи', permissions: ['admin.users.view', 'partner_members.view'] },
+  { route: 'partners', label: 'Партнёры', permissions: ['admin.partners.view'] },
   { route: 'profile', label: 'Профиль' }
 ];
 
@@ -74,7 +74,7 @@ export default function AdminShell({ route, children }: { route: AppRoute; child
 
         <nav className="admin-nav">
           {navItems
-            .filter(item => !item.permission || session.hasPermission(item.permission))
+            .filter(item => !item.permissions || item.permissions.some(permission => session.hasPermission(permission)))
             .map(item => (
               <button
                 key={item.route}

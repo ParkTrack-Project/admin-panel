@@ -33,6 +33,8 @@ type AddPartnerState = {
   deleteScope: AccessScope | string;
 };
 
+type PartnerOption = Pick<PartnerResponse, 'partner_id' | 'legal_name'>;
+
 function mapUser(input: UserProfileResponse): AdminUser {
   return {
     user_id: input.user_id,
@@ -80,6 +82,9 @@ const scopeOptions: Array<AccessScope | string> = ['none', 'own', 'assigned', 'o
 const memberRoleOptions = ['partner_owner', 'partner_admin', 'partner_manager', 'partner_analyst', 'partner_viewer'];
 
 export default function UsersAdminPage() {
+  const sessionUser = useSessionStore(state => state.user);
+  const currentPartnerId = useSessionStore(state => state.currentPartnerId);
+  const activeSessionMemberships = (sessionUser?.partner_memberships ?? []).filter(m => m.is_active !== false);
   const canManageUsers = useSessionStore(state => state.hasPermission('admin.users.manage'));
   const canViewPartnerMembers = useSessionStore(state => state.hasPermission('partner_members.view'));
   const canInvitePartnerMembers = useSessionStore(state => state.hasPermission('partner_members.invite'));
@@ -100,7 +105,7 @@ export default function UsersAdminPage() {
   const [saveLoading, setSaveLoading] = useState(false);
   const [saveError, setSaveError] = useState<string | undefined>();
   const [membershipsByUserId, setMembershipsByUserId] = useState<Record<number, PartnerMembership[]>>({});
-  const [partnerOptions, setPartnerOptions] = useState<PartnerResponse[]>([]);
+  const [partnerOptions, setPartnerOptions] = useState<PartnerOption[]>([]);
   const [membershipsLoading, setMembershipsLoading] = useState(false);
   const [membershipsError, setMembershipsError] = useState<string | undefined>();
   const [addPartnerForm, setAddPartnerForm] = useState<AddPartnerState>({
@@ -126,6 +131,10 @@ export default function UsersAdminPage() {
   }, [users, query, roleFilter, statusFilter]);
 
   const selectedMemberships = selectedUser ? membershipsByUserId[selectedUser.user_id] ?? [] : [];
+  const partnerNameById = useMemo(
+    () => new Map(partnerOptions.map(partner => [partner.partner_id, partner.legal_name])),
+    [partnerOptions]
+  );
   const hasEditorChanges = useMemo(() => {
     if (!selectedUser || !editor) return false;
     return JSON.stringify(normalizeEditor(editor)) !== JSON.stringify(normalizeEditor(userToEditor(selectedUser)));
@@ -156,7 +165,14 @@ export default function UsersAdminPage() {
   }
 
   async function loadMemberships() {
-    if (!canViewPartners) {
+    const fallbackPartnerOptions: PartnerOption[] = activeSessionMemberships
+      .filter((membership, index, list) => list.findIndex(item => item.partner_id === membership.partner_id) === index)
+      .map(membership => ({
+        partner_id: membership.partner_id,
+        legal_name: `Партнёр #${membership.partner_id}`
+      }));
+
+    if (!canViewPartners && !fallbackPartnerOptions.length) {
       setMembershipsByUserId({});
       setPartnerOptions([]);
       setMembershipsError(undefined);
@@ -166,9 +182,15 @@ export default function UsersAdminPage() {
     setMembershipsLoading(true);
     setMembershipsError(undefined);
     try {
-      const partnersResponse = await api.partners.list();
-      const partnerItems: PartnerResponse[] = partnersResponse.items;
+      const partnerItems: PartnerOption[] = canViewPartners
+        ? (await api.partners.list()).items
+        : fallbackPartnerOptions;
       setPartnerOptions(partnerItems);
+      setAddPartnerForm(prev => {
+        if (prev.partnerId || !partnerItems.length || canViewPartners) return prev;
+        const defaultPartnerId = currentPartnerId ?? partnerItems[0].partner_id;
+        return { ...prev, partnerId: String(defaultPartnerId) };
+      });
 
       if (!canViewPartnerMembers) {
         setMembershipsByUserId({});
@@ -218,7 +240,7 @@ export default function UsersAdminPage() {
 
   useEffect(() => {
     loadMemberships();
-  }, [canViewPartnerMembers, canViewPartners]);
+  }, [canViewPartnerMembers, canViewPartners, currentPartnerId, activeSessionMemberships.length]);
 
   useEffect(() => {
     if (!filteredUsers.length) {
@@ -555,11 +577,8 @@ export default function UsersAdminPage() {
                 {!canViewPartnerMembers && (
                   <div className="notice warning">Недостаточно прав для просмотра членств в партнёрах.</div>
                 )}
-                {canViewPartnerMembers && !canViewPartners && (
-                  <div className="notice warning">Нет доступа к списку партнёров, поэтому членства пользователя неполные.</div>
-                )}
                 {membershipsLoading && <div className="empty-state">Загрузка членств...</div>}
-                {!membershipsLoading && canViewPartnerMembers && canViewPartners && (
+                {!membershipsLoading && canViewPartnerMembers && (
                   <div className="table-scroll">
                     <div className="table-header memberships-contract">
                       <span>Partner</span>
@@ -571,7 +590,7 @@ export default function UsersAdminPage() {
                     <div className="table-list">
                       {selectedMemberships.map((membership, index) => (
                         <div className="table-row memberships-contract" key={`${membership.partner_id}-${membership.role}-${index}`}>
-                          <span>{membership.partner_id}</span>
+                          <span>{partnerNameById.get(membership.partner_id) ?? `Партнёр #${membership.partner_id}`}</span>
                           <span>{membership.role}</span>
                           <span>{membership.read_scope}</span>
                           <span>{membership.write_scope}</span>
@@ -587,7 +606,7 @@ export default function UsersAdminPage() {
                   </div>
                 )}
 
-                {canInvitePartnerMembers && canViewPartners && (
+                {canInvitePartnerMembers && partnerOptions.length > 0 && (
                   <div className="partner-attach-panel">
                     <h3>Добавить к партнёру</h3>
                     <div className="profile-form-grid">
@@ -654,8 +673,8 @@ export default function UsersAdminPage() {
                     </div>
                   </div>
                 )}
-                {canInvitePartnerMembers && !canViewPartners && (
-                  <div className="notice warning">Нет доступа к списку партнёров, поэтому добавить пользователя к партнёру отсюда нельзя.</div>
+                {canInvitePartnerMembers && partnerOptions.length === 0 && (
+                  <div className="notice warning">Нет доступных партнёров для добавления пользователя.</div>
                 )}
               </div>
 

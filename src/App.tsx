@@ -24,12 +24,12 @@ import type { ViewMode } from '@/types';
 import { navigate } from '@/router/routes';
 import GlobalFeedbackHost from '@/feedback/GlobalFeedbackHost';
 
-const routePermissions: Partial<Record<AppRoute, string>> = {
-  cameras: 'cameras.view',
-  zones: 'zones.view',
-  sources: 'sources.view',
-  users: 'admin.users.view',
-  partners: 'admin.partners.view'
+const routePermissions: Partial<Record<AppRoute, string[]>> = {
+  cameras: ['cameras.view'],
+  zones: ['zones.view'],
+  sources: ['sources.view'],
+  users: ['admin.users.view', 'partner_members.view'],
+  partners: ['admin.partners.view']
 };
 
 export default function App() {
@@ -155,8 +155,8 @@ export default function App() {
       </AppErrorBoundary>
     );
   } else {
-    const requiredPermission = routePermissions[route];
-    if (requiredPermission && !sessionHasPermission(requiredPermission)) {
+    const requiredPermissions = routePermissions[route];
+    if (requiredPermissions && !requiredPermissions.some(permission => sessionHasPermission(permission))) {
       content = (
         <AdminShell route={route}>
           <AccessStatePage
