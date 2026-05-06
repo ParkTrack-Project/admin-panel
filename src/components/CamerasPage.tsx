@@ -102,6 +102,64 @@ function normalizeEditor(editor: CameraEditorState) {
   };
 }
 
+type MediaSize = {
+  width: number;
+  height: number;
+};
+
+function probeImageSize(source: string): Promise<MediaSize> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        resolve({ width: img.naturalWidth, height: img.naturalHeight });
+        return;
+      }
+      reject(new Error('Image dimensions are empty.'));
+    };
+    img.onerror = () => reject(new Error('Image source is not readable as an image.'));
+    img.src = source;
+  });
+}
+
+function probeVideoSize(source: string): Promise<MediaSize> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    const cleanup = () => {
+      video.removeAttribute('src');
+      video.load();
+    };
+
+    video.preload = 'metadata';
+    video.muted = true;
+    video.crossOrigin = 'anonymous';
+    video.onloadedmetadata = () => {
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        const size = { width: video.videoWidth, height: video.videoHeight };
+        cleanup();
+        resolve(size);
+        return;
+      }
+      cleanup();
+      reject(new Error('Video dimensions are empty.'));
+    };
+    video.onerror = () => {
+      cleanup();
+      reject(new Error('Video source is not readable in browser.'));
+    };
+    video.src = source;
+  });
+}
+
+async function detectMediaSize(source: string): Promise<MediaSize> {
+  try {
+    return await probeImageSize(source);
+  } catch {
+    return probeVideoSize(source);
+  }
+}
+
 export default function CamerasPage() {
   const store = useStore();
   const { setViewMode, setCamera, loadCameraMeta, cameraId, setLabelerReturnRoute } = store;
@@ -704,12 +762,44 @@ function AddCameraForm({
   const [source, setSource] = useState('');
   const [imageWidth, setImageWidth] = useState('1920');
   const [imageHeight, setImageHeight] = useState('1080');
+  const [sizeLoading, setSizeLoading] = useState(false);
+  const [sizeMessage, setSizeMessage] = useState('Размер будет определён автоматически.');
   const [latitude, setLatitude] = useState('59.9386');
   const [longitude, setLongitude] = useState('30.3141');
   const [calib, setCalib] = useState('');
   const [error, setError] = useState<string | undefined>();
 
-  function handleSubmit(e: React.FormEvent) {
+  async function detectSourceSize(nextSource = source) {
+    const trimmedSource = nextSource.trim();
+    if (!trimmedSource) {
+      setSizeMessage('Размер будет определён автоматически.');
+      return;
+    }
+
+    setSizeLoading(true);
+    setSizeMessage('Определяем размер источника...');
+    try {
+      const size = await detectMediaSize(trimmedSource);
+      setImageWidth(String(size.width));
+      setImageHeight(String(size.height));
+      setSizeMessage(`Определено автоматически: ${size.width} x ${size.height}.`);
+    } catch {
+      setImageWidth('1920');
+      setImageHeight('1080');
+      setSizeMessage('Не удалось прочитать размер в браузере. Используем 1920 x 1080.');
+    } finally {
+      setSizeLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      detectSourceSize(source);
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [source]);
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(undefined);
     let calibParsed: any = null;
@@ -720,6 +810,9 @@ function AddCameraForm({
         setError('Ошибка парсинга JSON в calib.');
         return;
       }
+    }
+    if (!Number.isFinite(parseInt(imageWidth, 10)) || !Number.isFinite(parseInt(imageHeight, 10))) {
+      await detectSourceSize(source);
     }
     onSave({
       title: title.trim(),
@@ -749,29 +842,25 @@ function AddCameraForm({
         <Field label="Source (видеопоток) *">
           <Input
             value={source}
-            onChange={e => setSource(e.target.value)}
+            onChange={e => {
+              setSource(e.target.value);
+              setError(undefined);
+            }}
+            onBlur={() => detectSourceSize(source)}
             placeholder="https://... или rtsp://..."
             required
           />
         </Field>
-        <Field label="Image Width *">
-          <Input
-            type="number"
-            min={1}
-            value={imageWidth}
-            onChange={e => setImageWidth(e.target.value)}
-            required
-          />
-        </Field>
-        <Field label="Image Height *">
-          <Input
-            type="number"
-            min={1}
-            value={imageHeight}
-            onChange={e => setImageHeight(e.target.value)}
-            required
-          />
-        </Field>
+        <div className="auto-size-panel">
+          <div>
+            <div className="metric-label">Размер изображения</div>
+            <div className="detail-value">{imageWidth} x {imageHeight}</div>
+            <div className="small">{sizeMessage}</div>
+          </div>
+          <Button type="button" variant="ghost" onClick={() => detectSourceSize()} disabled={!source.trim() || sizeLoading}>
+            {sizeLoading ? 'Определяем...' : 'Определить заново'}
+          </Button>
+        </div>
         <Field label="Latitude *">
           <Input
             type="number"
