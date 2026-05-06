@@ -46,10 +46,19 @@ export default function App() {
   const token = useStore(state => state.token);
   const setViewMode = useStore(state => state.setViewMode);
   const validatedTokenRef = useRef<string | undefined>(undefined);
+  const effectiveToken = sessionAccessToken || token;
+  const shouldValidateSession = Boolean(
+    sessionAccessToken
+    && sessionUser
+    && sessionAccessToken !== 'dev-admin-token'
+    && validatedTokenRef.current !== sessionAccessToken
+  );
+
+  apiConfig.set(apiBase, effectiveToken);
 
   useEffect(() => {
-    apiConfig.set(apiBase, sessionAccessToken || token);
-  }, [apiBase, sessionAccessToken, token]);
+    apiConfig.set(apiBase, effectiveToken);
+  }, [apiBase, effectiveToken]);
 
   useEffect(() => {
     apiConfig.setUnauthorizedHandler(() => {
@@ -133,7 +142,7 @@ export default function App() {
         <AuthPage mode={route} />
       </AppErrorBoundary>
     );
-  } else if (sessionValidating) {
+  } else if (sessionValidating || shouldValidateSession) {
     content = (
       <AccessStatePage
         title="Проверяем сессию"

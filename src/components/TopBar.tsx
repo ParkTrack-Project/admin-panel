@@ -12,7 +12,7 @@ export default function TopBar() {
   const [loadingSnapshot, setLoadingSnapshot] = useState(false);
   const currentBlobUrlRef = useRef<string | null>(null);
   const loadedCameraIdRef = useRef<string | null>(null);
-  const effectiveToken = token ?? sessionAccessToken;
+  const effectiveToken = sessionAccessToken || token;
 
   useEffect(() => {
     apiConfig.set(apiBase, effectiveToken);
