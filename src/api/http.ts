@@ -30,6 +30,9 @@ type ValidationIssue = {
   ctx?: Record<string, any>;
 };
 
+const DEMO_PROTECTED_API_MESSAGE =
+  'Этот раздел требует настоящую backend-сессию. Dev-вход показывает интерфейс, но не даёт доступ к защищённым данным API.';
+
 export const apiConfig = {
   set(baseUrl: string, token?: string) {
     cfg = { baseUrl: baseUrl.replace(/\/+$/, ''), token };
@@ -130,6 +133,14 @@ function formatApiError(data: any, status: number) {
   return knownMessage || `HTTP ${status}`;
 }
 
+function formatRequestError(data: any, status: number, isDemoToken: boolean) {
+  if (status === 401 && isDemoToken) {
+    return DEMO_PROTECTED_API_MESSAGE;
+  }
+
+  return formatApiError(data, status);
+}
+
 function normalizeServerMessage(message?: string) {
   if (!message) return undefined;
 
@@ -201,7 +212,7 @@ export async function request<T>(method: HttpMethod, path: string, body?: any): 
     if (res.status === 401 && unauthorizedHandler && !path.startsWith('/auth/') && !isDemoToken) {
       unauthorizedHandler();
     }
-    const errorMessage = formatApiError(data, res.status);
+    const errorMessage = formatRequestError(data, res.status, isDemoToken);
     throw new Error(errorMessage);
   }
 
@@ -244,7 +255,7 @@ export async function requestBlob(path: string): Promise<{ blob: Blob; headers: 
     } else {
       data = await res.text().catch(() => undefined);
     }
-    throw new Error(typeof data === 'string' ? data : formatApiError(data, res.status));
+    throw new Error(typeof data === 'string' && !isDemoToken ? data : formatRequestError(data, res.status, isDemoToken));
   }
 
   return {
