@@ -33,6 +33,18 @@ type ValidationIssue = {
 const DEMO_PROTECTED_API_MESSAGE =
   'Этот раздел требует настоящую backend-сессию. Dev-вход показывает интерфейс, но не даёт доступ к защищённым данным API.';
 
+export class ApiRequestError extends Error {
+  status?: number;
+  response?: unknown;
+
+  constructor(message: string, status?: number, response?: unknown) {
+    super(message);
+    this.name = 'ApiRequestError';
+    this.status = status;
+    this.response = response;
+  }
+}
+
 export const apiConfig = {
   set(baseUrl: string, token?: string) {
     cfg = { baseUrl: baseUrl.replace(/\/+$/, ''), token };
@@ -195,7 +207,7 @@ export async function request<T>(method: HttpMethod, path: string, body?: any): 
   try {
     res = await fetch(url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
   } catch {
-    throw new Error(`Не удалось подключиться к API (${cfg.baseUrl}). Проверьте доступность сервера.`);
+    throw new ApiRequestError(`Не удалось подключиться к API (${cfg.baseUrl}). Проверьте доступность сервера.`);
   }
 
   const ct = res.headers.get('content-type') || '';
@@ -213,7 +225,7 @@ export async function request<T>(method: HttpMethod, path: string, body?: any): 
       unauthorizedHandler();
     }
     const errorMessage = formatRequestError(data, res.status, isDemoToken);
-    throw new Error(errorMessage);
+    throw new ApiRequestError(errorMessage, res.status, data);
   }
 
   return data as T;
@@ -232,7 +244,7 @@ export async function requestBlob(path: string): Promise<{ blob: Blob; headers: 
   try {
     res = await fetch(url, { method: 'GET', headers });
   } catch {
-    throw new Error(`Не удалось подключиться к API (${cfg.baseUrl}). Проверьте доступность сервера.`);
+    throw new ApiRequestError(`Не удалось подключиться к API (${cfg.baseUrl}). Проверьте доступность сервера.`);
   }
 
   useRequestLog.getState().add({
@@ -255,7 +267,8 @@ export async function requestBlob(path: string): Promise<{ blob: Blob; headers: 
     } else {
       data = await res.text().catch(() => undefined);
     }
-    throw new Error(typeof data === 'string' && !isDemoToken ? data : formatRequestError(data, res.status, isDemoToken));
+    const errorMessage = typeof data === 'string' && !isDemoToken ? data : formatRequestError(data, res.status, isDemoToken);
+    throw new ApiRequestError(errorMessage, res.status, data);
   }
 
   return {

@@ -18,6 +18,7 @@ import ZonesAdminPage from '@/pages/ZonesAdminPage';
 import { AppRoute, useHashRoute } from '@/router/routes';
 import { useSessionStore } from '@/auth/sessionStore';
 import { api, apiConfig } from '@/api/client';
+import { ApiRequestError } from '@/api/http';
 import { useEffect, useRef } from 'react';
 import type { ViewMode } from '@/types';
 import { navigate } from '@/router/routes';
@@ -83,9 +84,13 @@ export default function App() {
         });
       } catch (error: any) {
         if (cancelled) return;
-        validatedTokenRef.current = undefined;
-        sessionLogout();
-        navigate('login');
+        if (error instanceof ApiRequestError && error.status === 401) {
+          validatedTokenRef.current = undefined;
+          sessionLogout();
+          navigate('login');
+          return;
+        }
+        validatedTokenRef.current = sessionAccessToken;
       } finally {
         if (!cancelled) {
           sessionSetValidating(false);
