@@ -843,6 +843,12 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   min-width: 820px;
 }
 
+.table-header.profile-memberships,
+.table-row.profile-memberships {
+  grid-template-columns: 110px minmax(220px, 1fr) 150px 170px 150px 120px;
+  min-width: 920px;
+}
+
 .table-header.contract-endpoints,
 .table-row.contract-endpoints {
   grid-template-columns: minmax(280px, 1fr) 180px;

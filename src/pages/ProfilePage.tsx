@@ -280,17 +280,30 @@ export default function ProfilePage() {
 
       <div className="section-panel">
         <h2>Партнёрские доступы</h2>
-        <div className="table-list">
-          {memberships.map(m => (
-            <div className="table-row" key={m.partner_id}>
-              <div>#{m.partner_id}</div>
-              <div>{m.role}</div>
-              <div>{m.read_scope}</div>
-              <div>{m.write_scope}</div>
-              <div>{m.delete_scope}</div>
-            </div>
-          ))}
-          {memberships.length === 0 && <div className="empty-state">Нет партнёрских доступов</div>}
+        <div className="table-scroll">
+          <div className="table-header profile-memberships">
+            <span>Партнёр</span>
+            <span>Роль</span>
+            <span>Чтение</span>
+            <span>Запись</span>
+            <span>Удаление</span>
+            <span>Статус</span>
+          </div>
+          <div className="table-list">
+            {memberships.map(m => (
+              <div className="table-row profile-memberships" key={`${m.partner_id}-${m.role}`}>
+                <span>#{m.partner_id}</span>
+                <span>{formatPartnerRole(m.role)}</span>
+                <span>{formatAccessScope(m.read_scope)}</span>
+                <span>{formatAccessScope(m.write_scope)}</span>
+                <span>{formatAccessScope(m.delete_scope)}</span>
+                <span className={`status-pill ${m.is_active === false ? 'paused' : 'active'}`}>
+                  {m.is_active === false ? 'Неактивен' : 'Активен'}
+                </span>
+              </div>
+            ))}
+            {memberships.length === 0 && <div className="empty-state">Нет партнёрских доступов</div>}
+          </div>
         </div>
       </div>
     </section>
@@ -313,4 +326,27 @@ function formatDate(dateStr?: string) {
   } catch {
     return dateStr;
   }
+}
+
+function formatAccessScope(scope?: string) {
+  const labels: Record<string, string> = {
+    none: 'Нет доступа',
+    own: 'Свои',
+    assigned: 'Назначенные',
+    own_or_assigned: 'Свои и назначенные',
+    partner_all: 'Весь партнёр',
+    global_all: 'Все партнёры'
+  };
+  return labels[scope ?? ''] ?? scope ?? '—';
+}
+
+function formatPartnerRole(role?: string) {
+  const labels: Record<string, string> = {
+    partner_owner: 'Владелец партнёра',
+    partner_admin: 'Администратор партнёра',
+    partner_manager: 'Менеджер партнёра',
+    partner_analyst: 'Аналитик партнёра',
+    partner_viewer: 'Наблюдатель партнёра'
+  };
+  return labels[role ?? ''] ?? role ?? '—';
 }
