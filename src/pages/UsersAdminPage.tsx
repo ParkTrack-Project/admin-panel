@@ -360,31 +360,33 @@ export default function UsersAdminPage() {
 
       <div className="contract-grid">
         <div className="section-panel">
-          <div className="table-header users-contract">
-            <span>ID</span>
-            <span>Email</span>
-            <span>Роль</span>
-            <span>Статус</span>
-            <span>Создан</span>
-          </div>
-          <div className="table-list">
-            {filteredUsers.map(user => (
-              <button
-                key={user.user_id}
-                type="button"
-                className={`table-row users-contract contract-row-button ${selectedUser?.user_id === user.user_id ? 'active' : ''}`}
-                onClick={() => setSelectedUserId(user.user_id)}
-              >
-                <span>{user.user_id}</span>
-                <span>{user.email}</span>
-                <span>{user.global_role}</span>
-                <span className={`status-pill ${user.is_active ? 'active' : 'paused'}`}>
-                  {user.is_active ? 'active' : 'inactive'}
-                </span>
-                <span>{formatDate(user.created_at)}</span>
-              </button>
-            ))}
-            {!loading && !filteredUsers.length && <div className="empty-state">Пользователи не найдены.</div>}
+          <div className="table-scroll">
+            <div className="table-header users-contract">
+              <span>ID</span>
+              <span>Email</span>
+              <span>Роль</span>
+              <span>Статус</span>
+              <span>Создан</span>
+            </div>
+            <div className="table-list">
+              {filteredUsers.map(user => (
+                <button
+                  key={user.user_id}
+                  type="button"
+                  className={`table-row users-contract contract-row-button ${selectedUser?.user_id === user.user_id ? 'active' : ''}`}
+                  onClick={() => setSelectedUserId(user.user_id)}
+                >
+                  <span>{user.user_id}</span>
+                  <span>{user.email}</span>
+                  <span>{user.global_role}</span>
+                  <span className={`status-pill ${user.is_active ? 'active' : 'paused'}`}>
+                    {user.is_active ? 'active' : 'inactive'}
+                  </span>
+                  <span>{formatDate(user.created_at)}</span>
+                </button>
+              ))}
+              {!loading && !filteredUsers.length && <div className="empty-state">Пользователи не найдены.</div>}
+            </div>
           </div>
         </div>
 
@@ -495,7 +497,7 @@ export default function UsersAdminPage() {
                 )}
                 {membershipsLoading && <div className="empty-state">Загрузка членств...</div>}
                 {!membershipsLoading && canViewPartnerMembers && canViewPartners && (
-                  <>
+                  <div className="table-scroll">
                     <div className="table-header memberships-contract">
                       <span>Partner</span>
                       <span>Role</span>
@@ -519,7 +521,7 @@ export default function UsersAdminPage() {
                         </div>
                       )}
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
 

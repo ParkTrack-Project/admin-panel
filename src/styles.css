@@ -292,6 +292,19 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   flex-direction: column;
 }
 
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 4px;
+}
+
+.table-scroll .table-header,
+.table-scroll .table-row,
+.table-scroll .table-list {
+  min-width: max-content;
+}
+
 .table-row {
   padding: 10px 8px;
   border-bottom: 1px solid #edf1ee;
@@ -793,7 +806,8 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
 
 .table-header.users-contract,
 .table-row.users-contract {
-  grid-template-columns: 70px minmax(220px, 1fr) 140px 90px 110px;
+  grid-template-columns: 70px minmax(300px, 1fr) 140px 140px 170px;
+  min-width: 820px;
 }
 
 .table-header.partners-contract,
@@ -804,6 +818,7 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
 .table-header.memberships-contract,
 .table-row.memberships-contract {
   grid-template-columns: 70px 160px 1fr 1fr 1fr;
+  min-width: 680px;
 }
 
 .table-header.contract-endpoints,
