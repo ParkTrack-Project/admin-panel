@@ -735,7 +735,6 @@ export default function CamerasPage() {
                     <div><b>{cam.title}</b></div>
                     <div className="small">ID: {cam.camera_id}</div>
                     <div style={{ marginTop: 6, display: 'flex', gap: 6 }}>
-                      <Button onClick={() => setSelectedId(cam.camera_id)}>Открыть</Button>
                       <Button onClick={() => openLabeler(cam)}>Разметка</Button>
                     </div>
                   </div>
