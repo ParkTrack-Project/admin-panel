@@ -123,6 +123,14 @@ export type AdminUpdateUserRequest = {
   is_active?: boolean;
 };
 
+export type AdminCreateUserRequest = {
+  email: string;
+  password: string;
+  full_name?: string | null;
+  phone?: string | null;
+  global_role?: string;
+};
+
 export type PartnerResponse = {
   partner_id: number;
   legal_name: string;
@@ -337,6 +345,10 @@ export const api = {
 
     async update(userId: number, data: AdminUpdateUserRequest) {
       return request<UserProfileResponse>('PUT', `/users/${encodeURIComponent(userId)}`, data);
+    },
+
+    async create(data: AdminCreateUserRequest) {
+      return request<UserProfileResponse>('POST', '/users', data);
     },
 
     async remove(userId: number) {

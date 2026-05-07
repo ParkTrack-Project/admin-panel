@@ -25,6 +25,14 @@ type UserEditorState = {
   isActive: boolean;
 };
 
+type CreateUserState = {
+  email: string;
+  password: string;
+  fullName: string;
+  phone: string;
+  globalRole: string;
+};
+
 type AddPartnerState = {
   partnerId: string;
   userRole: string;
@@ -80,6 +88,13 @@ function formatDate(dateStr?: string) {
 
 const scopeOptions: Array<AccessScope | string> = ['none', 'own', 'assigned', 'own_or_assigned', 'partner_all', 'global_all'];
 const memberRoleOptions = ['partner_owner', 'partner_admin', 'partner_manager', 'partner_analyst', 'partner_viewer'];
+const emptyCreateUserForm: CreateUserState = {
+  email: '',
+  password: '',
+  fullName: '',
+  phone: '',
+  globalRole: 'user'
+};
 
 export default function UsersAdminPage() {
   const sessionUser = useSessionStore(state => state.user);
@@ -104,6 +119,10 @@ export default function UsersAdminPage() {
   const [editor, setEditor] = useState<UserEditorState | null>(null);
   const [saveLoading, setSaveLoading] = useState(false);
   const [saveError, setSaveError] = useState<string | undefined>();
+  const [showCreateUser, setShowCreateUser] = useState(false);
+  const [createUserForm, setCreateUserForm] = useState<CreateUserState>(emptyCreateUserForm);
+  const [createUserLoading, setCreateUserLoading] = useState(false);
+  const [createUserError, setCreateUserError] = useState<string | undefined>();
   const [membershipsByUserId, setMembershipsByUserId] = useState<Record<number, PartnerMembership[]>>({});
   const [partnerOptions, setPartnerOptions] = useState<PartnerOption[]>([]);
   const [membershipsLoading, setMembershipsLoading] = useState(false);
@@ -349,6 +368,46 @@ export default function UsersAdminPage() {
     }
   }
 
+  async function onCreateUser(e: React.FormEvent) {
+    e.preventDefault();
+
+    const email = createUserForm.email.trim();
+    const password = createUserForm.password;
+    const fullName = createUserForm.fullName.trim();
+    const phone = createUserForm.phone.trim();
+
+    if (!email) {
+      setCreateUserError('Email обязателен.');
+      return;
+    }
+    if (password.length < 6) {
+      setCreateUserError('В пароле должно быть не менее 6 символов.');
+      return;
+    }
+
+    setCreateUserLoading(true);
+    setCreateUserError(undefined);
+    try {
+      const created = mapUser(await api.users.create({
+        email,
+        password,
+        full_name: fullName || null,
+        phone: phone || null,
+        global_role: createUserForm.globalRole
+      }));
+      notifySuccess('Пользователь создан.');
+      setCreateUserForm(emptyCreateUserForm);
+      setShowCreateUser(false);
+      setUsers(prev => [created, ...prev.filter(user => user.user_id !== created.user_id)]);
+      setSelectedUserId(created.user_id);
+      await loadMemberships();
+    } catch (err: any) {
+      setCreateUserError(String(err?.message || err));
+    } finally {
+      setCreateUserLoading(false);
+    }
+  }
+
   async function onAddUserToPartner() {
     if (!selectedUser) return;
 
@@ -396,8 +455,14 @@ export default function UsersAdminPage() {
           <h1>Пользователи</h1>
           <p>Реальный список пользователей, редактирование профиля и статуса через текущий backend.</p>
         </div>
-        <Button disabled>
-          {canManageUsers ? 'Создание пользователя ждёт backend endpoint' : 'Недостаточно прав для создания'}
+        <Button
+          onClick={() => {
+            setCreateUserError(undefined);
+            setShowCreateUser(prev => !prev);
+          }}
+          disabled={!canManageUsers}
+        >
+          {showCreateUser ? 'Скрыть форму' : 'Новый пользователь'}
         </Button>
       </div>
 
@@ -442,6 +507,92 @@ export default function UsersAdminPage() {
 
       {error && <div className="notice error">{error}</div>}
       {membershipsError && <div className="notice warning">{membershipsError}</div>}
+      {!canManageUsers && (
+        <div className="notice warning">Создание пользователей доступно только с правом admin.users.manage.</div>
+      )}
+
+      {showCreateUser && canManageUsers && (
+        <div className="section-panel profile-form-panel">
+          <h2>Новый пользователь</h2>
+          <form className="profile-form-grid" onSubmit={onCreateUser}>
+            <Field label="Email *">
+              <Input
+                type="email"
+                value={createUserForm.email}
+                onChange={e => {
+                  setCreateUserError(undefined);
+                  setCreateUserForm(prev => ({ ...prev, email: e.target.value }));
+                }}
+                placeholder="user@example.com"
+                required
+              />
+            </Field>
+            <Field label="Пароль *">
+              <Input
+                type="password"
+                value={createUserForm.password}
+                onChange={e => {
+                  setCreateUserError(undefined);
+                  setCreateUserForm(prev => ({ ...prev, password: e.target.value }));
+                }}
+                placeholder="Минимум 6 символов"
+                minLength={6}
+                required
+              />
+            </Field>
+            <Field label="Полное имя">
+              <Input
+                value={createUserForm.fullName}
+                onChange={e => {
+                  setCreateUserError(undefined);
+                  setCreateUserForm(prev => ({ ...prev, fullName: e.target.value }));
+                }}
+                placeholder="Имя сотрудника"
+              />
+            </Field>
+            <Field label="Телефон">
+              <Input
+                value={createUserForm.phone}
+                onChange={e => {
+                  setCreateUserError(undefined);
+                  setCreateUserForm(prev => ({ ...prev, phone: e.target.value }));
+                }}
+                placeholder="+79991234567"
+              />
+            </Field>
+            <Field label="Глобальная роль">
+              <Select
+                value={createUserForm.globalRole}
+                onChange={e => {
+                  setCreateUserError(undefined);
+                  setCreateUserForm(prev => ({ ...prev, globalRole: e.target.value }));
+                }}
+              >
+                <option value="user">user</option>
+                <option value="admin">admin</option>
+              </Select>
+            </Field>
+            <div className="row create-user-actions">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setCreateUserError(undefined);
+                  setCreateUserForm(emptyCreateUserForm);
+                  setShowCreateUser(false);
+                }}
+                disabled={createUserLoading}
+              >
+                Отмена
+              </Button>
+              <Button type="submit" disabled={createUserLoading}>
+                {createUserLoading ? 'Создание...' : 'Создать пользователя'}
+              </Button>
+            </div>
+          </form>
+          {createUserError && <div className="notice error">{createUserError}</div>}
+        </div>
+      )}
 
       <div className="contract-grid">
         <div className="section-panel">

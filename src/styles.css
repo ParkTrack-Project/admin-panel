@@ -826,6 +826,12 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   gap: 12px;
 }
 
+.create-user-actions {
+  align-self: end;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
 .table-header.users-contract,
 .table-row.users-contract {
   grid-template-columns: 70px minmax(300px, 1fr) 140px 140px 170px;
