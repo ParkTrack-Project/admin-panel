@@ -600,6 +600,18 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   padding: 10px;
 }
 
+.camera-preview:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  padding: 18px;
+  border: 0;
+  border-radius: 0;
+  background: #0f1711;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+}
+
 .auto-size-panel {
   display: flex;
   align-items: center;
@@ -619,9 +631,22 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   margin-bottom: 10px;
 }
 
+.camera-preview:fullscreen .camera-preview-header {
+  color: #ffffff;
+  margin-bottom: 0;
+}
+
 .camera-preview-header h3 {
   margin: 0;
   font-size: 15px;
+}
+
+.camera-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .camera-preview-image {
@@ -631,6 +656,14 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   border: 1px solid var(--border);
   object-fit: cover;
   background: #0f1711;
+}
+
+.camera-preview:fullscreen .camera-preview-image {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: contain;
+  border-color: rgba(255, 255, 255, 0.18);
 }
 
 .zones-admin-grid {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { api, Camera, CameraSnapshot, CreateCameraRequest } from '@/api/client';
 import { Button, Field, Input, Select, Textarea } from './UiKit';
@@ -178,8 +178,10 @@ export default function CamerasPage() {
     q: '',
     isActive: 'all'
   });
+  const snapshotPreviewRef = useRef<HTMLDivElement | null>(null);
   const [snapshot, setSnapshot] = useState<SnapshotState>({ loading: false });
   const [snapshotReloadKey, setSnapshotReloadKey] = useState(0);
+  const [isSnapshotFullscreen, setIsSnapshotFullscreen] = useState(false);
   const [editor, setEditor] = useState<CameraEditorState | null>(null);
   const [saveState, setSaveState] = useState<CameraSaveState>({ loading: false });
 
@@ -218,6 +220,15 @@ export default function CamerasPage() {
   useEffect(() => {
     loadCameras();
   }, [currentPartnerId]);
+
+  useEffect(() => {
+    function onFullscreenChange() {
+      setIsSnapshotFullscreen(document.fullscreenElement === snapshotPreviewRef.current);
+    }
+
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
 
   useEffect(() => {
     if (!cameras.length) return;
@@ -396,6 +407,21 @@ export default function CamerasPage() {
       notifySuccess('Настройки камеры сохранены.');
     } catch (e: any) {
       setSaveState({ loading: false, error: `Ошибка сохранения камеры: ${String(e)}` });
+    }
+  }
+
+  async function toggleSnapshotFullscreen() {
+    const container = snapshotPreviewRef.current;
+    if (!container) return;
+
+    try {
+      if (document.fullscreenElement === container) {
+        await document.exitFullscreen();
+        return;
+      }
+      await container.requestFullscreen();
+    } catch (e: any) {
+      setError(`Не удалось открыть snapshot на весь экран: ${String(e?.message || e)}`);
     }
   }
 
@@ -604,15 +630,26 @@ export default function CamerasPage() {
             )}
 
             {saveState.error && <div className="notice error">{saveState.error}</div>}
-            <div className="camera-preview">
+            <div className="camera-preview" ref={snapshotPreviewRef}>
               <div className="camera-preview-header">
                 <h3>Распознанные автомобили</h3>
-                <Button
-                  variant="ghost"
-                  onClick={() => setSnapshotReloadKey(key => key + 1)}
-                >
-                  Обновить кадр
-                </Button>
+                <div className="camera-preview-actions">
+                  {snapshot.data?.image_url && (
+                    <Button
+                      variant="ghost"
+                      onClick={toggleSnapshotFullscreen}
+                      title={isSnapshotFullscreen ? 'Выйти из полноэкранного режима' : 'Открыть snapshot на весь экран'}
+                    >
+                      {isSnapshotFullscreen ? 'Свернуть' : 'На весь экран'}
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    onClick={() => setSnapshotReloadKey(key => key + 1)}
+                  >
+                    Обновить кадр
+                  </Button>
+                </div>
               </div>
               {snapshot.loading && <div className="empty-state">Загрузка snapshot...</div>}
               {!snapshot.loading && snapshot.error && (
