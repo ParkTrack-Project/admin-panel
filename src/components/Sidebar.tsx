@@ -19,6 +19,13 @@ function formatDate(dateStr?: string): string {
   }
 }
 
+function parseOptionalPositiveInt(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = parseInt(trimmed, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 export default function Sidebar() {
   const s = useStore();
   const zone = s.zones.find(z => String(z.id) === String(s.activeZoneId));
@@ -163,7 +170,10 @@ export default function Sidebar() {
               <span className="badge">{z.zone_type}</span>
             </div>
             <div className="small">
-              capacity: {z.capacity} • pay: {z.pay}
+              мест: {z.capacity} • цена: {z.pay}
+            </div>
+            <div className="small">
+              партнёр: {z.partner_id ?? '—'} • {z.location_type || 'локация —'} • {z.is_active === false ? 'inactive' : 'active'}
             </div>
           </div>
         ))}
@@ -173,23 +183,65 @@ export default function Sidebar() {
         <>
           <hr/>
           <h4>Свойства зоны</h4>
-          <Field label="Zone Type">
+          <Field label="Тип зоны">
             <Select value={zone.zone_type} onChange={e=>s.updateZone(zone.id,{zone_type:e.target.value as any})}>
               <option value="standard">standard</option>
               <option value="parallel">parallel</option>
               <option value="disabled">disabled</option>
             </Select>
           </Field>
-          <Field label="Capacity">
+          <Field label="Вместимость">
             <Input type="number" min={1} value={zone.capacity}
               onChange={e=>{
                 const val = parseInt(e.target.value||'1',10);
                 s.updateZone(zone.id,{capacity: Math.max(1, val)});
               }}/>
           </Field>
-          <Field label="Pay">
+          <Field label="Цена">
             <Input type="number" min={0} value={zone.pay}
               onChange={e=>s.updateZone(zone.id,{pay: parseInt(e.target.value||'0',10)})}/>
+          </Field>
+          <Field label="Partner ID">
+            <Input
+              value={zone.partner_id ?? ''}
+              onChange={e=>s.updateZone(zone.id,{partner_id: parseOptionalPositiveInt(e.target.value)})}
+              placeholder={camera?.partner_id ? `Камера: #${camera.partner_id}` : 'Не задан'}
+            />
+          </Field>
+          <Field label="Location Type">
+            <Input
+              value={zone.location_type ?? ''}
+              onChange={e=>s.updateZone(zone.id,{location_type: e.target.value.trim() || null})}
+              placeholder="street / yard / parking_lot / garage"
+            />
+          </Field>
+          <Field label="Флаги">
+            <div className="zone-flags-grid">
+              <label className="zone-flag-toggle">
+                <input
+                  type="checkbox"
+                  checked={zone.is_active !== false}
+                  onChange={e=>s.updateZone(zone.id,{is_active: e.target.checked})}
+                />
+                <span className="small">Активна</span>
+              </label>
+              <label className="zone-flag-toggle">
+                <input
+                  type="checkbox"
+                  checked={zone.is_private === true}
+                  onChange={e=>s.updateZone(zone.id,{is_private: e.target.checked})}
+                />
+                <span className="small">Private</span>
+              </label>
+              <label className="zone-flag-toggle">
+                <input
+                  type="checkbox"
+                  checked={zone.is_accessible === true}
+                  onChange={e=>s.updateZone(zone.id,{is_accessible: e.target.checked})}
+                />
+                <span className="small">Accessible</span>
+              </label>
+            </div>
           </Field>
           <div className="small" style={{ marginTop: 4, opacity: 0.7 }}>
             <div>Создано: {formatDate(zone.created_at)}</div>
@@ -197,7 +249,7 @@ export default function Sidebar() {
           </div>
 
           <div className="row" style={{gap:8}}>
-            <Button onClick={()=>s.setTool('editZone')}>Редактировать вершины</Button>
+            <Button onClick={()=>s.setTool('editZone')}>Редактировать полигон</Button>
             <Button variant="ghost" onClick={finishEditing}>Готово</Button>
           </div>
           <div className="row" style={{gap:8}}>
@@ -206,7 +258,7 @@ export default function Sidebar() {
           </div>
           <div className="row" style={{gap:8}}>
             <Button variant="ghost" onClick={openZoneOnMap}>
-              Отметить зону на карте
+              Геометрия на карте
             </Button>
           </div>
         </>

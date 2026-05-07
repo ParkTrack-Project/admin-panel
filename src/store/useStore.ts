@@ -160,7 +160,7 @@ export const useStore = create<State>((set, get) => ({
     const draft = get().zoneDraft;
     if (!draft || draft.length !== 4) return;
 
-    const { cameraId, zones } = get();
+    const { cameraId, zones, cameraMeta } = get();
     const cid = parseInt(cameraId || '0', 10) || 0;
 
     const quad = clockwiseSort(draft as [PxPoint, PxPoint, PxPoint, PxPoint]) as [PxPoint, PxPoint, PxPoint, PxPoint];
@@ -172,7 +172,12 @@ export const useStore = create<State>((set, get) => ({
       capacity: 1,
       pay: 0,
       image_quad: quad,
-      points: quad.map(toGeo) as any
+      image_polygon: quad,
+      points: quad.map(toGeo) as any,
+      partner_id: cameraMeta?.partner_id ?? null,
+      is_active: true,
+      is_private: false,
+      is_accessible: false
     };
 
     set({
@@ -184,7 +189,16 @@ export const useStore = create<State>((set, get) => ({
   },
 
   updateZone(id, patch) {
-    set((s) => ({ zones: s.zones.map(z => String(z.id) === String(id) ? { ...z, ...patch } : z) }));
+    set((s) => ({
+      zones: s.zones.map(z => {
+        if (String(z.id) !== String(id)) return z;
+        const next = { ...z, ...patch };
+        if (patch.image_quad) {
+          next.image_polygon = patch.image_quad;
+        }
+        return next;
+      })
+    }));
   },
 
   ensureZoneClockwise(id) {
@@ -193,7 +207,7 @@ export const useStore = create<State>((set, get) => ({
     const sorted = clockwiseSort(z.image_quad);
     if (sorted) {
       const newPoints = z.points.map((pt, i) => ({ ...pt, x: sorted[i].x, y: sorted[i].y })) as any;
-      get().updateZone(id, { image_quad: sorted, points: newPoints });
+      get().updateZone(id, { image_quad: sorted, image_polygon: sorted, points: newPoints });
     }
   },
 
@@ -221,7 +235,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async saveZone(id) {
-    const current = get().zones.find(z => String(z.id) === String(id));
+    let current = get().zones.find(z => String(z.id) === String(id));
     if (!current) {
       console.warn('saveZone: zone not found', id);
       return;
@@ -234,6 +248,7 @@ export const useStore = create<State>((set, get) => ({
     }
     
     get().ensureZoneClockwise(id);
+    current = get().zones.find(z => String(z.id) === String(id)) ?? current;
 
     set({ loading: true, info: undefined, error: undefined });
     try {
