@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import ZoneLayer from './ZoneLayer';
 import type { KonvaEventObject } from 'konva/lib/Node';
+import { Button } from './UiKit';
 
 export default function ImageViewport() {
   const { image, scale, offsetX, offsetY, setView, tool } = useStore();
@@ -11,6 +12,7 @@ export default function ImageViewport() {
   const stageRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 100, h: 100 });
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const lastImageUrlRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
@@ -23,8 +25,50 @@ export default function ImageViewport() {
     }
     onResize();
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+
+    const resizeObserver = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(onResize)
+      : undefined;
+    if (resizeObserver && containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
+
+    return () => {
+      window.removeEventListener('resize', onResize);
+      resizeObserver?.disconnect();
+    };
   }, []);
+
+  useEffect(() => {
+    function onFullscreenChange() {
+      setIsFullscreen(document.fullscreenElement === containerRef.current);
+      window.setTimeout(() => {
+        if (!containerRef.current) return;
+        setSize({
+          w: containerRef.current.clientWidth,
+          h: containerRef.current.clientHeight
+        });
+      }, 0);
+    }
+
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
+
+  async function toggleFullscreen() {
+    const container = containerRef.current;
+    if (!container) return;
+
+    try {
+      if (document.fullscreenElement === container) {
+        await document.exitFullscreen();
+        return;
+      }
+      await container.requestFullscreen();
+    } catch (error) {
+      console.error('Fullscreen toggle failed:', error);
+    }
+  }
 
   // Auto-fit image to viewport on first load (only for new images, not on resize)
   useEffect(() => {
@@ -97,6 +141,15 @@ export default function ImageViewport() {
         <>
           <div className="toolbar">
             <div className="badge">scale: {scale.toFixed(2)} • tool: {tool}</div>
+            <Button
+              type="button"
+              variant="ghost"
+              className="viewport-fullscreen-button"
+              onClick={toggleFullscreen}
+              title={isFullscreen ? 'Выйти из полноэкранного режима' : 'Открыть разметку на весь экран'}
+            >
+              {isFullscreen ? 'Свернуть' : 'На весь экран'}
+            </Button>
           </div>
           <Stage
             ref={stageRef}
