@@ -184,21 +184,20 @@ export default function ZoneMapSelector() {
           )}
           {points.map((p, idx) => (
             <Marker
-              key={`marker-${idx}-${p.lat}-${p.lng}`}
+              key={`marker-${idx}`}
               position={p}
               icon={L.divIcon({
                 className: 'zone-point-marker',
-                html: '<div style="width:12px;height:12px;border-radius:50%;background:#ffd666;border:2px solid white;"></div>',
-                iconSize: [12, 12],
-                iconAnchor: [6, 6]
+                html: '<div style="width:24px;height:24px;display:grid;place-items:center;"><div style="width:14px;height:14px;border-radius:50%;background:#ffd666;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.35);"></div></div>',
+                iconSize: [24, 24],
+                iconAnchor: [12, 12]
               })}
               draggable
+              autoPan
               eventHandlers={{
                 drag: (e) => {
-                  // Update lines in real-time during drag
                   const newPos = e.target.getLatLng();
-                  const updatedPoints = points.map((pt, i) => i === idx ? new L.LatLng(newPos.lat, newPos.lng) : pt);
-                  setPoints(updatedPoints);
+                  setPoints(prev => prev.map((pt, i) => i === idx ? new L.LatLng(newPos.lat, newPos.lng) : pt));
                 },
                 dragend: (e) => {
                   const newPos = e.target.getLatLng();
