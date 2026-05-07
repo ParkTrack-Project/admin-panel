@@ -209,11 +209,16 @@ export default function Sidebar() {
             />
           </Field>
           <Field label="Location Type">
-            <Input
+            <Select
               value={zone.location_type ?? ''}
-              onChange={e=>s.updateZone(zone.id,{location_type: e.target.value.trim() || null})}
-              placeholder="street / yard / parking_lot / garage"
-            />
+              onChange={e=>s.updateZone(zone.id,{location_type: e.target.value || null})}
+            >
+              <option value="">Не задан</option>
+              <option value="street">street</option>
+              <option value="yard">yard</option>
+              <option value="parking_lot">parking_lot</option>
+              <option value="garage">garage</option>
+            </Select>
           </Field>
           <Field label="Флаги">
             <div className="zone-flags-grid">

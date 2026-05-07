@@ -584,14 +584,19 @@ export default function ZonesAdminPage() {
                     />
                   </Field>
                   <Field label="Location Type">
-                    <Input
+                    <Select
                       value={editor.locationType}
                       onChange={e => {
                         setSaveState(prev => ({ loading: false, error: undefined }));
                         setEditor(prev => prev ? ({ ...prev, locationType: e.target.value }) : prev);
                       }}
-                      placeholder="street / yard / parking_lot / garage"
-                    />
+                    >
+                      <option value="">Не задан</option>
+                      <option value="street">street</option>
+                      <option value="yard">yard</option>
+                      <option value="parking_lot">parking_lot</option>
+                      <option value="garage">garage</option>
+                    </Select>
                   </Field>
                   <Field label="Флаги">
                     <div className="zone-flags-grid">
