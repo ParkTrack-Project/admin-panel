@@ -24,21 +24,16 @@ export default function ZoneLayer() {
 
   return (
     <Group>
-      {/* Invisible overlay to capture clicks in drawZone mode */}
-      {tool === 'drawZone' && W>0 && H>0 && (
-        <Rect
-          x={0} y={0} width={W} height={H}
-          fill="rgba(0,0,0,0.001)"
-          onClick={onCanvasClick}
-        />
-      )}
-
       {zones.map(z => {
         const active = String(z.id) === String(activeZoneId);
         const pts = z.image_quad.flatMap(p => [p.x, p.y]);
 
         return (
-          <Group key={String(z.id)} onClick={() => selectZone(z.id)}>
+          <Group
+            key={String(z.id)}
+            listening={tool !== 'drawZone'}
+            onClick={() => selectZone(z.id)}
+          >
             <Line
               points={pts}
               closed
@@ -73,6 +68,16 @@ export default function ZoneLayer() {
           </Group>
         );
       })}
+
+      {/* Keep this above existing zones so new points can be placed inside them. */}
+      {tool === 'drawZone' && W>0 && H>0 && (
+        <Rect
+          x={0} y={0} width={W} height={H}
+          fill="rgba(0,0,0,0.001)"
+          onClick={onCanvasClick}
+          onTap={onCanvasClick}
+        />
+      )}
 
       {tool === 'drawZone' && zoneDraft && zoneDraft.length>0 && (
         <Group listening={false}>
