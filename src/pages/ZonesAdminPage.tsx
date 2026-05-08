@@ -11,6 +11,11 @@ type ZoneFilters = {
   cameraId: string;
   partnerId: string;
   status: 'all' | 'active' | 'inactive';
+  zoneType: 'all' | ParkingZone['zone_type'];
+  locationType: 'all' | 'none' | 'street' | 'yard' | 'parking_lot' | 'garage';
+  payMode: 'all' | 'paid' | 'free';
+  accessibility: 'all' | 'accessible' | 'regular';
+  privacy: 'all' | 'private' | 'public';
   maxPay: string;
 };
 
@@ -81,6 +86,42 @@ function normalizeEditor(editor: ZoneEditorState) {
   };
 }
 
+function matchesClientFilters(zone: ParkingZone, filters: ZoneFilters) {
+  if (filters.zoneType !== 'all' && zone.zone_type !== filters.zoneType) {
+    return false;
+  }
+
+  if (filters.locationType === 'none' && zone.location_type) {
+    return false;
+  }
+  if (filters.locationType !== 'all' && filters.locationType !== 'none' && zone.location_type !== filters.locationType) {
+    return false;
+  }
+
+  if (filters.payMode === 'paid' && zone.pay <= 0) {
+    return false;
+  }
+  if (filters.payMode === 'free' && zone.pay > 0) {
+    return false;
+  }
+
+  if (filters.accessibility === 'accessible' && zone.is_accessible !== true) {
+    return false;
+  }
+  if (filters.accessibility === 'regular' && zone.is_accessible === true) {
+    return false;
+  }
+
+  if (filters.privacy === 'private' && zone.is_private !== true) {
+    return false;
+  }
+  if (filters.privacy === 'public' && zone.is_private === true) {
+    return false;
+  }
+
+  return true;
+}
+
 export default function ZonesAdminPage() {
   const store = useStore();
   const activeZoneId = useStore(state => state.activeZoneId);
@@ -103,17 +144,27 @@ export default function ZonesAdminPage() {
     cameraId: '',
     partnerId: '',
     status: 'all',
+    zoneType: 'all',
+    locationType: 'all',
+    payMode: 'all',
+    accessibility: 'all',
+    privacy: 'all',
     maxPay: ''
   });
 
+  const visibleZones = useMemo(
+    () => zones.filter(zone => matchesClientFilters(zone, filters)),
+    [zones, filters]
+  );
+
   const selectedZone = useMemo(
-    () => zones.find(zone => String(zone.id) === selectedZoneId),
-    [zones, selectedZoneId]
+    () => visibleZones.find(zone => String(zone.id) === selectedZoneId),
+    [visibleZones, selectedZoneId]
   );
 
   const activeCount = useMemo(
-    () => zones.filter(zone => zone.is_active !== false).length,
-    [zones]
+    () => visibleZones.filter(zone => zone.is_active !== false).length,
+    [visibleZones]
   );
 
   const hasEditorChanges = useMemo(() => {
@@ -161,6 +212,16 @@ export default function ZonesAdminPage() {
     setEditor(zoneToEditor(selectedZone));
     setSaveState({ loading: false });
   }, [selectedZone?.id]);
+
+  useEffect(() => {
+    setSelectedZoneId(current =>
+      current && visibleZones.some(zone => String(zone.id) === current)
+        ? current
+        : visibleZones[0]
+          ? String(visibleZones[0].id)
+          : undefined
+    );
+  }, [visibleZones]);
 
   useEffect(() => {
     if (selectedZoneId && String(activeZoneId) !== selectedZoneId) {
@@ -339,7 +400,7 @@ export default function ZonesAdminPage() {
       <div className="metric-grid">
         <div className="metric-card">
           <div className="metric-label">Всего зон</div>
-          <div className="metric-value">{zones.length}</div>
+          <div className="metric-value">{visibleZones.length}</div>
         </div>
         <div className="metric-card">
           <div className="metric-label">Активных</div>
@@ -347,11 +408,11 @@ export default function ZonesAdminPage() {
         </div>
         <div className="metric-card">
           <div className="metric-label">С камерами</div>
-          <div className="metric-value">{zones.filter(zone => zone.camera_id > 0).length}</div>
+          <div className="metric-value">{visibleZones.filter(zone => zone.camera_id > 0).length}</div>
         </div>
         <div className="metric-card">
           <div className="metric-label">Платных</div>
-          <div className="metric-value">{zones.filter(zone => zone.pay > 0).length}</div>
+          <div className="metric-value">{visibleZones.filter(zone => zone.pay > 0).length}</div>
         </div>
       </div>
 
@@ -380,6 +441,60 @@ export default function ZonesAdminPage() {
             <option value="inactive">Неактивные</option>
           </Select>
         </Field>
+        <Field label="Тип зоны">
+          <Select
+            value={filters.zoneType}
+            onChange={e => setFilters(prev => ({ ...prev, zoneType: e.target.value as ZoneFilters['zoneType'] }))}
+          >
+            <option value="all">Все</option>
+            <option value="standard">standard</option>
+            <option value="parallel">parallel</option>
+            <option value="disabled">disabled</option>
+          </Select>
+        </Field>
+        <Field label="Location Type">
+          <Select
+            value={filters.locationType}
+            onChange={e => setFilters(prev => ({ ...prev, locationType: e.target.value as ZoneFilters['locationType'] }))}
+          >
+            <option value="all">Все</option>
+            <option value="none">Не задан</option>
+            <option value="street">street</option>
+            <option value="yard">yard</option>
+            <option value="parking_lot">parking_lot</option>
+            <option value="garage">garage</option>
+          </Select>
+        </Field>
+        <Field label="Платность">
+          <Select
+            value={filters.payMode}
+            onChange={e => setFilters(prev => ({ ...prev, payMode: e.target.value as ZoneFilters['payMode'] }))}
+          >
+            <option value="all">Все</option>
+            <option value="paid">Платные</option>
+            <option value="free">Бесплатные</option>
+          </Select>
+        </Field>
+        <Field label="Доступность">
+          <Select
+            value={filters.accessibility}
+            onChange={e => setFilters(prev => ({ ...prev, accessibility: e.target.value as ZoneFilters['accessibility'] }))}
+          >
+            <option value="all">Все</option>
+            <option value="accessible">Для инвалидов</option>
+            <option value="regular">Обычные</option>
+          </Select>
+        </Field>
+        <Field label="Видимость">
+          <Select
+            value={filters.privacy}
+            onChange={e => setFilters(prev => ({ ...prev, privacy: e.target.value as ZoneFilters['privacy'] }))}
+          >
+            <option value="all">Все</option>
+            <option value="public">Public</option>
+            <option value="private">Private</option>
+          </Select>
+        </Field>
         <Field label="Макс. цена">
           <Input
             type="number"
@@ -390,6 +505,22 @@ export default function ZonesAdminPage() {
           />
         </Field>
         <Button variant="ghost" onClick={load} disabled={loading}>Применить</Button>
+        <Button
+          variant="ghost"
+          onClick={() => setFilters({
+            cameraId: '',
+            partnerId: '',
+            status: 'all',
+            zoneType: 'all',
+            locationType: 'all',
+            payMode: 'all',
+            accessibility: 'all',
+            privacy: 'all',
+            maxPay: ''
+          })}
+        >
+          Сбросить
+        </Button>
       </div>
 
       <div className="section-panel zone-create-panel">
@@ -430,7 +561,7 @@ export default function ZonesAdminPage() {
             <span>Локация</span>
           </div>
           <div className="table-list">
-            {zones.map(zone => {
+            {visibleZones.map(zone => {
               const freeCount = zone.free_count ?? (typeof zone.occupied === 'number' ? Math.max(0, zone.capacity - zone.occupied) : undefined);
               const isSelected = String(zone.id) === selectedZoneId;
               return (
@@ -456,7 +587,11 @@ export default function ZonesAdminPage() {
                 </button>
               );
             })}
-            {!loading && zones.length === 0 && <div className="empty-state">Зоны не найдены</div>}
+            {!loading && visibleZones.length === 0 && (
+              <div className="empty-state">
+                {zones.length > 0 ? 'Под выбранные фильтры зоны не подошли' : 'Зоны не найдены'}
+              </div>
+            )}
           </div>
         </div>
 
