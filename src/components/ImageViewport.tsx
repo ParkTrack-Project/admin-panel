@@ -11,9 +11,16 @@ export default function ImageViewport() {
   const [img] = useImage(image?.url ?? '');
   const stageRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const viewRef = useRef({ scale, offsetX, offsetY });
+  const panRef = useRef<{ active: boolean; lastX: number; lastY: number } | null>(null);
   const [size, setSize] = useState({ w: 100, h: 100 });
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isPanning, setIsPanning] = useState(false);
   const lastImageUrlRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    viewRef.current = { scale, offsetX, offsetY };
+  }, [scale, offsetX, offsetY]);
 
   useEffect(() => {
     function onResize() {
@@ -125,6 +132,86 @@ export default function ImageViewport() {
     setView(newScale, newPos.x, newPos.y);
   };
 
+  function setStageCursor(cursor: string) {
+    const st = stageRef.current;
+    if (!st) return;
+    st.container().style.cursor = cursor;
+  }
+
+  function startPan(clientX: number, clientY: number) {
+    const st = stageRef.current;
+    st?.stopDrag();
+    panRef.current = { active: true, lastX: clientX, lastY: clientY };
+    setIsPanning(true);
+    setStageCursor('grabbing');
+  }
+
+  function movePan(clientX: number, clientY: number) {
+    const currentPan = panRef.current;
+    if (!currentPan?.active) return;
+
+    const dx = clientX - currentPan.lastX;
+    const dy = clientY - currentPan.lastY;
+    currentPan.lastX = clientX;
+    currentPan.lastY = clientY;
+
+    const currentView = viewRef.current;
+    const nextOffsetX = currentView.offsetX + dx;
+    const nextOffsetY = currentView.offsetY + dy;
+    viewRef.current = { ...currentView, offsetX: nextOffsetX, offsetY: nextOffsetY };
+    setView(currentView.scale, nextOffsetX, nextOffsetY);
+  }
+
+  function stopPan() {
+    if (!panRef.current?.active) return;
+    panRef.current = null;
+    setIsPanning(false);
+    setStageCursor(tool === 'select' ? 'grab' : 'default');
+  }
+
+  function touchCenter(touches: TouchList) {
+    return {
+      x: (touches[0].clientX + touches[1].clientX) / 2,
+      y: (touches[0].clientY + touches[1].clientY) / 2
+    };
+  }
+
+  const onMouseDown = (e: KonvaEventObject<MouseEvent>) => {
+    if (e.evt.button !== 1 && e.evt.button !== 2) return;
+    e.evt.preventDefault();
+    startPan(e.evt.clientX, e.evt.clientY);
+  };
+
+  const onMouseMove = (e: KonvaEventObject<MouseEvent>) => {
+    if (!panRef.current?.active) return;
+    e.evt.preventDefault();
+    movePan(e.evt.clientX, e.evt.clientY);
+  };
+
+  const onMouseUp = (e: KonvaEventObject<MouseEvent>) => {
+    if (!panRef.current?.active) return;
+    e.evt.preventDefault();
+    stopPan();
+  };
+
+  const onTouchStart = (e: KonvaEventObject<TouchEvent>) => {
+    if (e.evt.touches.length < 2) return;
+    e.evt.preventDefault();
+    const center = touchCenter(e.evt.touches);
+    startPan(center.x, center.y);
+  };
+
+  const onTouchMove = (e: KonvaEventObject<TouchEvent>) => {
+    if (!panRef.current?.active || e.evt.touches.length < 2) return;
+    e.evt.preventDefault();
+    const center = touchCenter(e.evt.touches);
+    movePan(center.x, center.y);
+  };
+
+  const onTouchEnd = () => {
+    stopPan();
+  };
+
   const onDragEnd = (_e: KonvaEventObject<DragEvent>) => {
     const st = stageRef.current;
     if (!st) return;
@@ -132,7 +219,7 @@ export default function ImageViewport() {
   };
 
   return (
-    <div className="canvas" ref={containerRef}>
+    <div className="canvas image-viewport" ref={containerRef}>
       {!image ? (
         <div style={{ padding: 16, color: '#7f86a8' }}>
           Загрузите изображение сверху
@@ -160,8 +247,16 @@ export default function ImageViewport() {
             x={offsetX}
             y={offsetY}
             onWheel={onWheel}
-            draggable={tool === 'select'}
+            draggable={tool === 'select' && !isPanning}
             onDragEnd={onDragEnd}
+            onMouseDown={onMouseDown}
+            onMouseMove={onMouseMove}
+            onMouseUp={onMouseUp}
+            onMouseLeave={onMouseUp}
+            onContextMenu={e => e.evt.preventDefault()}
+            onTouchStart={onTouchStart}
+            onTouchMove={onTouchMove}
+            onTouchEnd={onTouchEnd}
           >
             <Layer>
               {img && (

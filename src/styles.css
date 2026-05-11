@@ -82,6 +82,10 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
 
 .konva-wrap { width: 100%; height: 100%; }
 
+.image-viewport canvas {
+  touch-action: none;
+}
+
 .filepicker {
   display: inline-flex;
   align-items: center;
