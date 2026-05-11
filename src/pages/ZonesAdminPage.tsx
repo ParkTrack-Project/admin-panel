@@ -550,48 +550,50 @@ export default function ZonesAdminPage() {
 
       <div className="zones-admin-grid">
         <div className="section-panel">
-          <div className="table-header zones-admin">
-            <span>ID</span>
-            <span>Камера</span>
-            <span>Тип</span>
-            <span>Места</span>
-            <span>Свободно</span>
-            <span>Цена</span>
-            <span>Статус</span>
-            <span>Локация</span>
-          </div>
-          <div className="table-list">
-            {visibleZones.map(zone => {
-              const freeCount = zone.free_count ?? (typeof zone.occupied === 'number' ? Math.max(0, zone.capacity - zone.occupied) : undefined);
-              const isSelected = String(zone.id) === selectedZoneId;
-              return (
-                <button
-                  type="button"
-                  key={String(zone.id)}
-                  className={`table-row zones-admin zone-row-button ${isSelected ? 'active' : ''}`}
-                  onClick={() => {
-                    setSelectedZoneId(String(zone.id));
-                    selectZone(zone.id);
-                  }}
-                >
-                  <span>{String(zone.id)}</span>
-                  <span>{zone.camera_id}</span>
-                  <span>{zone.zone_type}</span>
-                  <span>{zone.capacity}</span>
-                  <span>{freeCount ?? '—'}</span>
-                  <span>{zone.pay}</span>
-                  <span className={`status-pill ${zone.is_active === false ? 'paused' : 'active'}`}>
-                    {zone.is_active === false ? 'paused' : 'active'}
-                  </span>
-                  <span>{zone.location_type ?? '—'}</span>
-                </button>
-              );
-            })}
-            {!loading && visibleZones.length === 0 && (
-              <div className="empty-state">
-                {zones.length > 0 ? 'Под выбранные фильтры зоны не подошли' : 'Зоны не найдены'}
-              </div>
-            )}
+          <div className="table-scroll">
+            <div className="table-header zones-admin">
+              <span>ID</span>
+              <span>Камера</span>
+              <span>Тип</span>
+              <span>Места</span>
+              <span>Свободно</span>
+              <span>Цена</span>
+              <span>Статус</span>
+              <span>Локация</span>
+            </div>
+            <div className="table-list">
+              {visibleZones.map(zone => {
+                const freeCount = zone.free_count ?? (typeof zone.occupied === 'number' ? Math.max(0, zone.capacity - zone.occupied) : undefined);
+                const isSelected = String(zone.id) === selectedZoneId;
+                return (
+                  <button
+                    type="button"
+                    key={String(zone.id)}
+                    className={`table-row zones-admin zone-row-button ${isSelected ? 'active' : ''}`}
+                    onClick={() => {
+                      setSelectedZoneId(String(zone.id));
+                      selectZone(zone.id);
+                    }}
+                  >
+                    <span>{String(zone.id)}</span>
+                    <span>{zone.camera_id}</span>
+                    <span>{zone.zone_type}</span>
+                    <span>{zone.capacity}</span>
+                    <span>{freeCount ?? '—'}</span>
+                    <span>{zone.pay}</span>
+                    <span className={`status-pill ${zone.is_active === false ? 'paused' : 'active'}`}>
+                      {zone.is_active === false ? 'paused' : 'active'}
+                    </span>
+                    <span>{zone.location_type ?? '—'}</span>
+                  </button>
+                );
+              })}
+              {!loading && visibleZones.length === 0 && (
+                <div className="empty-state">
+                  {zones.length > 0 ? 'Под выбранные фильтры зоны не подошли' : 'Зоны не найдены'}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
