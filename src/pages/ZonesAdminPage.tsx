@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/api/client';
 import { Button, Field, Input, Select } from '@/components/UiKit';
+import { BulkActionBar } from '@/components/BulkActionBar';
 import { useStore } from '@/store/useStore';
 import { navigate } from '@/router/routes';
 import type { ParkingZone } from '@/types';
@@ -140,6 +141,7 @@ export default function ZonesAdminPage() {
   });
   const [createLoading, setCreateLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [selectedZoneIds, setSelectedZoneIds] = useState<Set<string>>(() => new Set());
   const [filters, setFilters] = useState<ZoneFilters>({
     cameraId: '',
     partnerId: '',
@@ -155,6 +157,10 @@ export default function ZonesAdminPage() {
   const visibleZones = useMemo(
     () => zones.filter(zone => matchesClientFilters(zone, filters)),
     [zones, filters]
+  );
+  const visibleZoneIds = useMemo(
+    () => visibleZones.map(zone => String(zone.id)),
+    [visibleZones]
   );
 
   const selectedZone = useMemo(
@@ -222,6 +228,14 @@ export default function ZonesAdminPage() {
           : undefined
     );
   }, [visibleZones]);
+
+  useEffect(() => {
+    setSelectedZoneIds(prev => {
+      const visible = new Set(visibleZoneIds);
+      const next = new Set([...prev].filter(id => visible.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [visibleZoneIds]);
 
   useEffect(() => {
     if (selectedZoneId && String(activeZoneId) !== selectedZoneId) {
@@ -374,6 +388,68 @@ export default function ZonesAdminPage() {
       notifySuccess(`Зона #${removedId} удалена.`);
     } catch (err: any) {
       setError(`Ошибка удаления зоны: ${String(err?.message || err)}`);
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
+
+  function toggleSelectedZone(zoneId: string, checked: boolean) {
+    setSelectedZoneIds(prev => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(zoneId);
+      } else {
+        next.delete(zoneId);
+      }
+      return next;
+    });
+  }
+
+  async function onBulkSetZonesActive(isActive: boolean) {
+    if (!selectedZoneIds.size) return;
+
+    setError(undefined);
+    setSaveState({ loading: true });
+    try {
+      const selected = zones.filter(zone => selectedZoneIds.has(String(zone.id)));
+      const updatedZones = await Promise.all(
+        selected.map(zone => api.updateZone(zone.id, { ...zone, is_active: isActive }))
+      );
+
+      setZones(prev =>
+        prev.map(zone => updatedZones.find(updated => String(updated.id) === String(zone.id)) ?? zone)
+      );
+      setSelectedZoneIds(new Set());
+      notifySuccess(`Зоны ${isActive ? 'активированы' : 'деактивированы'}.`);
+    } catch (err: any) {
+      setError(`Ошибка массового обновления зон: ${String(err?.message || err)}`);
+    } finally {
+      setSaveState({ loading: false });
+    }
+  }
+
+  async function onBulkDeleteZones() {
+    if (!selectedZoneIds.size) return;
+
+    const shouldDelete = await confirmAction({
+      title: 'Удалить выбранные зоны?',
+      message: `Будет удалено зон: ${selectedZoneIds.size}. Это действие нельзя отменить.`,
+      confirmLabel: 'Удалить',
+      cancelLabel: 'Отмена',
+      tone: 'danger'
+    });
+    if (!shouldDelete) return;
+
+    setDeleteLoading(true);
+    setError(undefined);
+    try {
+      const ids = new Set(selectedZoneIds);
+      await Promise.all([...ids].map(zoneId => api.deleteZone(zoneId)));
+      setZones(prev => prev.filter(zone => !ids.has(String(zone.id))));
+      setSelectedZoneIds(new Set());
+      notifySuccess('Выбранные зоны удалены.');
+    } catch (err: any) {
+      setError(`Ошибка массового удаления зон: ${String(err?.message || err)}`);
     } finally {
       setDeleteLoading(false);
     }
@@ -548,50 +624,82 @@ export default function ZonesAdminPage() {
 
       {error && <div className="notice error">{error}</div>}
 
+      <BulkActionBar
+        selectedCount={selectedZoneIds.size}
+        totalCount={visibleZones.length}
+        busy={saveState.loading || deleteLoading}
+        onSelectAll={() => setSelectedZoneIds(new Set(visibleZoneIds))}
+        onClear={() => setSelectedZoneIds(new Set())}
+        onActivate={() => onBulkSetZonesActive(true)}
+        onDeactivate={() => onBulkSetZonesActive(false)}
+        onDelete={onBulkDeleteZones}
+      />
+
       <div className="zones-admin-grid">
         <div className="section-panel">
-          <div className="table-header zones-admin">
-            <span>ID</span>
-            <span>Камера</span>
-            <span>Тип</span>
-            <span>Места</span>
-            <span>Свободно</span>
-            <span>Цена</span>
-            <span>Статус</span>
-            <span>Локация</span>
-          </div>
-          <div className="table-list">
-            {visibleZones.map(zone => {
-              const freeCount = zone.free_count ?? (typeof zone.occupied === 'number' ? Math.max(0, zone.capacity - zone.occupied) : undefined);
-              const isSelected = String(zone.id) === selectedZoneId;
-              return (
-                <button
-                  type="button"
-                  key={String(zone.id)}
-                  className={`table-row zones-admin zone-row-button ${isSelected ? 'active' : ''}`}
-                  onClick={() => {
-                    setSelectedZoneId(String(zone.id));
-                    selectZone(zone.id);
-                  }}
-                >
-                  <span>{String(zone.id)}</span>
-                  <span>{zone.camera_id}</span>
-                  <span>{zone.zone_type}</span>
-                  <span>{zone.capacity}</span>
-                  <span>{freeCount ?? '—'}</span>
-                  <span>{zone.pay}</span>
-                  <span className={`status-pill ${zone.is_active === false ? 'paused' : 'active'}`}>
-                    {zone.is_active === false ? 'paused' : 'active'}
-                  </span>
-                  <span>{zone.location_type ?? '—'}</span>
-                </button>
-              );
-            })}
-            {!loading && visibleZones.length === 0 && (
-              <div className="empty-state">
-                {zones.length > 0 ? 'Под выбранные фильтры зоны не подошли' : 'Зоны не найдены'}
-              </div>
-            )}
+          <div className="table-scroll">
+            <div className="table-header zones-admin">
+              <span className="bulk-check-cell"></span>
+              <span>ID</span>
+              <span>Камера</span>
+              <span>Тип</span>
+              <span>Места</span>
+              <span>Свободно</span>
+              <span>Цена</span>
+              <span>Статус</span>
+              <span>Локация</span>
+            </div>
+            <div className="table-list">
+              {visibleZones.map(zone => {
+                const freeCount = zone.free_count ?? (typeof zone.occupied === 'number' ? Math.max(0, zone.capacity - zone.occupied) : undefined);
+                const isSelected = String(zone.id) === selectedZoneId;
+                const isBulkSelected = selectedZoneIds.has(String(zone.id));
+                return (
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    key={String(zone.id)}
+                    className={`table-row zones-admin zone-row-button ${isSelected ? 'active' : ''} ${isBulkSelected ? 'bulk-row-selected' : ''}`}
+                    onClick={() => {
+                      setSelectedZoneId(String(zone.id));
+                      selectZone(zone.id);
+                    }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedZoneId(String(zone.id));
+                        selectZone(zone.id);
+                      }
+                    }}
+                  >
+                    <span className="bulk-check-cell">
+                      <input
+                        type="checkbox"
+                        checked={isBulkSelected}
+                        onClick={e => e.stopPropagation()}
+                        onChange={e => toggleSelectedZone(String(zone.id), e.target.checked)}
+                        aria-label={`Выбрать зону ${String(zone.id)}`}
+                      />
+                    </span>
+                    <span>{String(zone.id)}</span>
+                    <span>{zone.camera_id}</span>
+                    <span>{zone.zone_type}</span>
+                    <span>{zone.capacity}</span>
+                    <span>{freeCount ?? '—'}</span>
+                    <span>{zone.pay}</span>
+                    <span className={`status-pill ${zone.is_active === false ? 'paused' : 'active'}`}>
+                      {zone.is_active === false ? 'paused' : 'active'}
+                    </span>
+                    <span>{zone.location_type ?? '—'}</span>
+                  </div>
+                );
+              })}
+              {!loading && visibleZones.length === 0 && (
+                <div className="empty-state">
+                  {zones.length > 0 ? 'Под выбранные фильтры зоны не подошли' : 'Зоны не найдены'}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

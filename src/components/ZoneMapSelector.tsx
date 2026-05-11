@@ -22,14 +22,15 @@ function ClickHandler({ onClick }: { onClick: (pos: LatLng) => void }) {
   return null;
 }
 
-function MapAutoFit({ points }: { points: LatLng[] }) {
+function MapAutoFit({ points, fitVersion }: { points: LatLng[]; fitVersion: number }) {
   const map = useMap();
 
   useEffect(() => {
+    if (fitVersion === 0) return;
     if (points.length === 0) return;
     const bounds = L.latLngBounds(points);
     map.fitBounds(bounds.pad(0.2));
-  }, [points, map]);
+  }, [fitVersion, map]);
 
   return null;
 }
@@ -44,6 +45,7 @@ export default function ZoneMapSelector() {
   const zone = zones.find(z => String(z.id) === String(activeZoneId));
 
   const [points, setPoints] = useState<LatLng[]>([]);
+  const [fitVersion, setFitVersion] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
 
@@ -62,6 +64,7 @@ export default function ZoneMapSelector() {
     
     if (existing.length === 4 && uniqueCoords.size > 1) {
       setPoints(existing.map(p => new L.LatLng(p.latitude!, p.longitude!)));
+      setFitVersion(version => version + 1);
     } else {
       setPoints([]);
     }
@@ -80,10 +83,9 @@ export default function ZoneMapSelector() {
   }, [points, cameraMeta]);
 
   function onMapClick(pos: LatLng) {
-    setPoints(prev => {
-      if (prev.length >= 4) return prev;
-      return [...prev, pos];
-    });
+    if (points.length >= 4) return;
+    setPoints(prev => [...prev, pos]);
+    setFitVersion(version => version + 1);
   }
 
   function onReset() {
@@ -163,7 +165,7 @@ export default function ZoneMapSelector() {
             attribution="&copy; OpenStreetMap contributors"
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
-          <MapAutoFit points={points} />
+          <MapAutoFit points={points} fitVersion={fitVersion} />
           <ClickHandler onClick={onMapClick} />
           {points.length >= 2 && (
             <>
@@ -194,6 +196,8 @@ export default function ZoneMapSelector() {
               })}
               draggable
               autoPan
+              riseOnHover
+              zIndexOffset={1000}
               eventHandlers={{
                 drag: (e) => {
                   const newPos = e.target.getLatLng();
@@ -201,20 +205,22 @@ export default function ZoneMapSelector() {
                 },
                 dragend: (e) => {
                   const newPos = e.target.getLatLng();
-                  const updatedPoints = points.map((pt, i) => i === idx ? new L.LatLng(newPos.lat, newPos.lng) : pt);
-                  setPoints(updatedPoints);
-                  
-                  // Sync changes to store in real-time only when all 4 points are set
-                  if (zone && updatedPoints.length === 4) {
-                    const updatedZonePoints = zone.points.map((pt, i) => {
-                      if (i < 4) {
-                        const p = updatedPoints[i];
-                        return { ...pt, latitude: p.lat, longitude: p.lng };
-                      }
-                      return pt;
-                    }) as any;
-                    updateZone(zone.id, { points: updatedZonePoints });
-                  }
+                  setPoints(prev => {
+                    const updatedPoints = prev.map((pt, i) => i === idx ? new L.LatLng(newPos.lat, newPos.lng) : pt);
+
+                    if (zone && updatedPoints.length === 4) {
+                      const updatedZonePoints = zone.points.map((pt, i) => {
+                        if (i < 4) {
+                          const p = updatedPoints[i];
+                          return { ...pt, latitude: p.lat, longitude: p.lng };
+                        }
+                        return pt;
+                      }) as any;
+                      updateZone(zone.id, { points: updatedZonePoints });
+                    }
+
+                    return updatedPoints;
+                  });
                 }
               }}
             />
