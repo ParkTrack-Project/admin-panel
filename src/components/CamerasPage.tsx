@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { api, Camera, CameraSnapshot, CreateCameraRequest } from '@/api/client';
 import { Button, Field, Input, Select, Textarea } from './UiKit';
+import { BulkActionBar } from './BulkActionBar';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L, { LatLngExpression } from 'leaflet';
 import { navigate } from '@/router/routes';
@@ -174,6 +175,8 @@ export default function CamerasPage() {
   const [zoneCounts, setZoneCounts] = useState<Record<number, number>>({});
   const [showAddCamera, setShowAddCamera] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [selectedCameraIds, setSelectedCameraIds] = useState<Set<number>>(() => new Set());
   const [filters, setFilters] = useState({
     q: '',
     isActive: 'all'
@@ -188,6 +191,10 @@ export default function CamerasPage() {
   const selectedCamera = useMemo(
     () => cameras.find(cam => cam.camera_id === selectedId),
     [cameras, selectedId]
+  );
+  const visibleCameraIds = useMemo(
+    () => cameras.map(cam => cam.camera_id),
+    [cameras]
   );
   const hasEditorChanges = useMemo(() => {
     if (!selectedCamera || !editor) return false;
@@ -220,6 +227,14 @@ export default function CamerasPage() {
   useEffect(() => {
     loadCameras();
   }, [currentPartnerId]);
+
+  useEffect(() => {
+    setSelectedCameraIds(prev => {
+      const visible = new Set(visibleCameraIds);
+      const next = new Set([...prev].filter(id => visible.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [visibleCameraIds]);
 
   useEffect(() => {
     function onFullscreenChange() {
@@ -410,6 +425,65 @@ export default function CamerasPage() {
     }
   }
 
+  function toggleSelectedCamera(cameraId: number, checked: boolean) {
+    setSelectedCameraIds(prev => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(cameraId);
+      } else {
+        next.delete(cameraId);
+      }
+      return next;
+    });
+  }
+
+  async function onBulkSetCamerasActive(isActive: boolean) {
+    if (!selectedCameraIds.size) return;
+
+    setBulkLoading(true);
+    setError(undefined);
+    try {
+      const ids = [...selectedCameraIds];
+      const updated = await Promise.all(ids.map(cameraId => api.updateCamera(cameraId, { is_active: isActive })));
+      setCameras(prev =>
+        prev.map(camera => updated.find(item => item.camera_id === camera.camera_id) ?? camera)
+      );
+      setSelectedCameraIds(new Set());
+      notifySuccess(`Камеры ${isActive ? 'активированы' : 'деактивированы'}.`);
+    } catch (e: any) {
+      setError(`Ошибка массового обновления камер: ${String(e?.message || e)}`);
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  async function onBulkDeleteCameras() {
+    if (!selectedCameraIds.size) return;
+
+    const shouldDelete = await confirmAction({
+      title: 'Удалить выбранные камеры?',
+      message: `Будет удалено камер: ${selectedCameraIds.size}. Это действие нельзя отменить.`,
+      confirmLabel: 'Удалить',
+      cancelLabel: 'Отмена',
+      tone: 'danger'
+    });
+    if (!shouldDelete) return;
+
+    setBulkLoading(true);
+    setError(undefined);
+    try {
+      const ids = new Set(selectedCameraIds);
+      await Promise.all([...ids].map(cameraId => api.deleteCamera(cameraId)));
+      setCameras(prev => prev.filter(camera => !ids.has(camera.camera_id)));
+      setSelectedCameraIds(new Set());
+      notifySuccess('Выбранные камеры удалены.');
+    } catch (e: any) {
+      setError(`Ошибка массового удаления камер: ${String(e?.message || e)}`);
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
   async function toggleSnapshotFullscreen() {
     const container = snapshotPreviewRef.current;
     if (!container) return;
@@ -462,9 +536,21 @@ export default function CamerasPage() {
           </Button>
         </div>
 
+        <BulkActionBar
+          selectedCount={selectedCameraIds.size}
+          totalCount={cameras.length}
+          busy={bulkLoading}
+          onSelectAll={() => setSelectedCameraIds(new Set(visibleCameraIds))}
+          onClear={() => setSelectedCameraIds(new Set())}
+          onActivate={() => onBulkSetCamerasActive(true)}
+          onDeactivate={() => onBulkSetCamerasActive(false)}
+          onDelete={onBulkDeleteCameras}
+        />
+
         {error && <div className="notice error" style={{ marginBottom: 12 }}>{error}</div>}
         <div className="section-panel" style={{ marginBottom: 12 }}>
           <div className="table-header camera-list-header">
+            <span className="bulk-check-cell"></span>
             <span>Камера</span>
             <span>Зоны</span>
             <span>Статус</span>
@@ -473,14 +559,32 @@ export default function CamerasPage() {
             {cameras.map(cam => {
               const isActive = cam.camera_id === selectedId;
               const zonesCount = zoneCounts[cam.camera_id];
+              const isBulkSelected = selectedCameraIds.has(cam.camera_id);
               return (
-                <button
+                <div
                   key={cam.camera_id}
-                  className={`camera-list-item ${isActive ? 'active' : ''}`}
+                  role="button"
+                  tabIndex={0}
+                  className={`camera-list-item ${isActive ? 'active' : ''} ${isBulkSelected ? 'bulk-row-selected' : ''}`}
                   onMouseEnter={() => setHoverId(cam.camera_id)}
                   onMouseLeave={() => setHoverId(id => (id === cam.camera_id ? undefined : id))}
                   onClick={() => setSelectedId(cam.camera_id)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedId(cam.camera_id);
+                    }
+                  }}
                 >
+                  <span className="bulk-check-cell">
+                    <input
+                      type="checkbox"
+                      checked={isBulkSelected}
+                      onClick={e => e.stopPropagation()}
+                      onChange={e => toggleSelectedCamera(cam.camera_id, e.target.checked)}
+                      aria-label={`Выбрать камеру ${cam.camera_id}`}
+                    />
+                  </span>
                   <span>
                     <strong>{cam.title}</strong>
                     <span className="small" style={{ display: 'block' }}>ID: {cam.camera_id}</span>
@@ -489,7 +593,7 @@ export default function CamerasPage() {
                   <span className={`status-pill ${cam.is_active === false ? 'paused' : 'active'}`}>
                     {cam.is_active === false ? 'paused' : 'active'}
                   </span>
-                </button>
+                </div>
               );
             })}
             {!loading && !cameras.length && (

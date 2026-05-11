@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSessionStore } from '@/auth/sessionStore';
 import { api, type UserProfileResponse, type PartnerMemberResponse, type PartnerResponse } from '@/api/client';
 import { Button, Field, Input, Select } from '@/components/UiKit';
+import { BulkActionBar } from '@/components/BulkActionBar';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
 import type { AccessScope, PartnerMembership } from '@/types';
 
@@ -123,6 +124,8 @@ export default function UsersAdminPage() {
   const [createUserForm, setCreateUserForm] = useState<CreateUserState>(emptyCreateUserForm);
   const [createUserLoading, setCreateUserLoading] = useState(false);
   const [createUserError, setCreateUserError] = useState<string | undefined>();
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<number>>(() => new Set());
   const [membershipsByUserId, setMembershipsByUserId] = useState<Record<number, PartnerMembership[]>>({});
   const [partnerOptions, setPartnerOptions] = useState<PartnerOption[]>([]);
   const [membershipsLoading, setMembershipsLoading] = useState(false);
@@ -148,6 +151,10 @@ export default function UsersAdminPage() {
       return matchesQuery && matchesRole && matchesStatus;
     });
   }, [users, query, roleFilter, statusFilter]);
+  const filteredUserIds = useMemo(
+    () => filteredUsers.map(user => user.user_id),
+    [filteredUsers]
+  );
 
   const selectedMemberships = selectedUser ? membershipsByUserId[selectedUser.user_id] ?? [] : [];
   const partnerNameById = useMemo(
@@ -272,6 +279,14 @@ export default function UsersAdminPage() {
   }, [filteredUsers, selectedUserId]);
 
   useEffect(() => {
+    setSelectedUserIds(prev => {
+      const visible = new Set(filteredUserIds);
+      const next = new Set([...prev].filter(id => visible.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [filteredUserIds]);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function loadUserDetail() {
@@ -365,6 +380,73 @@ export default function UsersAdminPage() {
       await loadUsers();
     } catch (err: any) {
       setSaveError(String(err?.message || err));
+    }
+  }
+
+  function toggleSelectedUser(userId: number, checked: boolean) {
+    setSelectedUserIds(prev => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(userId);
+      } else {
+        next.delete(userId);
+      }
+      return next;
+    });
+  }
+
+  async function onBulkSetUsersActive(isActive: boolean) {
+    if (!selectedUserIds.size || !canManageUsers) return;
+
+    setBulkLoading(true);
+    setError(undefined);
+    try {
+      const ids = [...selectedUserIds];
+      const updated = (await Promise.all(
+        ids.map(userId => api.users.update(userId, { is_active: isActive }))
+      )).map(mapUser);
+
+      setUsers(prev => prev.map(user => updated.find(item => item.user_id === user.user_id) ?? user));
+      if (selectedUser && selectedUserIds.has(selectedUser.user_id)) {
+        const nextSelected = updated.find(user => user.user_id === selectedUser.user_id);
+        if (nextSelected) {
+          setSelectedUser(nextSelected);
+          setEditor(userToEditor(nextSelected));
+        }
+      }
+      setSelectedUserIds(new Set());
+      notifySuccess(`Пользователи ${isActive ? 'активированы' : 'деактивированы'}.`);
+    } catch (err: any) {
+      setError(`Ошибка массового обновления пользователей: ${String(err?.message || err)}`);
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  async function onBulkDeleteUsers() {
+    if (!selectedUserIds.size || !canManageUsers) return;
+
+    const confirmed = await confirmAction({
+      title: 'Удалить выбранных пользователей?',
+      message: `Будет удалено пользователей: ${selectedUserIds.size}. Это действие нельзя отменить.`,
+      confirmLabel: 'Удалить',
+      cancelLabel: 'Отмена',
+      tone: 'danger'
+    });
+    if (!confirmed) return;
+
+    setBulkLoading(true);
+    setError(undefined);
+    try {
+      const ids = new Set(selectedUserIds);
+      await Promise.all([...ids].map(userId => api.users.remove(userId)));
+      setUsers(prev => prev.filter(user => !ids.has(user.user_id)));
+      setSelectedUserIds(new Set());
+      notifySuccess('Выбранные пользователи удалены.');
+    } catch (err: any) {
+      setError(`Ошибка массового удаления пользователей: ${String(err?.message || err)}`);
+    } finally {
+      setBulkLoading(false);
     }
   }
 
@@ -505,6 +587,18 @@ export default function UsersAdminPage() {
         </Field>
       </div>
 
+      <BulkActionBar
+        selectedCount={selectedUserIds.size}
+        totalCount={filteredUsers.length}
+        busy={bulkLoading}
+        canMutate={canManageUsers}
+        onSelectAll={() => setSelectedUserIds(new Set(filteredUserIds))}
+        onClear={() => setSelectedUserIds(new Set())}
+        onActivate={() => onBulkSetUsersActive(true)}
+        onDeactivate={() => onBulkSetUsersActive(false)}
+        onDelete={onBulkDeleteUsers}
+      />
+
       {error && <div className="notice error">{error}</div>}
       {membershipsError && <div className="notice warning">{membershipsError}</div>}
       {!canManageUsers && (
@@ -598,6 +692,7 @@ export default function UsersAdminPage() {
         <div className="section-panel">
           <div className="table-scroll">
             <div className="table-header users-contract">
+              <span className="bulk-check-cell"></span>
               <span>ID</span>
               <span>Email</span>
               <span>Роль</span>
@@ -606,12 +701,28 @@ export default function UsersAdminPage() {
             </div>
             <div className="table-list">
               {filteredUsers.map(user => (
-                <button
+                <div
                   key={user.user_id}
-                  type="button"
-                  className={`table-row users-contract contract-row-button ${selectedUser?.user_id === user.user_id ? 'active' : ''}`}
+                  role="button"
+                  tabIndex={0}
+                  className={`table-row users-contract contract-row-button ${selectedUser?.user_id === user.user_id ? 'active' : ''} ${selectedUserIds.has(user.user_id) ? 'bulk-row-selected' : ''}`}
                   onClick={() => setSelectedUserId(user.user_id)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedUserId(user.user_id);
+                    }
+                  }}
                 >
+                  <span className="bulk-check-cell">
+                    <input
+                      type="checkbox"
+                      checked={selectedUserIds.has(user.user_id)}
+                      onClick={e => e.stopPropagation()}
+                      onChange={e => toggleSelectedUser(user.user_id, e.target.checked)}
+                      aria-label={`Выбрать пользователя ${user.email}`}
+                    />
+                  </span>
                   <span>{user.user_id}</span>
                   <span>{user.email}</span>
                   <span>{user.global_role}</span>
@@ -619,7 +730,7 @@ export default function UsersAdminPage() {
                     {user.is_active ? 'active' : 'inactive'}
                   </span>
                   <span>{formatDate(user.created_at)}</span>
-                </button>
+                </div>
               ))}
               {!loading && !filteredUsers.length && <div className="empty-state">Пользователи не найдены.</div>}
             </div>

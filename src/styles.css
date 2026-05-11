@@ -291,6 +291,47 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   padding: 12px;
 }
 
+.bulk-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.bulk-action-summary {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.bulk-action-buttons {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bulk-check-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bulk-check-cell input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+.bulk-row-selected {
+  background: #edf8f0;
+}
+
 .table-header,
 .table-row {
   display: grid;
@@ -340,7 +381,8 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
 
 .table-header.zones-admin,
 .table-row.zones-admin {
-  grid-template-columns: 70px 80px 110px 70px 80px 70px 90px minmax(90px, 1fr);
+  grid-template-columns: 42px 70px 80px 110px 70px 80px 70px 90px minmax(90px, 1fr);
+  min-width: 820px;
 }
 
 .table-header.sources,
@@ -544,10 +586,14 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   gap: 0;
 }
 
+.camera-admin-sidebar .bulk-action-bar {
+  margin-bottom: 12px;
+}
+
 .camera-list-header,
 .camera-list-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 70px 88px;
+  grid-template-columns: 42px minmax(0, 1fr) 70px 88px;
   gap: 10px;
   align-items: center;
 }
@@ -886,13 +932,14 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
 
 .table-header.users-contract,
 .table-row.users-contract {
-  grid-template-columns: 70px minmax(300px, 1fr) 140px 140px 170px;
-  min-width: 820px;
+  grid-template-columns: 42px 70px minmax(300px, 1fr) 140px 140px 170px;
+  min-width: 880px;
 }
 
 .table-header.partners-contract,
 .table-row.partners-contract {
-  grid-template-columns: 70px minmax(180px, 1fr) 140px 90px;
+  grid-template-columns: 42px 70px minmax(180px, 1fr) 140px 90px;
+  min-width: 580px;
 }
 
 .table-header.memberships-contract,
