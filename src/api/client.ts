@@ -73,6 +73,20 @@ export type RegisterRequest = {
   phone?: string;
 };
 
+export type PasswordResetRequest = {
+  email: string;
+};
+
+export type PasswordResetRequestResponse = {
+  ok: boolean;
+  reset_token?: string | null;
+};
+
+export type PasswordResetConfirmRequest = {
+  token: string;
+  new_password: string;
+};
+
 export type UpdateMeRequest = {
   full_name?: string;
   phone?: string | null;
@@ -303,6 +317,14 @@ export const api = {
         ...response,
         user: normalizeSessionUser(response.user)
       } satisfies AuthResponse;
+    },
+
+    async requestPasswordReset(data: PasswordResetRequest) {
+      return request<PasswordResetRequestResponse>('POST', '/auth/password-reset/request', data);
+    },
+
+    async confirmPasswordReset(data: PasswordResetConfirmRequest) {
+      return request<{ ok: boolean }>('POST', '/auth/password-reset/confirm', data);
     },
 
     async logout() {

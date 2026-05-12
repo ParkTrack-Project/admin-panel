@@ -162,6 +162,7 @@ function normalizeServerMessage(message?: string) {
     'User with this email already exists': 'Пользователь с таким email уже существует.',
     'Invalid login or password': 'Неверный логин или пароль.',
     'Account is disabled': 'Аккаунт отключён.',
+    'Reset token is invalid or expired': 'Ссылка сброса пароля недействительна или устарела.',
     'Old password is incorrect': 'Старый пароль указан неверно.',
     'Email already in use': 'Этот email уже используется.',
     'Missing or invalid access token': 'Сессия недействительна. Войдите снова.',

@@ -3,6 +3,7 @@ import { api } from '@/api/client';
 import { useSessionStore } from '@/auth/sessionStore';
 import { navigate } from '@/router/routes';
 import { Button, Field, Input } from '@/components/UiKit';
+import { useFeedbackStore } from '@/feedback/feedbackStore';
 
 export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   const session = useSessionStore();
@@ -10,8 +11,16 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetToken, setResetToken] = useState('');
+  const [resetNewPassword, setResetNewPassword] = useState('');
+  const [resetInfo, setResetInfo] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const notifySuccess = useFeedbackStore(state => state.success);
+  const notifyError = useFeedbackStore(state => state.error);
 
   const isRegister = mode === 'register';
 
@@ -44,6 +53,70 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   function enterDemoMode() {
     session.startDemoSession();
     navigate('dashboard');
+  }
+
+  async function requestPasswordReset(e: FormEvent) {
+    e.preventDefault();
+    const targetEmail = (resetEmail || email).trim();
+    if (!targetEmail) {
+      notifyError('Укажите email для сброса пароля.');
+      return;
+    }
+
+    setResetLoading(true);
+    setError(undefined);
+    setResetInfo(undefined);
+    try {
+      const response = await api.auth.requestPasswordReset({ email: targetEmail });
+      setResetEmail(targetEmail);
+      if (response.reset_token) {
+        setResetToken(response.reset_token);
+        setResetInfo('Тестовый reset-token получен. Введите новый пароль и подтвердите сброс.');
+      } else {
+        setResetInfo('Если email есть в системе, ссылка для сброса будет отправлена.');
+      }
+      notifySuccess('Запрос на сброс пароля создан.');
+    } catch (err: any) {
+      const message = String(err?.message || err);
+      setError(message);
+      notifyError(message);
+    } finally {
+      setResetLoading(false);
+    }
+  }
+
+  async function confirmPasswordReset(e: FormEvent) {
+    e.preventDefault();
+    if (!resetToken.trim()) {
+      notifyError('Введите reset-token.');
+      return;
+    }
+    if (resetNewPassword.length < 6) {
+      notifyError('В пароле должно быть не менее 6 символов.');
+      return;
+    }
+
+    setResetLoading(true);
+    setError(undefined);
+    try {
+      await api.auth.confirmPasswordReset({
+        token: resetToken.trim(),
+        new_password: resetNewPassword
+      });
+      setEmail(resetEmail || email);
+      setPassword('');
+      setResetOpen(false);
+      setResetToken('');
+      setResetNewPassword('');
+      setResetInfo(undefined);
+      notifySuccess('Пароль обновлён. Войдите с новым паролем.');
+    } catch (err: any) {
+      const message = String(err?.message || err);
+      setError(message);
+      notifyError(message);
+    } finally {
+      setResetLoading(false);
+    }
   }
 
   return (
@@ -95,6 +168,64 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
             {loading ? 'Проверка...' : isRegister ? 'Создать аккаунт' : 'Войти'}
           </Button>
         </form>
+
+        {!isRegister && (
+          <div className="auth-reset-panel">
+            <button
+              type="button"
+              className="auth-reset-toggle"
+              onClick={() => {
+                setResetOpen(value => !value);
+                setResetEmail(resetEmail || email);
+              }}
+            >
+              Сбросить пароль
+            </button>
+
+            {resetOpen && (
+              <div className="auth-reset-content">
+                <form className="auth-form" onSubmit={requestPasswordReset}>
+                  <Field label="Email для сброса">
+                    <Input
+                      type="email"
+                      value={resetEmail}
+                      onChange={e => setResetEmail(e.target.value)}
+                      placeholder="user@example.com"
+                      required
+                    />
+                  </Field>
+                  <Button type="submit" variant="ghost" disabled={resetLoading || !resetEmail}>
+                    Получить reset-token
+                  </Button>
+                </form>
+
+                <form className="auth-form" onSubmit={confirmPasswordReset}>
+                  <Field label="Reset-token">
+                    <Input
+                      value={resetToken}
+                      onChange={e => setResetToken(e.target.value)}
+                      placeholder="token"
+                      required
+                    />
+                  </Field>
+                  <Field label="Новый пароль">
+                    <Input
+                      type="password"
+                      value={resetNewPassword}
+                      onChange={e => setResetNewPassword(e.target.value)}
+                      placeholder="Минимум 6 символов"
+                      required
+                    />
+                  </Field>
+                  {resetInfo && <div className="notice warning">{resetInfo}</div>}
+                  <Button type="submit" disabled={resetLoading || !resetToken || !resetNewPassword}>
+                    Обновить пароль
+                  </Button>
+                </form>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="auth-actions">
           <Button variant="ghost" onClick={() => navigate(isRegister ? 'login' : 'register')}>
