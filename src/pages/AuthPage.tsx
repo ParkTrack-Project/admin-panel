@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { api } from '@/api/client';
 import { useSessionStore } from '@/auth/sessionStore';
 import { navigate } from '@/router/routes';
@@ -23,6 +23,20 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   const notifyError = useFeedbackStore(state => state.error);
 
   const isRegister = mode === 'register';
+
+  useEffect(() => {
+    if (isRegister) return;
+    const [, queryString = ''] = window.location.hash.split('?');
+    const params = new URLSearchParams(queryString);
+    const tokenFromLink = params.get('reset_token') || params.get('token');
+    const emailFromLink = params.get('email');
+
+    if (!tokenFromLink) return;
+    setResetOpen(true);
+    setResetToken(tokenFromLink);
+    if (emailFromLink) setResetEmail(emailFromLink);
+    setResetInfo('Reset-token из письма подставлен. Введите новый пароль и подтвердите сброс.');
+  }, [isRegister]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -73,7 +87,7 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
         setResetToken(response.reset_token);
         setResetInfo('Тестовый reset-token получен. Введите новый пароль и подтвердите сброс.');
       } else {
-        setResetInfo('Если email есть в системе, ссылка для сброса будет отправлена.');
+        setResetInfo('Если email есть в системе, ссылка для сброса отправлена на почту.');
       }
       notifySuccess('Запрос на сброс пароля создан.');
     } catch (err: any) {
