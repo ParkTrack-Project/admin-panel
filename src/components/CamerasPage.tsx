@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { api, Camera, CameraSnapshot, CreateCameraRequest } from '@/api/client';
 import { Button, Field, Input, Select, Textarea } from './UiKit';
-import { BulkActionBar } from './BulkActionBar';
+import { BulkActionBar, BulkSelectionCheckbox } from './BulkActionBar';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L, { LatLngExpression } from 'leaflet';
 import { navigate } from '@/router/routes';
@@ -540,8 +540,6 @@ export default function CamerasPage() {
           selectedCount={selectedCameraIds.size}
           totalCount={cameras.length}
           busy={bulkLoading}
-          onSelectAll={() => setSelectedCameraIds(new Set(visibleCameraIds))}
-          onClear={() => setSelectedCameraIds(new Set())}
           onActivate={() => onBulkSetCamerasActive(true)}
           onDeactivate={() => onBulkSetCamerasActive(false)}
           onDelete={onBulkDeleteCameras}
@@ -550,7 +548,15 @@ export default function CamerasPage() {
         {error && <div className="notice error" style={{ marginBottom: 12 }}>{error}</div>}
         <div className="section-panel" style={{ marginBottom: 12 }}>
           <div className="table-header camera-list-header">
-            <span className="bulk-check-cell"></span>
+            <span className="bulk-check-cell">
+              <BulkSelectionCheckbox
+                selectedCount={selectedCameraIds.size}
+                totalCount={visibleCameraIds.length}
+                busy={bulkLoading}
+                label="Выбрать все отфильтрованные камеры"
+                onToggleAll={checked => setSelectedCameraIds(checked ? new Set(visibleCameraIds) : new Set())}
+              />
+            </span>
             <span>Камера</span>
             <span>Зоны</span>
             <span>Статус</span>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/api/client';
 import { Button, Field, Input, Select } from '@/components/UiKit';
-import { BulkActionBar } from '@/components/BulkActionBar';
+import { BulkActionBar, BulkSelectionCheckbox } from '@/components/BulkActionBar';
 import { useStore } from '@/store/useStore';
 import { navigate } from '@/router/routes';
 import type { ParkingZone } from '@/types';
@@ -635,8 +635,6 @@ export default function ZonesAdminPage() {
         selectedCount={selectedZoneIds.size}
         totalCount={visibleZones.length}
         busy={saveState.loading || deleteLoading}
-        onSelectAll={() => setSelectedZoneIds(new Set(visibleZoneIds))}
-        onClear={() => setSelectedZoneIds(new Set())}
         onActivate={() => onBulkSetZonesActive(true)}
         onDeactivate={() => onBulkSetZonesActive(false)}
         onDelete={onBulkDeleteZones}
@@ -646,7 +644,15 @@ export default function ZonesAdminPage() {
         <div className="section-panel">
           <div className="table-scroll">
             <div className="table-header zones-admin">
-              <span className="bulk-check-cell"></span>
+              <span className="bulk-check-cell">
+                <BulkSelectionCheckbox
+                  selectedCount={selectedZoneIds.size}
+                  totalCount={visibleZoneIds.length}
+                  busy={saveState.loading || deleteLoading}
+                  label="Выбрать все отфильтрованные зоны"
+                  onToggleAll={checked => setSelectedZoneIds(checked ? new Set(visibleZoneIds) : new Set())}
+                />
+              </span>
               <span>ID</span>
               <span>Камера</span>
               <span>Тип</span>
