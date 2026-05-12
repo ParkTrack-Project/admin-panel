@@ -492,7 +492,13 @@ export default function ZonesAdminPage() {
         </div>
       </div>
 
-      <div className="filter-bar">
+      <form
+        className="filter-bar"
+        onSubmit={(event) => {
+          event.preventDefault();
+          load();
+        }}
+      >
         <Field label="Camera ID">
           <Input
             value={filters.cameraId}
@@ -580,8 +586,9 @@ export default function ZonesAdminPage() {
             placeholder="Без ограничения"
           />
         </Field>
-        <Button variant="ghost" onClick={load} disabled={loading}>Применить</Button>
+        <Button type="submit" variant="ghost" disabled={loading}>Применить</Button>
         <Button
+          type="button"
           variant="ghost"
           onClick={() => setFilters({
             cameraId: '',
@@ -597,7 +604,7 @@ export default function ZonesAdminPage() {
         >
           Сбросить
         </Button>
-      </div>
+      </form>
 
       <div className="section-panel zone-create-panel">
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap' }}>
