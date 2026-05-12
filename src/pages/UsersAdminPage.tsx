@@ -4,6 +4,7 @@ import { api, type UserProfileResponse, type PartnerMemberResponse, type Partner
 import { Button, Field, Input, Select } from '@/components/UiKit';
 import { BulkActionBar, BulkSelectionCheckbox } from '@/components/BulkActionBar';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
+import { validateOptionalPhone } from '@/utils/phone';
 import type { AccessScope, PartnerMembership } from '@/types';
 
 type AdminUser = {
@@ -339,6 +340,12 @@ export default function UsersAdminPage() {
       return;
     }
 
+    const phoneError = validateOptionalPhone(phone);
+    if (phoneError) {
+      setSaveError(phoneError);
+      return;
+    }
+
     setSaveLoading(true);
     setSaveError(undefined);
     try {
@@ -464,6 +471,12 @@ export default function UsersAdminPage() {
     }
     if (password.length < 6) {
       setCreateUserError('В пароле должно быть не менее 6 символов.');
+      return;
+    }
+
+    const phoneError = validateOptionalPhone(phone);
+    if (phoneError) {
+      setCreateUserError(phoneError);
       return;
     }
 

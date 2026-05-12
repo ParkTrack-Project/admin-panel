@@ -4,6 +4,7 @@ import { useSessionStore } from '@/auth/sessionStore';
 import { navigate } from '@/router/routes';
 import { Button, Field, Input } from '@/components/UiKit';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
+import { validateOptionalPhone } from '@/utils/phone';
 
 export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   const session = useSessionStore();
@@ -40,8 +41,18 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    setLoading(true);
     setError(undefined);
+
+    if (isRegister) {
+      const phoneError = validateOptionalPhone(phone);
+      if (phoneError) {
+        setError(phoneError);
+        notifyError(phoneError);
+        return;
+      }
+    }
+
+    setLoading(true);
 
     try {
       const response = isRegister

@@ -3,6 +3,7 @@ import { useSessionStore } from '@/auth/sessionStore';
 import { api } from '@/api/client';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
 import { Button, Field, Input } from '@/components/UiKit';
+import { validateOptionalPhone } from '@/utils/phone';
 
 export default function ProfilePage() {
   const user = useSessionStore(s => s.user);
@@ -61,6 +62,12 @@ export default function ProfilePage() {
 
     if (fullName.length > 200) {
       setProfileError('Имя должно быть короче 200 символов.');
+      return;
+    }
+
+    const phoneError = validateOptionalPhone(phone);
+    if (phoneError) {
+      setProfileError(phoneError);
       return;
     }
 

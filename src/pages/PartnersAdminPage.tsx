@@ -4,6 +4,7 @@ import { api, type PartnerMemberResponse, type PartnerResponse, type UserProfile
 import { Button, Field, Input, Select } from '@/components/UiKit';
 import { BulkActionBar, BulkSelectionCheckbox } from '@/components/BulkActionBar';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
+import { validateOptionalPhone } from '@/utils/phone';
 import type { AccessScope } from '@/types';
 
 type AdminPartner = {
@@ -337,6 +338,12 @@ export default function PartnersAdminPage() {
       return;
     }
 
+    const phoneError = validateOptionalPhone(contactPhone);
+    if (phoneError) {
+      setSaveError(phoneError);
+      return;
+    }
+
     setSaveLoading(true);
     setSaveError(undefined);
     try {
@@ -366,6 +373,12 @@ export default function PartnersAdminPage() {
 
     if (!legalName || !slug) {
       setCreateError('Заполните все обязательные поля.');
+      return;
+    }
+
+    const phoneError = validateOptionalPhone(contactPhone);
+    if (phoneError) {
+      setCreateError(phoneError);
       return;
     }
 
