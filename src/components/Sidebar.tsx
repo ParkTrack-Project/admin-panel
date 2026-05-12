@@ -1,6 +1,7 @@
 import { useStore } from '@/store/useStore';
 import { Button, Field, Input, Select, Textarea } from './UiKit';
 import { useState, useEffect } from 'react';
+import { useFeedbackStore } from '@/feedback/feedbackStore';
 
 function formatDate(dateStr?: string): string {
   if (!dateStr) return '—';
@@ -28,6 +29,10 @@ function parseOptionalPositiveInt(value: string): number | null {
 
 export default function Sidebar() {
   const s = useStore();
+  const notifySuccess = useFeedbackStore(state => state.success);
+  const notifyError = useFeedbackStore(state => state.error);
+  const notifyInfo = useFeedbackStore(state => state.info);
+  const confirmAction = useFeedbackStore(state => state.confirm);
   const zone = s.zones.find(z => String(z.id) === String(s.activeZoneId));
   const camera = s.cameraMeta;
   
@@ -64,23 +69,30 @@ export default function Sidebar() {
       try {
         calibParsed = JSON.parse(cameraCalib);
       } catch (e) {
-        s.error = 'Ошибка парсинга JSON в calib';
+        notifyError('Ошибка парсинга JSON в calib.');
         return;
       }
     }
-    await s.saveCamera(camera.camera_id, {
+    const ok = await s.saveCamera(camera.camera_id, {
       title: cameraTitle,
       source: cameraSource,
       calib: calibParsed,
       is_active: cameraIsActive
     });
+    if (ok) {
+      notifySuccess('Настройки камеры сохранены.');
+    } else {
+      notifyError(useStore.getState().error || 'Не удалось сохранить камеру.');
+    }
   }
 
   function startDrawZone() {
     s.addZone();
+    notifyInfo('Режим создания зоны включён.');
   }
   function finishEditing() {
     s.setTool('select');
+    notifyInfo('Редактирование полигона завершено.');
   }
 
   function openCameraOnMap() {
@@ -90,6 +102,43 @@ export default function Sidebar() {
   function openZoneOnMap() {
     if (!zone) return;
     s.setViewMode('zoneMapSelector');
+  }
+
+  async function refreshZones() {
+    const ok = await s.loadZones();
+    if (ok) {
+      notifySuccess('Список зон обновлён.');
+    } else {
+      notifyError(useStore.getState().error || 'Не удалось обновить зоны.');
+    }
+  }
+
+  async function saveActiveZone() {
+    if (!zone) return;
+    const ok = await s.saveZone(zone.id);
+    if (ok) {
+      notifySuccess('Зона сохранена.');
+    } else {
+      notifyError(useStore.getState().error || 'Не удалось сохранить зону.');
+    }
+  }
+
+  async function removeActiveZone() {
+    if (!zone) return;
+    const confirmed = await confirmAction({
+      title: 'Удалить зону?',
+      message: `Зона #${String(zone.id)} будет удалена из списка и backend, если она уже сохранена.`,
+      confirmLabel: 'Удалить',
+      cancelLabel: 'Отмена',
+      tone: 'danger'
+    });
+    if (!confirmed) return;
+    const ok = await s.removeZone(zone.id);
+    if (ok) {
+      notifySuccess('Зона удалена.');
+    } else {
+      notifyError(useStore.getState().error || 'Не удалось удалить зону.');
+    }
   }
 
   return (
@@ -139,7 +188,7 @@ export default function Sidebar() {
               <span className="small">Активна</span>
             </label>
           </Field>
-          <div className="row" style={{ gap: 8, marginTop: 8 }}>
+          <div className="labeler-action-grid compact">
             <Button onClick={saveCamera}>Сохранить камеру</Button>
           </div>
           <div className="small" style={{ marginTop: 4, opacity: 0.7 }}>
@@ -150,15 +199,23 @@ export default function Sidebar() {
         </>
       )}
 
-      <div className="col">
+      <div className="labeler-action-stack">
         <Button onClick={startDrawZone}>+ Добавить зону</Button>
         <Button variant="ghost" onClick={openCameraOnMap}>
           Отметить камеру на карте
         </Button>
         {s.tool === 'drawZone' && s.zoneDraft && s.zoneDraft.length > 0 && (
-          <Button variant="danger" onClick={()=>s.zoneDraftClear()}>Отменить рисование</Button>
+          <Button
+            variant="danger"
+            onClick={() => {
+              s.zoneDraftClear();
+              notifyInfo('Рисование зоны отменено.');
+            }}
+          >
+            Отменить рисование
+          </Button>
         )}
-        <Button variant="ghost" onClick={()=>s.loadZones()}>Обновить зоны</Button>
+        <Button variant="ghost" onClick={refreshZones}>Обновить зоны</Button>
       </div>
 
       <h4>Зоны</h4>
@@ -253,15 +310,15 @@ export default function Sidebar() {
             <div>Обновлено: {formatDate(zone.updated_at)}</div>
           </div>
 
-          <div className="row" style={{gap:8}}>
+          <div className="labeler-action-grid">
             <Button onClick={()=>s.setTool('editZone')}>Редактировать полигон</Button>
             <Button variant="ghost" onClick={finishEditing}>Готово</Button>
           </div>
-          <div className="row" style={{gap:8}}>
-            <Button onClick={()=>s.saveZone(zone.id)}>Сохранить зону</Button>
-            <Button variant="danger" onClick={()=>s.removeZone(zone.id)}>Удалить зону</Button>
+          <div className="labeler-action-grid">
+            <Button onClick={saveActiveZone}>Сохранить зону</Button>
+            <Button variant="danger" onClick={removeActiveZone}>Удалить зону</Button>
           </div>
-          <div className="row" style={{gap:8}}>
+          <div className="labeler-action-grid compact">
             <Button variant="ghost" onClick={openZoneOnMap}>
               Геометрия на карте
             </Button>

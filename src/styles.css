@@ -44,6 +44,30 @@ body { background: var(--bg); color: var(--text); font-family: Inter, system-ui,
 .row { display: flex; gap: 8px; align-items: center; }
 .col { display: flex; flex-direction: column; gap: 6px; }
 
+.labeler-action-stack {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.labeler-action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.labeler-action-grid.compact {
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+}
+
+.labeler-action-grid .button,
+.labeler-action-stack .button {
+  width: 100%;
+  min-height: 38px;
+  white-space: normal;
+}
+
 .input, .select, .button {
   background: #ffffff; border: 1px solid var(--border); color: var(--text);
   border-radius: 8px; padding: 8px 10px; outline: none;
@@ -553,6 +577,30 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   justify-content: space-between;
   gap: 8px;
   margin-top: 14px;
+}
+
+.auth-reset-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.auth-reset-toggle {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 0;
+  text-align: left;
+}
+
+.auth-reset-content {
+  display: grid;
+  gap: 14px;
 }
 
 .legacy-labeler-grid {
