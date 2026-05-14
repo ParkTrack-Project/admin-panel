@@ -18,17 +18,18 @@ import ZonesAdminPage from '@/pages/ZonesAdminPage';
 import { AppRoute, useHashRoute } from '@/router/routes';
 import { useSessionStore } from '@/auth/sessionStore';
 import { api, apiConfig } from '@/api/client';
+import { ApiRequestError } from '@/api/http';
 import { useEffect, useRef } from 'react';
 import type { ViewMode } from '@/types';
 import { navigate } from '@/router/routes';
 import GlobalFeedbackHost from '@/feedback/GlobalFeedbackHost';
 
-const routePermissions: Partial<Record<AppRoute, string>> = {
-  cameras: 'cameras.view',
-  zones: 'zones.view',
-  sources: 'sources.view',
-  users: 'admin.users.view',
-  partners: 'admin.partners.view'
+const routePermissions: Partial<Record<AppRoute, string[]>> = {
+  cameras: ['cameras.view'],
+  zones: ['zones.view'],
+  sources: ['sources.view'],
+  users: ['admin.users.view', 'partner_members.view'],
+  partners: ['admin.partners.view']
 };
 
 export default function App() {
@@ -45,10 +46,19 @@ export default function App() {
   const token = useStore(state => state.token);
   const setViewMode = useStore(state => state.setViewMode);
   const validatedTokenRef = useRef<string | undefined>(undefined);
+  const effectiveToken = sessionAccessToken || token;
+  const shouldValidateSession = Boolean(
+    sessionAccessToken
+    && sessionUser
+    && sessionAccessToken !== 'dev-admin-token'
+    && validatedTokenRef.current !== sessionAccessToken
+  );
+
+  apiConfig.set(apiBase, effectiveToken);
 
   useEffect(() => {
-    apiConfig.set(apiBase, sessionAccessToken || token);
-  }, [apiBase, sessionAccessToken, token]);
+    apiConfig.set(apiBase, effectiveToken);
+  }, [apiBase, effectiveToken]);
 
   useEffect(() => {
     apiConfig.setUnauthorizedHandler(() => {
@@ -83,9 +93,13 @@ export default function App() {
         });
       } catch (error: any) {
         if (cancelled) return;
-        validatedTokenRef.current = undefined;
-        sessionLogout();
-        navigate('login');
+        if (error instanceof ApiRequestError && error.status === 401) {
+          validatedTokenRef.current = undefined;
+          sessionLogout();
+          navigate('login');
+          return;
+        }
+        validatedTokenRef.current = sessionAccessToken;
       } finally {
         if (!cancelled) {
           sessionSetValidating(false);
@@ -106,9 +120,6 @@ export default function App() {
   }, [route, sessionUser]);
 
   useEffect(() => {
-    if (route === 'cameras' && viewMode !== 'cameras') {
-      setViewMode('cameras');
-    }
     if (route === 'labeler' && viewMode === 'cameras') {
       setViewMode('labeler');
     }
@@ -128,7 +139,7 @@ export default function App() {
         <AuthPage mode={route} />
       </AppErrorBoundary>
     );
-  } else if (sessionValidating) {
+  } else if (sessionValidating || shouldValidateSession) {
     content = (
       <AccessStatePage
         title="Проверяем сессию"
@@ -144,8 +155,8 @@ export default function App() {
       </AppErrorBoundary>
     );
   } else {
-    const requiredPermission = routePermissions[route];
-    if (requiredPermission && !sessionHasPermission(requiredPermission)) {
+    const requiredPermissions = routePermissions[route];
+    if (requiredPermissions && !requiredPermissions.some(permission => sessionHasPermission(permission))) {
       content = (
         <AdminShell route={route}>
           <AccessStatePage

@@ -5,18 +5,17 @@ import { useStore } from '@/store/useStore';
 
 export default function RequestLogPanel() {
   const { entries, clear } = useRequestLog();
-  const { apiBase, token } = useStore();
+  const { token } = useStore();
 
   return (
     <div className="reqlog">
       <div className="row" style={{justifyContent:'space-between', marginBottom:8}}>
         <h4>Request log</h4>
-        <Button className="ghost" onClick={clear}>Очистить</Button>
+        <Button variant="ghost" onClick={clear}>Очистить</Button>
       </div>
 
       {/* Diagnostics */}
       <div className="item" style={{marginBottom:8}}>
-        <div className="small"><b>Active API:</b> {apiBase || '—'}</div>
         <div className="small"><b>Auth:</b> {token ? `Bearer ${maskTokenLast4(token)}` : '—'}</div>
       </div>
 

@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSessionStore } from '@/auth/sessionStore';
 import { api, type PartnerMemberResponse, type PartnerResponse, type UserProfileResponse } from '@/api/client';
 import { Button, Field, Input, Select } from '@/components/UiKit';
+import { BulkActionBar, BulkSelectionCheckbox } from '@/components/BulkActionBar';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
+import { validateOptionalPhone } from '@/utils/phone';
 import type { AccessScope } from '@/types';
 
 type AdminPartner = {
@@ -134,6 +136,8 @@ export default function PartnersAdminPage() {
     contactPhone: '',
     isActive: true
   });
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [selectedPartnerIds, setSelectedPartnerIds] = useState<Set<number>>(() => new Set());
   const [members, setMembers] = useState<PartnerMemberResponse[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
   const [membersError, setMembersError] = useState<string | undefined>();
@@ -162,6 +166,10 @@ export default function PartnersAdminPage() {
       return matchesQuery && matchesStatus;
     });
   }, [partners, query, statusFilter]);
+  const filteredPartnerIds = useMemo(
+    () => filteredPartners.map(partner => partner.partner_id),
+    [filteredPartners]
+  );
 
   const selectedMember = members.find(member => member.user_id === selectedMemberUserId);
   const hasPartnerChanges = useMemo(() => {
@@ -226,6 +234,14 @@ export default function PartnersAdminPage() {
       setSelectedPartnerId(filteredPartners[0].partner_id);
     }
   }, [filteredPartners, selectedPartnerId]);
+
+  useEffect(() => {
+    setSelectedPartnerIds(prev => {
+      const visible = new Set(filteredPartnerIds);
+      const next = new Set([...prev].filter(id => visible.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [filteredPartnerIds]);
 
   useEffect(() => {
     let cancelled = false;
@@ -322,6 +338,12 @@ export default function PartnersAdminPage() {
       return;
     }
 
+    const phoneError = validateOptionalPhone(contactPhone);
+    if (phoneError) {
+      setSaveError(phoneError);
+      return;
+    }
+
     setSaveLoading(true);
     setSaveError(undefined);
     try {
@@ -349,8 +371,14 @@ export default function PartnersAdminPage() {
     const contactEmail = createForm.contactEmail.trim();
     const contactPhone = createForm.contactPhone.trim();
 
-    if (!legalName || !slug || !contactEmail || !contactPhone) {
+    if (!legalName || !slug) {
       setCreateError('Заполните все обязательные поля.');
+      return;
+    }
+
+    const phoneError = validateOptionalPhone(contactPhone);
+    if (phoneError) {
+      setCreateError(phoneError);
       return;
     }
 
@@ -360,8 +388,8 @@ export default function PartnersAdminPage() {
       const response = await api.partners.create({
         legal_name: legalName,
         slug,
-        contact_email: contactEmail,
-        contact_phone: contactPhone
+        contact_email: contactEmail || undefined,
+        contact_phone: contactPhone || undefined
       });
       await loadPartners();
       setSelectedPartnerId(response.partner_id);
@@ -400,6 +428,73 @@ export default function PartnersAdminPage() {
       await loadPartners();
     } catch (err: any) {
       setSaveError(String(err?.message || err));
+    }
+  }
+
+  function toggleSelectedPartner(partnerId: number, checked: boolean) {
+    setSelectedPartnerIds(prev => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(partnerId);
+      } else {
+        next.delete(partnerId);
+      }
+      return next;
+    });
+  }
+
+  async function onBulkSetPartnersActive(isActive: boolean) {
+    if (!selectedPartnerIds.size || !canManagePartners) return;
+
+    setBulkLoading(true);
+    setError(undefined);
+    try {
+      const ids = [...selectedPartnerIds];
+      const updated = (await Promise.all(
+        ids.map(partnerId => api.partners.update(partnerId, { is_active: isActive }))
+      )).map(mapPartner);
+
+      setPartners(prev => prev.map(partner => updated.find(item => item.partner_id === partner.partner_id) ?? partner));
+      if (selectedPartner && selectedPartnerIds.has(selectedPartner.partner_id)) {
+        const nextSelected = updated.find(partner => partner.partner_id === selectedPartner.partner_id);
+        if (nextSelected) {
+          setSelectedPartner(nextSelected);
+          setEditor(partnerToEditor(nextSelected));
+        }
+      }
+      setSelectedPartnerIds(new Set());
+      notifySuccess(`Партнёры ${isActive ? 'активированы' : 'деактивированы'}.`);
+    } catch (err: any) {
+      setError(`Ошибка массового обновления партнёров: ${String(err?.message || err)}`);
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  async function onBulkDeletePartners() {
+    if (!selectedPartnerIds.size || !canManagePartners) return;
+
+    const confirmed = await confirmAction({
+      title: 'Удалить выбранных партнёров?',
+      message: `Будет удалено партнёров: ${selectedPartnerIds.size}. Это действие нельзя отменить.`,
+      confirmLabel: 'Удалить',
+      cancelLabel: 'Отмена',
+      tone: 'danger'
+    });
+    if (!confirmed) return;
+
+    setBulkLoading(true);
+    setError(undefined);
+    try {
+      const ids = new Set(selectedPartnerIds);
+      await Promise.all([...ids].map(partnerId => api.partners.remove(partnerId)));
+      setPartners(prev => prev.filter(partner => !ids.has(partner.partner_id)));
+      setSelectedPartnerIds(new Set());
+      notifySuccess('Выбранные партнёры удалены.');
+    } catch (err: any) {
+      setError(`Ошибка массового удаления партнёров: ${String(err?.message || err)}`);
+    } finally {
+      setBulkLoading(false);
     }
   }
 
@@ -538,6 +633,16 @@ export default function PartnersAdminPage() {
         </Button>
       </div>
 
+      <BulkActionBar
+        selectedCount={selectedPartnerIds.size}
+        totalCount={filteredPartners.length}
+        busy={bulkLoading}
+        canMutate={canManagePartners}
+        onActivate={() => onBulkSetPartnersActive(true)}
+        onDeactivate={() => onBulkSetPartnersActive(false)}
+        onDelete={onBulkDeletePartners}
+      />
+
       {error && <div className="notice error">{error}</div>}
 
       {showCreate && (
@@ -568,29 +673,56 @@ export default function PartnersAdminPage() {
 
       <div className="contract-grid">
         <div className="section-panel">
-          <div className="table-header partners-contract">
-            <span>ID</span>
-            <span>Name</span>
-            <span>Slug</span>
-            <span>Статус</span>
-          </div>
-          <div className="table-list">
-            {filteredPartners.map(partner => (
-              <button
-                key={partner.partner_id}
-                type="button"
-                className={`table-row partners-contract contract-row-button ${selectedPartner?.partner_id === partner.partner_id ? 'active' : ''}`}
-                onClick={() => setSelectedPartnerId(partner.partner_id)}
-              >
-                <span>{partner.partner_id}</span>
-                <span>{partner.name}</span>
-                <span>{partner.slug}</span>
-                <span className={`status-pill ${partner.is_active ? 'active' : 'paused'}`}>
-                  {partner.is_active ? 'active' : 'inactive'}
-                </span>
-              </button>
-            ))}
-            {!loading && !filteredPartners.length && <div className="empty-state">Партнёры не найдены.</div>}
+          <div className="table-scroll">
+            <div className="table-header partners-contract">
+              <span className="bulk-check-cell">
+                <BulkSelectionCheckbox
+                  selectedCount={selectedPartnerIds.size}
+                  totalCount={filteredPartnerIds.length}
+                  busy={bulkLoading}
+                  label="Выбрать всех отфильтрованных партнёров"
+                  onToggleAll={checked => setSelectedPartnerIds(checked ? new Set(filteredPartnerIds) : new Set())}
+                />
+              </span>
+              <span>ID</span>
+              <span>Name</span>
+              <span>Slug</span>
+              <span>Статус</span>
+            </div>
+            <div className="table-list">
+              {filteredPartners.map(partner => (
+                <div
+                  key={partner.partner_id}
+                  role="button"
+                  tabIndex={0}
+                  className={`table-row partners-contract contract-row-button ${selectedPartner?.partner_id === partner.partner_id ? 'active' : ''} ${selectedPartnerIds.has(partner.partner_id) ? 'bulk-row-selected' : ''}`}
+                  onClick={() => setSelectedPartnerId(partner.partner_id)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedPartnerId(partner.partner_id);
+                    }
+                  }}
+                >
+                  <span className="bulk-check-cell">
+                    <input
+                      type="checkbox"
+                      checked={selectedPartnerIds.has(partner.partner_id)}
+                      onClick={e => e.stopPropagation()}
+                      onChange={e => toggleSelectedPartner(partner.partner_id, e.target.checked)}
+                      aria-label={`Выбрать партнёра ${partner.name}`}
+                    />
+                  </span>
+                  <span>{partner.partner_id}</span>
+                  <span>{partner.name}</span>
+                  <span>{partner.slug}</span>
+                  <span className={`status-pill ${partner.is_active ? 'active' : 'paused'}`}>
+                    {partner.is_active ? 'active' : 'inactive'}
+                  </span>
+                </div>
+              ))}
+              {!loading && !filteredPartners.length && <div className="empty-state">Партнёры не найдены.</div>}
+            </div>
           </div>
         </div>
 
@@ -705,7 +837,7 @@ export default function PartnersAdminPage() {
                 {membersError && <div className="notice warning">{membersError}</div>}
                 {membersLoading && <div className="empty-state">Загрузка сотрудников...</div>}
                 {!membersLoading && canViewMembers && (
-                  <>
+                  <div className="table-scroll">
                     <div className="table-header memberships-contract">
                       <span>User</span>
                       <span>Role</span>
@@ -730,7 +862,7 @@ export default function PartnersAdminPage() {
                       ))}
                       {!members.length && <div className="empty-state">У партнёра пока нет сотрудников.</div>}
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
 

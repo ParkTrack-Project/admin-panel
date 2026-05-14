@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/api/client';
 import { Button, Field, Input, Select } from '@/components/UiKit';
+import { BulkActionBar, BulkSelectionCheckbox } from '@/components/BulkActionBar';
 import { useStore } from '@/store/useStore';
 import { navigate } from '@/router/routes';
 import type { ParkingZone } from '@/types';
@@ -11,6 +12,11 @@ type ZoneFilters = {
   cameraId: string;
   partnerId: string;
   status: 'all' | 'active' | 'inactive';
+  zoneType: 'all' | ParkingZone['zone_type'];
+  locationType: 'all' | 'none' | 'street' | 'yard' | 'parking_lot' | 'garage';
+  payMode: 'all' | 'paid' | 'free';
+  accessibility: 'all' | 'accessible' | 'regular';
+  privacy: 'all' | 'private' | 'public';
   maxPay: string;
 };
 
@@ -81,6 +87,42 @@ function normalizeEditor(editor: ZoneEditorState) {
   };
 }
 
+function matchesClientFilters(zone: ParkingZone, filters: ZoneFilters) {
+  if (filters.zoneType !== 'all' && zone.zone_type !== filters.zoneType) {
+    return false;
+  }
+
+  if (filters.locationType === 'none' && zone.location_type) {
+    return false;
+  }
+  if (filters.locationType !== 'all' && filters.locationType !== 'none' && zone.location_type !== filters.locationType) {
+    return false;
+  }
+
+  if (filters.payMode === 'paid' && zone.pay <= 0) {
+    return false;
+  }
+  if (filters.payMode === 'free' && zone.pay > 0) {
+    return false;
+  }
+
+  if (filters.accessibility === 'accessible' && zone.is_accessible !== true) {
+    return false;
+  }
+  if (filters.accessibility === 'regular' && zone.is_accessible === true) {
+    return false;
+  }
+
+  if (filters.privacy === 'private' && zone.is_private !== true) {
+    return false;
+  }
+  if (filters.privacy === 'public' && zone.is_private === true) {
+    return false;
+  }
+
+  return true;
+}
+
 export default function ZonesAdminPage() {
   const store = useStore();
   const activeZoneId = useStore(state => state.activeZoneId);
@@ -99,21 +141,36 @@ export default function ZonesAdminPage() {
   });
   const [createLoading, setCreateLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [selectedZoneIds, setSelectedZoneIds] = useState<Set<string>>(() => new Set());
   const [filters, setFilters] = useState<ZoneFilters>({
     cameraId: '',
     partnerId: '',
     status: 'all',
+    zoneType: 'all',
+    locationType: 'all',
+    payMode: 'all',
+    accessibility: 'all',
+    privacy: 'all',
     maxPay: ''
   });
 
+  const visibleZones = useMemo(
+    () => zones.filter(zone => matchesClientFilters(zone, filters)),
+    [zones, filters]
+  );
+  const visibleZoneIds = useMemo(
+    () => visibleZones.map(zone => String(zone.id)),
+    [visibleZones]
+  );
+
   const selectedZone = useMemo(
-    () => zones.find(zone => String(zone.id) === selectedZoneId),
-    [zones, selectedZoneId]
+    () => visibleZones.find(zone => String(zone.id) === selectedZoneId),
+    [visibleZones, selectedZoneId]
   );
 
   const activeCount = useMemo(
-    () => zones.filter(zone => zone.is_active !== false).length,
-    [zones]
+    () => visibleZones.filter(zone => zone.is_active !== false).length,
+    [visibleZones]
   );
 
   const hasEditorChanges = useMemo(() => {
@@ -163,6 +220,24 @@ export default function ZonesAdminPage() {
   }, [selectedZone?.id]);
 
   useEffect(() => {
+    setSelectedZoneId(current =>
+      current && visibleZones.some(zone => String(zone.id) === current)
+        ? current
+        : visibleZones[0]
+          ? String(visibleZones[0].id)
+          : undefined
+    );
+  }, [visibleZones]);
+
+  useEffect(() => {
+    setSelectedZoneIds(prev => {
+      const visible = new Set(visibleZoneIds);
+      const next = new Set([...prev].filter(id => visible.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [visibleZoneIds]);
+
+  useEffect(() => {
     if (selectedZoneId && String(activeZoneId) !== selectedZoneId) {
       selectZone(selectedZoneId);
     }
@@ -205,8 +280,10 @@ export default function ZonesAdminPage() {
     try {
       await prepareZoneWorkspace(zone);
       store.setTool('select');
-      store.setViewMode('zoneMapSelector');
       navigate('labeler');
+      window.setTimeout(() => {
+        store.setViewMode('zoneMapSelector');
+      }, 0);
     } catch (err: any) {
       setError(`Не удалось открыть карту зоны: ${String(err?.message || err)}`);
     }
@@ -316,6 +393,68 @@ export default function ZonesAdminPage() {
     }
   }
 
+  function toggleSelectedZone(zoneId: string, checked: boolean) {
+    setSelectedZoneIds(prev => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(zoneId);
+      } else {
+        next.delete(zoneId);
+      }
+      return next;
+    });
+  }
+
+  async function onBulkSetZonesActive(isActive: boolean) {
+    if (!selectedZoneIds.size) return;
+
+    setError(undefined);
+    setSaveState({ loading: true });
+    try {
+      const selected = zones.filter(zone => selectedZoneIds.has(String(zone.id)));
+      const updatedZones = await Promise.all(
+        selected.map(zone => api.updateZone(zone.id, { ...zone, is_active: isActive }))
+      );
+
+      setZones(prev =>
+        prev.map(zone => updatedZones.find(updated => String(updated.id) === String(zone.id)) ?? zone)
+      );
+      setSelectedZoneIds(new Set());
+      notifySuccess(`Зоны ${isActive ? 'активированы' : 'деактивированы'}.`);
+    } catch (err: any) {
+      setError(`Ошибка массового обновления зон: ${String(err?.message || err)}`);
+    } finally {
+      setSaveState({ loading: false });
+    }
+  }
+
+  async function onBulkDeleteZones() {
+    if (!selectedZoneIds.size) return;
+
+    const shouldDelete = await confirmAction({
+      title: 'Удалить выбранные зоны?',
+      message: `Будет удалено зон: ${selectedZoneIds.size}. Это действие нельзя отменить.`,
+      confirmLabel: 'Удалить',
+      cancelLabel: 'Отмена',
+      tone: 'danger'
+    });
+    if (!shouldDelete) return;
+
+    setDeleteLoading(true);
+    setError(undefined);
+    try {
+      const ids = new Set(selectedZoneIds);
+      await Promise.all([...ids].map(zoneId => api.deleteZone(zoneId)));
+      setZones(prev => prev.filter(zone => !ids.has(String(zone.id))));
+      setSelectedZoneIds(new Set());
+      notifySuccess('Выбранные зоны удалены.');
+    } catch (err: any) {
+      setError(`Ошибка массового удаления зон: ${String(err?.message || err)}`);
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
+
   return (
     <section className="page-stack">
       <div className="page-heading">
@@ -337,7 +476,7 @@ export default function ZonesAdminPage() {
       <div className="metric-grid">
         <div className="metric-card">
           <div className="metric-label">Всего зон</div>
-          <div className="metric-value">{zones.length}</div>
+          <div className="metric-value">{visibleZones.length}</div>
         </div>
         <div className="metric-card">
           <div className="metric-label">Активных</div>
@@ -345,15 +484,21 @@ export default function ZonesAdminPage() {
         </div>
         <div className="metric-card">
           <div className="metric-label">С камерами</div>
-          <div className="metric-value">{zones.filter(zone => zone.camera_id > 0).length}</div>
+          <div className="metric-value">{visibleZones.filter(zone => zone.camera_id > 0).length}</div>
         </div>
         <div className="metric-card">
           <div className="metric-label">Платных</div>
-          <div className="metric-value">{zones.filter(zone => zone.pay > 0).length}</div>
+          <div className="metric-value">{visibleZones.filter(zone => zone.pay > 0).length}</div>
         </div>
       </div>
 
-      <div className="filter-bar">
+      <form
+        className="filter-bar"
+        onSubmit={(event) => {
+          event.preventDefault();
+          load();
+        }}
+      >
         <Field label="Camera ID">
           <Input
             value={filters.cameraId}
@@ -378,6 +523,60 @@ export default function ZonesAdminPage() {
             <option value="inactive">Неактивные</option>
           </Select>
         </Field>
+        <Field label="Тип зоны">
+          <Select
+            value={filters.zoneType}
+            onChange={e => setFilters(prev => ({ ...prev, zoneType: e.target.value as ZoneFilters['zoneType'] }))}
+          >
+            <option value="all">Все</option>
+            <option value="standard">standard</option>
+            <option value="parallel">parallel</option>
+            <option value="disabled">disabled</option>
+          </Select>
+        </Field>
+        <Field label="Location Type">
+          <Select
+            value={filters.locationType}
+            onChange={e => setFilters(prev => ({ ...prev, locationType: e.target.value as ZoneFilters['locationType'] }))}
+          >
+            <option value="all">Все</option>
+            <option value="none">Не задан</option>
+            <option value="street">street</option>
+            <option value="yard">yard</option>
+            <option value="parking_lot">parking_lot</option>
+            <option value="garage">garage</option>
+          </Select>
+        </Field>
+        <Field label="Платность">
+          <Select
+            value={filters.payMode}
+            onChange={e => setFilters(prev => ({ ...prev, payMode: e.target.value as ZoneFilters['payMode'] }))}
+          >
+            <option value="all">Все</option>
+            <option value="paid">Платные</option>
+            <option value="free">Бесплатные</option>
+          </Select>
+        </Field>
+        <Field label="Доступность">
+          <Select
+            value={filters.accessibility}
+            onChange={e => setFilters(prev => ({ ...prev, accessibility: e.target.value as ZoneFilters['accessibility'] }))}
+          >
+            <option value="all">Все</option>
+            <option value="accessible">Для инвалидов</option>
+            <option value="regular">Обычные</option>
+          </Select>
+        </Field>
+        <Field label="Видимость">
+          <Select
+            value={filters.privacy}
+            onChange={e => setFilters(prev => ({ ...prev, privacy: e.target.value as ZoneFilters['privacy'] }))}
+          >
+            <option value="all">Все</option>
+            <option value="public">Public</option>
+            <option value="private">Private</option>
+          </Select>
+        </Field>
         <Field label="Макс. цена">
           <Input
             type="number"
@@ -387,8 +586,25 @@ export default function ZonesAdminPage() {
             placeholder="Без ограничения"
           />
         </Field>
-        <Button variant="ghost" onClick={load} disabled={loading}>Применить</Button>
-      </div>
+        <Button type="submit" variant="ghost" disabled={loading}>Применить</Button>
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() => setFilters({
+            cameraId: '',
+            partnerId: '',
+            status: 'all',
+            zoneType: 'all',
+            locationType: 'all',
+            payMode: 'all',
+            accessibility: 'all',
+            privacy: 'all',
+            maxPay: ''
+          })}
+        >
+          Сбросить
+        </Button>
+      </form>
 
       <div className="section-panel zone-create-panel">
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap' }}>
@@ -415,46 +631,88 @@ export default function ZonesAdminPage() {
 
       {error && <div className="notice error">{error}</div>}
 
+      <BulkActionBar
+        selectedCount={selectedZoneIds.size}
+        totalCount={visibleZones.length}
+        busy={saveState.loading || deleteLoading}
+        onActivate={() => onBulkSetZonesActive(true)}
+        onDeactivate={() => onBulkSetZonesActive(false)}
+        onDelete={onBulkDeleteZones}
+      />
+
       <div className="zones-admin-grid">
         <div className="section-panel">
-          <div className="table-header zones-admin">
-            <span>ID</span>
-            <span>Камера</span>
-            <span>Тип</span>
-            <span>Места</span>
-            <span>Свободно</span>
-            <span>Цена</span>
-            <span>Статус</span>
-            <span>Локация</span>
-          </div>
-          <div className="table-list">
-            {zones.map(zone => {
-              const freeCount = zone.free_count ?? (typeof zone.occupied === 'number' ? Math.max(0, zone.capacity - zone.occupied) : undefined);
-              const isSelected = String(zone.id) === selectedZoneId;
-              return (
-                <button
-                  type="button"
-                  key={String(zone.id)}
-                  className={`table-row zones-admin zone-row-button ${isSelected ? 'active' : ''}`}
-                  onClick={() => {
-                    setSelectedZoneId(String(zone.id));
-                    selectZone(zone.id);
-                  }}
-                >
-                  <span>{String(zone.id)}</span>
-                  <span>{zone.camera_id}</span>
-                  <span>{zone.zone_type}</span>
-                  <span>{zone.capacity}</span>
-                  <span>{freeCount ?? '—'}</span>
-                  <span>{zone.pay}</span>
-                  <span className={`status-pill ${zone.is_active === false ? 'paused' : 'active'}`}>
-                    {zone.is_active === false ? 'paused' : 'active'}
-                  </span>
-                  <span>{zone.location_type ?? '—'}</span>
-                </button>
-              );
-            })}
-            {!loading && zones.length === 0 && <div className="empty-state">Зоны не найдены</div>}
+          <div className="table-scroll">
+            <div className="table-header zones-admin">
+              <span className="bulk-check-cell">
+                <BulkSelectionCheckbox
+                  selectedCount={selectedZoneIds.size}
+                  totalCount={visibleZoneIds.length}
+                  busy={saveState.loading || deleteLoading}
+                  label="Выбрать все отфильтрованные зоны"
+                  onToggleAll={checked => setSelectedZoneIds(checked ? new Set(visibleZoneIds) : new Set())}
+                />
+              </span>
+              <span>ID</span>
+              <span>Камера</span>
+              <span>Тип</span>
+              <span>Места</span>
+              <span>Свободно</span>
+              <span>Цена</span>
+              <span>Статус</span>
+              <span>Локация</span>
+            </div>
+            <div className="table-list">
+              {visibleZones.map(zone => {
+                const freeCount = zone.free_count ?? (typeof zone.occupied === 'number' ? Math.max(0, zone.capacity - zone.occupied) : undefined);
+                const isSelected = String(zone.id) === selectedZoneId;
+                const isBulkSelected = selectedZoneIds.has(String(zone.id));
+                return (
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    key={String(zone.id)}
+                    className={`table-row zones-admin zone-row-button ${isSelected ? 'active' : ''} ${isBulkSelected ? 'bulk-row-selected' : ''}`}
+                    onClick={() => {
+                      setSelectedZoneId(String(zone.id));
+                      selectZone(zone.id);
+                    }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedZoneId(String(zone.id));
+                        selectZone(zone.id);
+                      }
+                    }}
+                  >
+                    <span className="bulk-check-cell">
+                      <input
+                        type="checkbox"
+                        checked={isBulkSelected}
+                        onClick={e => e.stopPropagation()}
+                        onChange={e => toggleSelectedZone(String(zone.id), e.target.checked)}
+                        aria-label={`Выбрать зону ${String(zone.id)}`}
+                      />
+                    </span>
+                    <span>{String(zone.id)}</span>
+                    <span>{zone.camera_id}</span>
+                    <span>{zone.zone_type}</span>
+                    <span>{zone.capacity}</span>
+                    <span>{freeCount ?? '—'}</span>
+                    <span>{zone.pay}</span>
+                    <span className={`status-pill ${zone.is_active === false ? 'paused' : 'active'}`}>
+                      {zone.is_active === false ? 'paused' : 'active'}
+                    </span>
+                    <span>{zone.location_type ?? '—'}</span>
+                  </div>
+                );
+              })}
+              {!loading && visibleZones.length === 0 && (
+                <div className="empty-state">
+                  {zones.length > 0 ? 'Под выбранные фильтры зоны не подошли' : 'Зоны не найдены'}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -582,14 +840,19 @@ export default function ZonesAdminPage() {
                     />
                   </Field>
                   <Field label="Location Type">
-                    <Input
+                    <Select
                       value={editor.locationType}
                       onChange={e => {
                         setSaveState(prev => ({ loading: false, error: undefined }));
                         setEditor(prev => prev ? ({ ...prev, locationType: e.target.value }) : prev);
                       }}
-                      placeholder="street / yard / parking_lot / garage"
-                    />
+                    >
+                      <option value="">Не задан</option>
+                      <option value="street">street</option>
+                      <option value="yard">yard</option>
+                      <option value="parking_lot">parking_lot</option>
+                      <option value="garage">garage</option>
+                    </Select>
                   </Field>
                   <Field label="Флаги">
                     <div className="zone-flags-grid">

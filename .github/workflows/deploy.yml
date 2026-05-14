@@ -24,8 +24,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Vite project
+      - name: Build project
         run: npm run build
+        env:
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
 
       - name: Setup SSH
         run: |
@@ -39,4 +41,4 @@ jobs:
           rsync -az --delete \
             -e "ssh" \
             dist/ \
-            "${{ secrets.USERNAME }}@${{ secrets.SERVER_IP }}:${{ secrets.PROJECT_PATH }}/"
+            "${{ secrets.USERNAME }}@${{ secrets.SERVER_IP }}:${{ secrets.DIST_PATH }}/"

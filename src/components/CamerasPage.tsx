@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { api, Camera, CameraSnapshot, CreateCameraRequest } from '@/api/client';
 import { Button, Field, Input, Select, Textarea } from './UiKit';
+import { BulkActionBar, BulkSelectionCheckbox } from './BulkActionBar';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L, { LatLngExpression } from 'leaflet';
 import { navigate } from '@/router/routes';
@@ -102,6 +103,64 @@ function normalizeEditor(editor: CameraEditorState) {
   };
 }
 
+type MediaSize = {
+  width: number;
+  height: number;
+};
+
+function probeImageSize(source: string): Promise<MediaSize> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        resolve({ width: img.naturalWidth, height: img.naturalHeight });
+        return;
+      }
+      reject(new Error('Image dimensions are empty.'));
+    };
+    img.onerror = () => reject(new Error('Image source is not readable as an image.'));
+    img.src = source;
+  });
+}
+
+function probeVideoSize(source: string): Promise<MediaSize> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    const cleanup = () => {
+      video.removeAttribute('src');
+      video.load();
+    };
+
+    video.preload = 'metadata';
+    video.muted = true;
+    video.crossOrigin = 'anonymous';
+    video.onloadedmetadata = () => {
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        const size = { width: video.videoWidth, height: video.videoHeight };
+        cleanup();
+        resolve(size);
+        return;
+      }
+      cleanup();
+      reject(new Error('Video dimensions are empty.'));
+    };
+    video.onerror = () => {
+      cleanup();
+      reject(new Error('Video source is not readable in browser.'));
+    };
+    video.src = source;
+  });
+}
+
+async function detectMediaSize(source: string): Promise<MediaSize> {
+  try {
+    return await probeImageSize(source);
+  } catch {
+    return probeVideoSize(source);
+  }
+}
+
 export default function CamerasPage() {
   const store = useStore();
   const { setViewMode, setCamera, loadCameraMeta, cameraId, setLabelerReturnRoute } = store;
@@ -116,18 +175,26 @@ export default function CamerasPage() {
   const [zoneCounts, setZoneCounts] = useState<Record<number, number>>({});
   const [showAddCamera, setShowAddCamera] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [selectedCameraIds, setSelectedCameraIds] = useState<Set<number>>(() => new Set());
   const [filters, setFilters] = useState({
     q: '',
     isActive: 'all'
   });
+  const snapshotPreviewRef = useRef<HTMLDivElement | null>(null);
   const [snapshot, setSnapshot] = useState<SnapshotState>({ loading: false });
   const [snapshotReloadKey, setSnapshotReloadKey] = useState(0);
+  const [isSnapshotFullscreen, setIsSnapshotFullscreen] = useState(false);
   const [editor, setEditor] = useState<CameraEditorState | null>(null);
   const [saveState, setSaveState] = useState<CameraSaveState>({ loading: false });
 
   const selectedCamera = useMemo(
     () => cameras.find(cam => cam.camera_id === selectedId),
     [cameras, selectedId]
+  );
+  const visibleCameraIds = useMemo(
+    () => cameras.map(cam => cam.camera_id),
+    [cameras]
   );
   const hasEditorChanges = useMemo(() => {
     if (!selectedCamera || !editor) return false;
@@ -160,6 +227,23 @@ export default function CamerasPage() {
   useEffect(() => {
     loadCameras();
   }, [currentPartnerId]);
+
+  useEffect(() => {
+    setSelectedCameraIds(prev => {
+      const visible = new Set(visibleCameraIds);
+      const next = new Set([...prev].filter(id => visible.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [visibleCameraIds]);
+
+  useEffect(() => {
+    function onFullscreenChange() {
+      setIsSnapshotFullscreen(document.fullscreenElement === snapshotPreviewRef.current);
+    }
+
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
 
   useEffect(() => {
     if (!cameras.length) return;
@@ -341,6 +425,80 @@ export default function CamerasPage() {
     }
   }
 
+  function toggleSelectedCamera(cameraId: number, checked: boolean) {
+    setSelectedCameraIds(prev => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(cameraId);
+      } else {
+        next.delete(cameraId);
+      }
+      return next;
+    });
+  }
+
+  async function onBulkSetCamerasActive(isActive: boolean) {
+    if (!selectedCameraIds.size) return;
+
+    setBulkLoading(true);
+    setError(undefined);
+    try {
+      const ids = [...selectedCameraIds];
+      const updated = await Promise.all(ids.map(cameraId => api.updateCamera(cameraId, { is_active: isActive })));
+      setCameras(prev =>
+        prev.map(camera => updated.find(item => item.camera_id === camera.camera_id) ?? camera)
+      );
+      setSelectedCameraIds(new Set());
+      notifySuccess(`Камеры ${isActive ? 'активированы' : 'деактивированы'}.`);
+    } catch (e: any) {
+      setError(`Ошибка массового обновления камер: ${String(e?.message || e)}`);
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  async function onBulkDeleteCameras() {
+    if (!selectedCameraIds.size) return;
+
+    const shouldDelete = await confirmAction({
+      title: 'Удалить выбранные камеры?',
+      message: `Будет удалено камер: ${selectedCameraIds.size}. Это действие нельзя отменить.`,
+      confirmLabel: 'Удалить',
+      cancelLabel: 'Отмена',
+      tone: 'danger'
+    });
+    if (!shouldDelete) return;
+
+    setBulkLoading(true);
+    setError(undefined);
+    try {
+      const ids = new Set(selectedCameraIds);
+      await Promise.all([...ids].map(cameraId => api.deleteCamera(cameraId)));
+      setCameras(prev => prev.filter(camera => !ids.has(camera.camera_id)));
+      setSelectedCameraIds(new Set());
+      notifySuccess('Выбранные камеры удалены.');
+    } catch (e: any) {
+      setError(`Ошибка массового удаления камер: ${String(e?.message || e)}`);
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  async function toggleSnapshotFullscreen() {
+    const container = snapshotPreviewRef.current;
+    if (!container) return;
+
+    try {
+      if (document.fullscreenElement === container) {
+        await document.exitFullscreen();
+        return;
+      }
+      await container.requestFullscreen();
+    } catch (e: any) {
+      setError(`Не удалось открыть snapshot на весь экран: ${String(e?.message || e)}`);
+    }
+  }
+
   return (
     <>
       <div className="sidebar camera-admin-sidebar">
@@ -378,9 +536,27 @@ export default function CamerasPage() {
           </Button>
         </div>
 
+        <BulkActionBar
+          selectedCount={selectedCameraIds.size}
+          totalCount={cameras.length}
+          busy={bulkLoading}
+          onActivate={() => onBulkSetCamerasActive(true)}
+          onDeactivate={() => onBulkSetCamerasActive(false)}
+          onDelete={onBulkDeleteCameras}
+        />
+
         {error && <div className="notice error" style={{ marginBottom: 12 }}>{error}</div>}
         <div className="section-panel" style={{ marginBottom: 12 }}>
           <div className="table-header camera-list-header">
+            <span className="bulk-check-cell">
+              <BulkSelectionCheckbox
+                selectedCount={selectedCameraIds.size}
+                totalCount={visibleCameraIds.length}
+                busy={bulkLoading}
+                label="Выбрать все отфильтрованные камеры"
+                onToggleAll={checked => setSelectedCameraIds(checked ? new Set(visibleCameraIds) : new Set())}
+              />
+            </span>
             <span>Камера</span>
             <span>Зоны</span>
             <span>Статус</span>
@@ -389,14 +565,32 @@ export default function CamerasPage() {
             {cameras.map(cam => {
               const isActive = cam.camera_id === selectedId;
               const zonesCount = zoneCounts[cam.camera_id];
+              const isBulkSelected = selectedCameraIds.has(cam.camera_id);
               return (
-                <button
+                <div
                   key={cam.camera_id}
-                  className={`camera-list-item ${isActive ? 'active' : ''}`}
+                  role="button"
+                  tabIndex={0}
+                  className={`camera-list-item ${isActive ? 'active' : ''} ${isBulkSelected ? 'bulk-row-selected' : ''}`}
                   onMouseEnter={() => setHoverId(cam.camera_id)}
                   onMouseLeave={() => setHoverId(id => (id === cam.camera_id ? undefined : id))}
                   onClick={() => setSelectedId(cam.camera_id)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedId(cam.camera_id);
+                    }
+                  }}
                 >
+                  <span className="bulk-check-cell">
+                    <input
+                      type="checkbox"
+                      checked={isBulkSelected}
+                      onClick={e => e.stopPropagation()}
+                      onChange={e => toggleSelectedCamera(cam.camera_id, e.target.checked)}
+                      aria-label={`Выбрать камеру ${cam.camera_id}`}
+                    />
+                  </span>
                   <span>
                     <strong>{cam.title}</strong>
                     <span className="small" style={{ display: 'block' }}>ID: {cam.camera_id}</span>
@@ -405,7 +599,7 @@ export default function CamerasPage() {
                   <span className={`status-pill ${cam.is_active === false ? 'paused' : 'active'}`}>
                     {cam.is_active === false ? 'paused' : 'active'}
                   </span>
-                </button>
+                </div>
               );
             })}
             {!loading && !cameras.length && (
@@ -546,15 +740,26 @@ export default function CamerasPage() {
             )}
 
             {saveState.error && <div className="notice error">{saveState.error}</div>}
-            <div className="camera-preview">
+            <div className="camera-preview" ref={snapshotPreviewRef}>
               <div className="camera-preview-header">
                 <h3>Распознанные автомобили</h3>
-                <Button
-                  variant="ghost"
-                  onClick={() => setSnapshotReloadKey(key => key + 1)}
-                >
-                  Обновить кадр
-                </Button>
+                <div className="camera-preview-actions">
+                  {snapshot.data?.image_url && (
+                    <Button
+                      variant="ghost"
+                      onClick={toggleSnapshotFullscreen}
+                      title={isSnapshotFullscreen ? 'Выйти из полноэкранного режима' : 'Открыть snapshot на весь экран'}
+                    >
+                      {isSnapshotFullscreen ? 'Свернуть' : 'На весь экран'}
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    onClick={() => setSnapshotReloadKey(key => key + 1)}
+                  >
+                    Обновить кадр
+                  </Button>
+                </div>
               </div>
               {snapshot.loading && <div className="empty-state">Загрузка snapshot...</div>}
               {!snapshot.loading && snapshot.error && (
@@ -598,8 +803,10 @@ export default function CamerasPage() {
                   setLabelerReturnRoute('cameras');
                   setCamera(String(selectedCamera.camera_id));
                   loadCameraMeta(selectedCamera.camera_id);
-                  store.setViewMode('cameraMapSelector');
                   navigate('labeler');
+                  window.setTimeout(() => {
+                    store.setViewMode('cameraMapSelector');
+                  }, 0);
                 }}
               >
                 Положение на карте
@@ -675,7 +882,6 @@ export default function CamerasPage() {
                     <div><b>{cam.title}</b></div>
                     <div className="small">ID: {cam.camera_id}</div>
                     <div style={{ marginTop: 6, display: 'flex', gap: 6 }}>
-                      <Button onClick={() => setSelectedId(cam.camera_id)}>Открыть</Button>
                       <Button onClick={() => openLabeler(cam)}>Разметка</Button>
                     </div>
                   </div>
@@ -704,12 +910,44 @@ function AddCameraForm({
   const [source, setSource] = useState('');
   const [imageWidth, setImageWidth] = useState('1920');
   const [imageHeight, setImageHeight] = useState('1080');
+  const [sizeLoading, setSizeLoading] = useState(false);
+  const [sizeMessage, setSizeMessage] = useState('Размер будет определён автоматически.');
   const [latitude, setLatitude] = useState('59.9386');
   const [longitude, setLongitude] = useState('30.3141');
   const [calib, setCalib] = useState('');
   const [error, setError] = useState<string | undefined>();
 
-  function handleSubmit(e: React.FormEvent) {
+  async function detectSourceSize(nextSource = source) {
+    const trimmedSource = nextSource.trim();
+    if (!trimmedSource) {
+      setSizeMessage('Размер будет определён автоматически.');
+      return;
+    }
+
+    setSizeLoading(true);
+    setSizeMessage('Определяем размер источника...');
+    try {
+      const size = await detectMediaSize(trimmedSource);
+      setImageWidth(String(size.width));
+      setImageHeight(String(size.height));
+      setSizeMessage(`Определено автоматически: ${size.width} x ${size.height}.`);
+    } catch {
+      setImageWidth('1920');
+      setImageHeight('1080');
+      setSizeMessage('Не удалось прочитать размер в браузере. Используем 1920 x 1080.');
+    } finally {
+      setSizeLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      detectSourceSize(source);
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [source]);
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(undefined);
     let calibParsed: any = null;
@@ -720,6 +958,9 @@ function AddCameraForm({
         setError('Ошибка парсинга JSON в calib.');
         return;
       }
+    }
+    if (!Number.isFinite(parseInt(imageWidth, 10)) || !Number.isFinite(parseInt(imageHeight, 10))) {
+      await detectSourceSize(source);
     }
     onSave({
       title: title.trim(),
@@ -749,29 +990,25 @@ function AddCameraForm({
         <Field label="Source (видеопоток) *">
           <Input
             value={source}
-            onChange={e => setSource(e.target.value)}
+            onChange={e => {
+              setSource(e.target.value);
+              setError(undefined);
+            }}
+            onBlur={() => detectSourceSize(source)}
             placeholder="https://... или rtsp://..."
             required
           />
         </Field>
-        <Field label="Image Width *">
-          <Input
-            type="number"
-            min={1}
-            value={imageWidth}
-            onChange={e => setImageWidth(e.target.value)}
-            required
-          />
-        </Field>
-        <Field label="Image Height *">
-          <Input
-            type="number"
-            min={1}
-            value={imageHeight}
-            onChange={e => setImageHeight(e.target.value)}
-            required
-          />
-        </Field>
+        <div className="auto-size-panel">
+          <div>
+            <div className="metric-label">Размер изображения</div>
+            <div className="detail-value">{imageWidth} x {imageHeight}</div>
+            <div className="small">{sizeMessage}</div>
+          </div>
+          <Button type="button" variant="ghost" onClick={() => detectSourceSize()} disabled={!source.trim() || sizeLoading}>
+            {sizeLoading ? 'Определяем...' : 'Определить заново'}
+          </Button>
+        </div>
         <Field label="Latitude *">
           <Input
             type="number"

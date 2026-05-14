@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSessionStore } from '@/auth/sessionStore';
 import { api, type UserProfileResponse, type PartnerMemberResponse, type PartnerResponse } from '@/api/client';
 import { Button, Field, Input, Select } from '@/components/UiKit';
+import { BulkActionBar, BulkSelectionCheckbox } from '@/components/BulkActionBar';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
-import type { PartnerMembership } from '@/types';
+import { validateOptionalPhone } from '@/utils/phone';
+import type { AccessScope, PartnerMembership } from '@/types';
 
 type AdminUser = {
   user_id: number;
@@ -24,6 +26,24 @@ type UserEditorState = {
   globalRole: string;
   isActive: boolean;
 };
+
+type CreateUserState = {
+  email: string;
+  password: string;
+  fullName: string;
+  phone: string;
+  globalRole: string;
+};
+
+type AddPartnerState = {
+  partnerId: string;
+  userRole: string;
+  readScope: AccessScope | string;
+  writeScope: AccessScope | string;
+  deleteScope: AccessScope | string;
+};
+
+type PartnerOption = Pick<PartnerResponse, 'partner_id' | 'legal_name'>;
 
 function mapUser(input: UserProfileResponse): AdminUser {
   return {
@@ -68,9 +88,23 @@ function formatDate(dateStr?: string) {
   }
 }
 
+const scopeOptions: Array<AccessScope | string> = ['none', 'own', 'assigned', 'own_or_assigned', 'partner_all', 'global_all'];
+const memberRoleOptions = ['partner_owner', 'partner_admin', 'partner_manager', 'partner_analyst', 'partner_viewer'];
+const emptyCreateUserForm: CreateUserState = {
+  email: '',
+  password: '',
+  fullName: '',
+  phone: '',
+  globalRole: 'user'
+};
+
 export default function UsersAdminPage() {
+  const sessionUser = useSessionStore(state => state.user);
+  const currentPartnerId = useSessionStore(state => state.currentPartnerId);
+  const activeSessionMemberships = (sessionUser?.partner_memberships ?? []).filter(m => m.is_active !== false);
   const canManageUsers = useSessionStore(state => state.hasPermission('admin.users.manage'));
   const canViewPartnerMembers = useSessionStore(state => state.hasPermission('partner_members.view'));
+  const canInvitePartnerMembers = useSessionStore(state => state.hasPermission('partner_members.invite'));
   const canViewPartners = useSessionStore(state => state.hasPermission('admin.partners.view'));
   const notifySuccess = useFeedbackStore(state => state.success);
   const confirmAction = useFeedbackStore(state => state.confirm);
@@ -87,9 +121,25 @@ export default function UsersAdminPage() {
   const [editor, setEditor] = useState<UserEditorState | null>(null);
   const [saveLoading, setSaveLoading] = useState(false);
   const [saveError, setSaveError] = useState<string | undefined>();
+  const [showCreateUser, setShowCreateUser] = useState(false);
+  const [createUserForm, setCreateUserForm] = useState<CreateUserState>(emptyCreateUserForm);
+  const [createUserLoading, setCreateUserLoading] = useState(false);
+  const [createUserError, setCreateUserError] = useState<string | undefined>();
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<number>>(() => new Set());
   const [membershipsByUserId, setMembershipsByUserId] = useState<Record<number, PartnerMembership[]>>({});
+  const [partnerOptions, setPartnerOptions] = useState<PartnerOption[]>([]);
   const [membershipsLoading, setMembershipsLoading] = useState(false);
   const [membershipsError, setMembershipsError] = useState<string | undefined>();
+  const [addPartnerForm, setAddPartnerForm] = useState<AddPartnerState>({
+    partnerId: '',
+    userRole: 'partner_viewer',
+    readScope: 'own',
+    writeScope: 'own',
+    deleteScope: 'own'
+  });
+  const [addPartnerLoading, setAddPartnerLoading] = useState(false);
+  const [addPartnerError, setAddPartnerError] = useState<string | undefined>();
 
   const filteredUsers = useMemo(() => {
     return users.filter(user => {
@@ -102,8 +152,16 @@ export default function UsersAdminPage() {
       return matchesQuery && matchesRole && matchesStatus;
     });
   }, [users, query, roleFilter, statusFilter]);
+  const filteredUserIds = useMemo(
+    () => filteredUsers.map(user => user.user_id),
+    [filteredUsers]
+  );
 
   const selectedMemberships = selectedUser ? membershipsByUserId[selectedUser.user_id] ?? [] : [];
+  const partnerNameById = useMemo(
+    () => new Map(partnerOptions.map(partner => [partner.partner_id, partner.legal_name])),
+    [partnerOptions]
+  );
   const hasEditorChanges = useMemo(() => {
     if (!selectedUser || !editor) return false;
     return JSON.stringify(normalizeEditor(editor)) !== JSON.stringify(normalizeEditor(userToEditor(selectedUser)));
@@ -134,8 +192,16 @@ export default function UsersAdminPage() {
   }
 
   async function loadMemberships() {
-    if (!canViewPartnerMembers || !canViewPartners) {
+    const fallbackPartnerOptions: PartnerOption[] = activeSessionMemberships
+      .filter((membership, index, list) => list.findIndex(item => item.partner_id === membership.partner_id) === index)
+      .map(membership => ({
+        partner_id: membership.partner_id,
+        legal_name: `Партнёр #${membership.partner_id}`
+      }));
+
+    if (!canViewPartners && !fallbackPartnerOptions.length) {
       setMembershipsByUserId({});
+      setPartnerOptions([]);
       setMembershipsError(undefined);
       return;
     }
@@ -143,8 +209,21 @@ export default function UsersAdminPage() {
     setMembershipsLoading(true);
     setMembershipsError(undefined);
     try {
-      const partnersResponse = await api.partners.list();
-      const partnerItems: PartnerResponse[] = partnersResponse.items;
+      const partnerItems: PartnerOption[] = canViewPartners
+        ? (await api.partners.list()).items
+        : fallbackPartnerOptions;
+      setPartnerOptions(partnerItems);
+      setAddPartnerForm(prev => {
+        if (prev.partnerId || !partnerItems.length || canViewPartners) return prev;
+        const defaultPartnerId = currentPartnerId ?? partnerItems[0].partner_id;
+        return { ...prev, partnerId: String(defaultPartnerId) };
+      });
+
+      if (!canViewPartnerMembers) {
+        setMembershipsByUserId({});
+        return;
+      }
+
       const responses = await Promise.all(
         partnerItems.map(async partner => {
           try {
@@ -176,6 +255,7 @@ export default function UsersAdminPage() {
       setMembershipsByUserId(nextMemberships);
     } catch (err: any) {
       setMembershipsError(String(err?.message || err));
+      setPartnerOptions([]);
     } finally {
       setMembershipsLoading(false);
     }
@@ -187,7 +267,7 @@ export default function UsersAdminPage() {
 
   useEffect(() => {
     loadMemberships();
-  }, [canViewPartnerMembers, canViewPartners]);
+  }, [canViewPartnerMembers, canViewPartners, currentPartnerId, activeSessionMemberships.length]);
 
   useEffect(() => {
     if (!filteredUsers.length) {
@@ -198,6 +278,14 @@ export default function UsersAdminPage() {
       setSelectedUserId(filteredUsers[0].user_id);
     }
   }, [filteredUsers, selectedUserId]);
+
+  useEffect(() => {
+    setSelectedUserIds(prev => {
+      const visible = new Set(filteredUserIds);
+      const next = new Set([...prev].filter(id => visible.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [filteredUserIds]);
 
   useEffect(() => {
     let cancelled = false;
@@ -252,6 +340,12 @@ export default function UsersAdminPage() {
       return;
     }
 
+    const phoneError = validateOptionalPhone(phone);
+    if (phoneError) {
+      setSaveError(phoneError);
+      return;
+    }
+
     setSaveLoading(true);
     setSaveError(undefined);
     try {
@@ -296,6 +390,154 @@ export default function UsersAdminPage() {
     }
   }
 
+  function toggleSelectedUser(userId: number, checked: boolean) {
+    setSelectedUserIds(prev => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(userId);
+      } else {
+        next.delete(userId);
+      }
+      return next;
+    });
+  }
+
+  async function onBulkSetUsersActive(isActive: boolean) {
+    if (!selectedUserIds.size || !canManageUsers) return;
+
+    setBulkLoading(true);
+    setError(undefined);
+    try {
+      const ids = [...selectedUserIds];
+      const updated = (await Promise.all(
+        ids.map(userId => api.users.update(userId, { is_active: isActive }))
+      )).map(mapUser);
+
+      setUsers(prev => prev.map(user => updated.find(item => item.user_id === user.user_id) ?? user));
+      if (selectedUser && selectedUserIds.has(selectedUser.user_id)) {
+        const nextSelected = updated.find(user => user.user_id === selectedUser.user_id);
+        if (nextSelected) {
+          setSelectedUser(nextSelected);
+          setEditor(userToEditor(nextSelected));
+        }
+      }
+      setSelectedUserIds(new Set());
+      notifySuccess(`Пользователи ${isActive ? 'активированы' : 'деактивированы'}.`);
+    } catch (err: any) {
+      setError(`Ошибка массового обновления пользователей: ${String(err?.message || err)}`);
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  async function onBulkDeleteUsers() {
+    if (!selectedUserIds.size || !canManageUsers) return;
+
+    const confirmed = await confirmAction({
+      title: 'Удалить выбранных пользователей?',
+      message: `Будет удалено пользователей: ${selectedUserIds.size}. Это действие нельзя отменить.`,
+      confirmLabel: 'Удалить',
+      cancelLabel: 'Отмена',
+      tone: 'danger'
+    });
+    if (!confirmed) return;
+
+    setBulkLoading(true);
+    setError(undefined);
+    try {
+      const ids = new Set(selectedUserIds);
+      await Promise.all([...ids].map(userId => api.users.remove(userId)));
+      setUsers(prev => prev.filter(user => !ids.has(user.user_id)));
+      setSelectedUserIds(new Set());
+      notifySuccess('Выбранные пользователи удалены.');
+    } catch (err: any) {
+      setError(`Ошибка массового удаления пользователей: ${String(err?.message || err)}`);
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  async function onCreateUser(e: React.FormEvent) {
+    e.preventDefault();
+
+    const email = createUserForm.email.trim();
+    const password = createUserForm.password;
+    const fullName = createUserForm.fullName.trim();
+    const phone = createUserForm.phone.trim();
+
+    if (!email) {
+      setCreateUserError('Email обязателен.');
+      return;
+    }
+    if (password.length < 6) {
+      setCreateUserError('В пароле должно быть не менее 6 символов.');
+      return;
+    }
+
+    const phoneError = validateOptionalPhone(phone);
+    if (phoneError) {
+      setCreateUserError(phoneError);
+      return;
+    }
+
+    setCreateUserLoading(true);
+    setCreateUserError(undefined);
+    try {
+      const created = mapUser(await api.users.create({
+        email,
+        password,
+        full_name: fullName || null,
+        phone: phone || null,
+        global_role: createUserForm.globalRole
+      }));
+      notifySuccess('Пользователь создан.');
+      setCreateUserForm(emptyCreateUserForm);
+      setShowCreateUser(false);
+      setUsers(prev => [created, ...prev.filter(user => user.user_id !== created.user_id)]);
+      setSelectedUserId(created.user_id);
+      await loadMemberships();
+    } catch (err: any) {
+      setCreateUserError(String(err?.message || err));
+    } finally {
+      setCreateUserLoading(false);
+    }
+  }
+
+  async function onAddUserToPartner() {
+    if (!selectedUser) return;
+
+    const partnerId = parseInt(addPartnerForm.partnerId, 10);
+    if (!Number.isFinite(partnerId) || partnerId < 1) {
+      setAddPartnerError('Выберите партнёра.');
+      return;
+    }
+
+    setAddPartnerLoading(true);
+    setAddPartnerError(undefined);
+    try {
+      await api.partners.inviteMember(partnerId, {
+        user_id: selectedUser.user_id,
+        user_role: addPartnerForm.userRole,
+        read_scope: addPartnerForm.readScope,
+        write_scope: addPartnerForm.writeScope,
+        delete_scope: addPartnerForm.deleteScope
+      });
+      notifySuccess('Пользователь добавлен к партнёру.');
+      setAddPartnerForm({
+        partnerId: '',
+        userRole: 'partner_viewer',
+        readScope: 'own',
+        writeScope: 'own',
+        deleteScope: 'own'
+      });
+      await loadMemberships();
+    } catch (err: any) {
+      setAddPartnerError(String(err?.message || err));
+    } finally {
+      setAddPartnerLoading(false);
+    }
+  }
+
   const totalMemberships = useMemo(
     () => Object.values(membershipsByUserId).reduce((sum, memberships) => sum + memberships.length, 0),
     [membershipsByUserId]
@@ -308,8 +550,14 @@ export default function UsersAdminPage() {
           <h1>Пользователи</h1>
           <p>Реальный список пользователей, редактирование профиля и статуса через текущий backend.</p>
         </div>
-        <Button disabled>
-          {canManageUsers ? 'Создание пользователя ждёт backend endpoint' : 'Недостаточно прав для создания'}
+        <Button
+          onClick={() => {
+            setCreateUserError(undefined);
+            setShowCreateUser(prev => !prev);
+          }}
+          disabled={!canManageUsers}
+        >
+          {showCreateUser ? 'Скрыть форму' : 'Новый пользователь'}
         </Button>
       </div>
 
@@ -350,41 +598,161 @@ export default function UsersAdminPage() {
             <option value="inactive">Неактивные</option>
           </Select>
         </Field>
-        <Button variant="ghost" onClick={loadUsers} disabled={loading}>
-          {loading ? 'Загрузка...' : 'Применить'}
-        </Button>
       </div>
+
+      <BulkActionBar
+        selectedCount={selectedUserIds.size}
+        totalCount={filteredUsers.length}
+        busy={bulkLoading}
+        canMutate={canManageUsers}
+        onActivate={() => onBulkSetUsersActive(true)}
+        onDeactivate={() => onBulkSetUsersActive(false)}
+        onDelete={onBulkDeleteUsers}
+      />
 
       {error && <div className="notice error">{error}</div>}
       {membershipsError && <div className="notice warning">{membershipsError}</div>}
+      {!canManageUsers && (
+        <div className="notice warning">Создание пользователей доступно только с правом admin.users.manage.</div>
+      )}
+
+      {showCreateUser && canManageUsers && (
+        <div className="section-panel profile-form-panel">
+          <h2>Новый пользователь</h2>
+          <form className="profile-form-grid" onSubmit={onCreateUser}>
+            <Field label="Email *">
+              <Input
+                type="email"
+                value={createUserForm.email}
+                onChange={e => {
+                  setCreateUserError(undefined);
+                  setCreateUserForm(prev => ({ ...prev, email: e.target.value }));
+                }}
+                placeholder="user@example.com"
+                required
+              />
+            </Field>
+            <Field label="Пароль *">
+              <Input
+                type="password"
+                value={createUserForm.password}
+                onChange={e => {
+                  setCreateUserError(undefined);
+                  setCreateUserForm(prev => ({ ...prev, password: e.target.value }));
+                }}
+                placeholder="Минимум 6 символов"
+                minLength={6}
+                required
+              />
+            </Field>
+            <Field label="Полное имя">
+              <Input
+                value={createUserForm.fullName}
+                onChange={e => {
+                  setCreateUserError(undefined);
+                  setCreateUserForm(prev => ({ ...prev, fullName: e.target.value }));
+                }}
+                placeholder="Имя сотрудника"
+              />
+            </Field>
+            <Field label="Телефон">
+              <Input
+                value={createUserForm.phone}
+                onChange={e => {
+                  setCreateUserError(undefined);
+                  setCreateUserForm(prev => ({ ...prev, phone: e.target.value }));
+                }}
+                placeholder="+79991234567"
+              />
+            </Field>
+            <Field label="Глобальная роль">
+              <Select
+                value={createUserForm.globalRole}
+                onChange={e => {
+                  setCreateUserError(undefined);
+                  setCreateUserForm(prev => ({ ...prev, globalRole: e.target.value }));
+                }}
+              >
+                <option value="user">user</option>
+                <option value="admin">admin</option>
+              </Select>
+            </Field>
+            <div className="row create-user-actions">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setCreateUserError(undefined);
+                  setCreateUserForm(emptyCreateUserForm);
+                  setShowCreateUser(false);
+                }}
+                disabled={createUserLoading}
+              >
+                Отмена
+              </Button>
+              <Button type="submit" disabled={createUserLoading}>
+                {createUserLoading ? 'Создание...' : 'Создать пользователя'}
+              </Button>
+            </div>
+          </form>
+          {createUserError && <div className="notice error">{createUserError}</div>}
+        </div>
+      )}
 
       <div className="contract-grid">
         <div className="section-panel">
-          <div className="table-header users-contract">
-            <span>ID</span>
-            <span>Email</span>
-            <span>Роль</span>
-            <span>Статус</span>
-            <span>Создан</span>
-          </div>
-          <div className="table-list">
-            {filteredUsers.map(user => (
-              <button
-                key={user.user_id}
-                type="button"
-                className={`table-row users-contract contract-row-button ${selectedUser?.user_id === user.user_id ? 'active' : ''}`}
-                onClick={() => setSelectedUserId(user.user_id)}
-              >
-                <span>{user.user_id}</span>
-                <span>{user.email}</span>
-                <span>{user.global_role}</span>
-                <span className={`status-pill ${user.is_active ? 'active' : 'paused'}`}>
-                  {user.is_active ? 'active' : 'inactive'}
-                </span>
-                <span>{formatDate(user.created_at)}</span>
-              </button>
-            ))}
-            {!loading && !filteredUsers.length && <div className="empty-state">Пользователи не найдены.</div>}
+          <div className="table-scroll">
+            <div className="table-header users-contract">
+              <span className="bulk-check-cell">
+                <BulkSelectionCheckbox
+                  selectedCount={selectedUserIds.size}
+                  totalCount={filteredUserIds.length}
+                  busy={bulkLoading}
+                  label="Выбрать всех отфильтрованных пользователей"
+                  onToggleAll={checked => setSelectedUserIds(checked ? new Set(filteredUserIds) : new Set())}
+                />
+              </span>
+              <span>ID</span>
+              <span>Email</span>
+              <span>Роль</span>
+              <span>Статус</span>
+              <span>Создан</span>
+            </div>
+            <div className="table-list">
+              {filteredUsers.map(user => (
+                <div
+                  key={user.user_id}
+                  role="button"
+                  tabIndex={0}
+                  className={`table-row users-contract contract-row-button ${selectedUser?.user_id === user.user_id ? 'active' : ''} ${selectedUserIds.has(user.user_id) ? 'bulk-row-selected' : ''}`}
+                  onClick={() => setSelectedUserId(user.user_id)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedUserId(user.user_id);
+                    }
+                  }}
+                >
+                  <span className="bulk-check-cell">
+                    <input
+                      type="checkbox"
+                      checked={selectedUserIds.has(user.user_id)}
+                      onClick={e => e.stopPropagation()}
+                      onChange={e => toggleSelectedUser(user.user_id, e.target.checked)}
+                      aria-label={`Выбрать пользователя ${user.email}`}
+                    />
+                  </span>
+                  <span>{user.user_id}</span>
+                  <span>{user.email}</span>
+                  <span>{user.global_role}</span>
+                  <span className={`status-pill ${user.is_active ? 'active' : 'paused'}`}>
+                    {user.is_active ? 'active' : 'inactive'}
+                  </span>
+                  <span>{formatDate(user.created_at)}</span>
+                </div>
+              ))}
+              {!loading && !filteredUsers.length && <div className="empty-state">Пользователи не найдены.</div>}
+            </div>
           </div>
         </div>
 
@@ -490,12 +858,9 @@ export default function UsersAdminPage() {
                 {!canViewPartnerMembers && (
                   <div className="notice warning">Недостаточно прав для просмотра членств в партнёрах.</div>
                 )}
-                {canViewPartnerMembers && !canViewPartners && (
-                  <div className="notice warning">Нет доступа к списку партнёров, поэтому членства пользователя неполные.</div>
-                )}
                 {membershipsLoading && <div className="empty-state">Загрузка членств...</div>}
-                {!membershipsLoading && canViewPartnerMembers && canViewPartners && (
-                  <>
+                {!membershipsLoading && canViewPartnerMembers && (
+                  <div className="table-scroll">
                     <div className="table-header memberships-contract">
                       <span>Partner</span>
                       <span>Role</span>
@@ -506,7 +871,7 @@ export default function UsersAdminPage() {
                     <div className="table-list">
                       {selectedMemberships.map((membership, index) => (
                         <div className="table-row memberships-contract" key={`${membership.partner_id}-${membership.role}-${index}`}>
-                          <span>{membership.partner_id}</span>
+                          <span>{partnerNameById.get(membership.partner_id) ?? `Партнёр #${membership.partner_id}`}</span>
                           <span>{membership.role}</span>
                           <span>{membership.read_scope}</span>
                           <span>{membership.write_scope}</span>
@@ -519,7 +884,78 @@ export default function UsersAdminPage() {
                         </div>
                       )}
                     </div>
-                  </>
+                  </div>
+                )}
+
+                {canInvitePartnerMembers && partnerOptions.length > 0 && (
+                  <div className="partner-attach-panel">
+                    <h3>Добавить к партнёру</h3>
+                    <div className="profile-form-grid">
+                      <Field label="Партнёр">
+                        <Select
+                          value={addPartnerForm.partnerId}
+                          onChange={e => {
+                            setAddPartnerError(undefined);
+                            setAddPartnerForm(prev => ({ ...prev, partnerId: e.target.value }));
+                          }}
+                        >
+                          <option value="">Выберите партнёра</option>
+                          {partnerOptions.map(partner => (
+                            <option key={partner.partner_id} value={partner.partner_id}>
+                              {partner.legal_name} · #{partner.partner_id}
+                            </option>
+                          ))}
+                        </Select>
+                      </Field>
+                      <Field label="Role">
+                        <Select
+                          value={addPartnerForm.userRole}
+                          onChange={e => {
+                            setAddPartnerError(undefined);
+                            setAddPartnerForm(prev => ({ ...prev, userRole: e.target.value }));
+                          }}
+                        >
+                          {memberRoleOptions.map(role => <option key={role} value={role}>{role}</option>)}
+                        </Select>
+                      </Field>
+                      <Field label="Read scope">
+                        <Select
+                          value={addPartnerForm.readScope}
+                          onChange={e => setAddPartnerForm(prev => ({ ...prev, readScope: e.target.value }))}
+                        >
+                          {scopeOptions.map(scope => <option key={scope} value={scope}>{scope}</option>)}
+                        </Select>
+                      </Field>
+                      <Field label="Write scope">
+                        <Select
+                          value={addPartnerForm.writeScope}
+                          onChange={e => setAddPartnerForm(prev => ({ ...prev, writeScope: e.target.value }))}
+                        >
+                          {scopeOptions.map(scope => <option key={scope} value={scope}>{scope}</option>)}
+                        </Select>
+                      </Field>
+                      <Field label="Delete scope">
+                        <Select
+                          value={addPartnerForm.deleteScope}
+                          onChange={e => setAddPartnerForm(prev => ({ ...prev, deleteScope: e.target.value }))}
+                        >
+                          {scopeOptions.map(scope => <option key={scope} value={scope}>{scope}</option>)}
+                        </Select>
+                      </Field>
+                    </div>
+                    {addPartnerError && <div className="notice error">{addPartnerError}</div>}
+                    <div className="row" style={{ justifyContent: 'flex-end' }}>
+                      <Button
+                        onClick={onAddUserToPartner}
+                        disabled={addPartnerLoading || !addPartnerForm.partnerId || membershipsLoading}
+                      >
+                        {addPartnerLoading ? 'Добавление...' : 'Добавить к партнёру'}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {canInvitePartnerMembers && partnerOptions.length === 0 && (
+                  <div className="notice warning">Нет доступных партнёров для добавления пользователя.</div>
                 )}
               </div>
 

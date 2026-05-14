@@ -12,33 +12,21 @@ import { clockwiseSort } from '@/geometry/poly';
 import { api, Camera } from '@/api/client';
 
 let tmpZoneId = -1;
-const API_BASE_STORAGE_KEY = 'parktrack.api-base.v1';
 
 function detectDefaultApiBase() {
+  const configuredBase = import.meta.env.VITE_API_BASE?.trim();
+  if (configuredBase) {
+    return configuredBase.replace(/\/+$/, '');
+  }
+
   if (typeof window !== 'undefined') {
     const host = window.location.hostname;
     if (host === 'localhost' || host === '127.0.0.1') {
       return 'http://localhost:8000/api/v1';
     }
   }
+
   return 'https://api.parktrack.live';
-}
-
-function loadStoredApiBase() {
-  if (typeof window === 'undefined') return detectDefaultApiBase();
-  try {
-    return localStorage.getItem(API_BASE_STORAGE_KEY) || detectDefaultApiBase();
-  } catch {
-    return detectDefaultApiBase();
-  }
-}
-
-function storeApiBase(apiBase: string) {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(API_BASE_STORAGE_KEY, apiBase);
-  } catch {
-  }
 }
 
 const toGeo = (p: PxPoint): GeoPoint => ({ x: p.x, y: p.y, longitude: null, latitude: null });
@@ -72,36 +60,35 @@ type State = {
   error?: string;
   info?: string;
 
-  setApi(base: string, token?: string): void;
   setViewMode(mode: ViewMode): void;
   setCamera(id: string): void;
   setLabelerReturnRoute(route?: 'cameras' | 'zones'): void;
   setImage(img: ImageMeta | undefined): void;
 
   loadCameraMeta(id: number): Promise<void>;
-  saveCamera(id: number, patch: Partial<Camera>): Promise<void>;
+  saveCamera(id: number, patch: Partial<Camera>): Promise<boolean>;
 
   setTool(t: ToolMode): void;
   setView(scale: number, offsetX: number, offsetY: number): void;
 
   selectZone(id?: Id): void;
 
-  loadZones(): Promise<void>;
+  loadZones(): Promise<boolean>;
 
   addZone(): void;
   createZoneFromDraft(): void;
 
   updateZone(id: Id, patch: Partial<ParkingZone>): void;
   ensureZoneClockwise(id: Id): void;
-  removeZone(id: Id): Promise<void>;
-  saveZone(id: Id): Promise<void>;
+  removeZone(id: Id): Promise<boolean>;
+  saveZone(id: Id): Promise<boolean>;
 
   zoneDraftAddPoint(p: PxPoint): void;
   zoneDraftClear(): void;
 };
 
 export const useStore = create<State>((set, get) => ({
-  apiBase: loadStoredApiBase(),
+  apiBase: detectDefaultApiBase(),
   cameraId: '',
   labelerReturnRoute: 'cameras',
   image: undefined,
@@ -115,10 +102,6 @@ export const useStore = create<State>((set, get) => ({
   offsetY: 0,
   loading: false,
 
-  setApi(base, token) {
-    storeApiBase(base);
-    set({ apiBase: base, token });
-  },
   setViewMode(mode) { set({ viewMode: mode }); },
   setCamera(id) { set({ cameraId: id }); },
   setLabelerReturnRoute(route) { set({ labelerReturnRoute: route }); },
@@ -138,8 +121,10 @@ export const useStore = create<State>((set, get) => ({
     try {
       const updated = await api.updateCamera(id, patch);
       set({ cameraMeta: updated, info: 'camera-updated' });
+      return true;
     } catch (e: any) {
       set({ error: String(e) });
+      return false;
     } finally {
       set({ loading: false });
     }
@@ -161,8 +146,10 @@ export const useStore = create<State>((set, get) => ({
       }
 
       set({ zones });
+      return true;
     } catch (e: any) {
       set({ error: String(e) });
+      return false;
     } finally {
       set({ loading: false });
     }
@@ -177,7 +164,7 @@ export const useStore = create<State>((set, get) => ({
     const draft = get().zoneDraft;
     if (!draft || draft.length !== 4) return;
 
-    const { cameraId, zones } = get();
+    const { cameraId, zones, cameraMeta } = get();
     const cid = parseInt(cameraId || '0', 10) || 0;
 
     const quad = clockwiseSort(draft as [PxPoint, PxPoint, PxPoint, PxPoint]) as [PxPoint, PxPoint, PxPoint, PxPoint];
@@ -189,7 +176,12 @@ export const useStore = create<State>((set, get) => ({
       capacity: 1,
       pay: 0,
       image_quad: quad,
-      points: quad.map(toGeo) as any
+      image_polygon: quad,
+      points: quad.map(toGeo) as any,
+      partner_id: cameraMeta?.partner_id ?? null,
+      is_active: true,
+      is_private: false,
+      is_accessible: false
     };
 
     set({
@@ -201,7 +193,16 @@ export const useStore = create<State>((set, get) => ({
   },
 
   updateZone(id, patch) {
-    set((s) => ({ zones: s.zones.map(z => String(z.id) === String(id) ? { ...z, ...patch } : z) }));
+    set((s) => ({
+      zones: s.zones.map(z => {
+        if (String(z.id) !== String(id)) return z;
+        const next = { ...z, ...patch };
+        if (patch.image_quad) {
+          next.image_polygon = patch.image_quad;
+        }
+        return next;
+      })
+    }));
   },
 
   ensureZoneClockwise(id) {
@@ -210,12 +211,12 @@ export const useStore = create<State>((set, get) => ({
     const sorted = clockwiseSort(z.image_quad);
     if (sorted) {
       const newPoints = z.points.map((pt, i) => ({ ...pt, x: sorted[i].x, y: sorted[i].y })) as any;
-      get().updateZone(id, { image_quad: sorted, points: newPoints });
+      get().updateZone(id, { image_quad: sorted, image_polygon: sorted, points: newPoints });
     }
   },
 
   async removeZone(id) {
-    set({ loading: true });
+    set({ loading: true, error: undefined, info: undefined });
     try {
       const isPersisted = (typeof id === 'number' && id > 0) || typeof id === 'string';
       if (isPersisted) await api.deleteZone(id);
@@ -232,25 +233,32 @@ export const useStore = create<State>((set, get) => ({
           activeZoneId: String(s.activeZoneId) === String(id) ? undefined : s.activeZoneId
         };
       });
+      set({ info: 'zone-deleted' });
+      return true;
+    } catch (e: any) {
+      set({ error: String(e) });
+      return false;
     } finally {
       set({ loading: false });
     }
   },
 
   async saveZone(id) {
-    const current = get().zones.find(z => String(z.id) === String(id));
+    let current = get().zones.find(z => String(z.id) === String(id));
     if (!current) {
       console.warn('saveZone: zone not found', id);
-      return;
+      set({ error: 'Zone not found.' });
+      return false;
     }
     
     // Validate capacity before saving
     if (current.capacity < 1) {
       set({ error: 'Capacity must be at least 1. Please set capacity before saving.' });
-      return;
+      return false;
     }
     
     get().ensureZoneClockwise(id);
+    current = get().zones.find(z => String(z.id) === String(id)) ?? current;
 
     set({ loading: true, info: undefined, error: undefined });
     try {
@@ -295,9 +303,11 @@ export const useStore = create<State>((set, get) => ({
           info: 'zone-updated'
         }));
       }
+      return true;
     } catch (e: any) {
       console.error('saveZone error:', e);
       set({ error: String(e) });
+      return false;
     } finally {
       set({ loading: false });
     }

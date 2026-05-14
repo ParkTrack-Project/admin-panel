@@ -73,6 +73,20 @@ export type RegisterRequest = {
   phone?: string;
 };
 
+export type PasswordResetRequest = {
+  email: string;
+};
+
+export type PasswordResetRequestResponse = {
+  ok: boolean;
+  reset_token?: string | null;
+};
+
+export type PasswordResetConfirmRequest = {
+  token: string;
+  new_password: string;
+};
+
 export type UpdateMeRequest = {
   full_name?: string;
   phone?: string | null;
@@ -123,6 +137,14 @@ export type AdminUpdateUserRequest = {
   is_active?: boolean;
 };
 
+export type AdminCreateUserRequest = {
+  email: string;
+  password: string;
+  full_name?: string | null;
+  phone?: string | null;
+  global_role?: string;
+};
+
 export type PartnerResponse = {
   partner_id: number;
   legal_name: string;
@@ -156,8 +178,8 @@ export type PartnerListFilters = {
 export type CreatePartnerRequest = {
   legal_name: string;
   slug: string;
-  contact_email: string;
-  contact_phone: string;
+  contact_email?: string | null;
+  contact_phone?: string | null;
 };
 
 export type UpdatePartnerRequest = {
@@ -297,6 +319,14 @@ export const api = {
       } satisfies AuthResponse;
     },
 
+    async requestPasswordReset(data: PasswordResetRequest) {
+      return request<PasswordResetRequestResponse>('POST', '/auth/password-reset/request', data);
+    },
+
+    async confirmPasswordReset(data: PasswordResetConfirmRequest) {
+      return request<{ ok: boolean }>('POST', '/auth/password-reset/confirm', data);
+    },
+
     async logout() {
       await request<void>('POST', '/auth/logout');
     },
@@ -337,6 +367,10 @@ export const api = {
 
     async update(userId: number, data: AdminUpdateUserRequest) {
       return request<UserProfileResponse>('PUT', `/users/${encodeURIComponent(userId)}`, data);
+    },
+
+    async create(data: AdminCreateUserRequest) {
+      return request<UserProfileResponse>('POST', '/users', data);
     },
 
     async remove(userId: number) {

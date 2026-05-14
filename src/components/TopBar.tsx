@@ -4,15 +4,19 @@ import { useSessionStore } from '@/auth/sessionStore';
 import { Button, Field, Input, FilePicker } from './UiKit';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { navigate } from '@/router/routes';
+import { useFeedbackStore } from '@/feedback/feedbackStore';
 
 export default function TopBar() {
   const { apiBase, token, cameraId, viewMode, setImage, image, setViewMode, labelerReturnRoute } = useStore();
   const sessionAccessToken = useSessionStore(state => state.accessToken);
   const [imageUrlInput, setImageUrlInput] = useState('');
   const [loadingSnapshot, setLoadingSnapshot] = useState(false);
+  const notifySuccess = useFeedbackStore(state => state.success);
+  const notifyError = useFeedbackStore(state => state.error);
+  const notifyWarning = useFeedbackStore(state => state.warning);
   const currentBlobUrlRef = useRef<string | null>(null);
   const loadedCameraIdRef = useRef<string | null>(null);
-  const effectiveToken = token ?? sessionAccessToken;
+  const effectiveToken = sessionAccessToken || token;
 
   useEffect(() => {
     apiConfig.set(apiBase, effectiveToken);
@@ -21,9 +25,14 @@ export default function TopBar() {
   async function loadImageFromUrl() {
     const url = imageUrlInput.trim();
     if (!url) return;
-    const img = await loadImage(url);
-    setImage(img);
-    fitToView(img);
+    try {
+      const img = await loadImage(url);
+      setImage(img);
+      fitToView(img);
+      notifySuccess('Изображение открыто.');
+    } catch (error: any) {
+      notifyError(String(error?.message || 'Не удалось открыть изображение.'));
+    }
   }
 
   const loadByCameraId = useCallback(async () => {
@@ -55,6 +64,7 @@ export default function TopBar() {
         const img = await loadImage('/sample.jpg');
         setImage(img);
         fitToView(img);
+        notifyWarning('Snapshot недоступен, открыт тестовый кадр.');
       }
     } catch (error) {
       console.error('Error loading snapshot:', error);
@@ -62,8 +72,10 @@ export default function TopBar() {
         const img = await loadImage('/sample.jpg');
         setImage(img);
         fitToView(img);
+        notifyWarning('Не удалось загрузить snapshot, открыт тестовый кадр.');
       } catch (fallbackError) {
         console.error('Error loading fallback image:', fallbackError);
+        notifyError('Не удалось загрузить snapshot и тестовый кадр.');
       }
     } finally {
       setLoadingSnapshot(false);
@@ -122,24 +134,6 @@ export default function TopBar() {
         </div>
 
         {isLabeler && (
-          <Field label="API Base">
-            <Input
-              value={apiBase}
-              onChange={e => useStore.setState({ apiBase: e.target.value })}
-placeholder="https://api.parktrack.live"
-            />
-          </Field>
-        )}
-
-        <Field label="Token">
-          <Input
-            value={effectiveToken ?? ''}
-            onChange={e => useStore.setState({ token: e.target.value })}
-            placeholder="вставьте токен"
-          />
-        </Field>
-
-        {isLabeler && (
           <Field label="Image URL">
             <div className="row" style={{ gap: 6, alignItems: 'center' }}>
               <Input
@@ -159,10 +153,15 @@ placeholder="https://api.parktrack.live"
             <FilePicker
               accept="image/*"
               onPick={async (f) => {
-                const url = URL.createObjectURL(f);
-                const img = await loadImage(url);
-                setImage(img);
-                fitToView(img);
+                try {
+                  const url = URL.createObjectURL(f);
+                  const img = await loadImage(url);
+                  setImage(img);
+                  fitToView(img);
+                  notifySuccess('Файл изображения открыт.');
+                } catch (error: any) {
+                  notifyError(String(error?.message || 'Не удалось открыть файл.'));
+                }
               }}
             />
           </Field>

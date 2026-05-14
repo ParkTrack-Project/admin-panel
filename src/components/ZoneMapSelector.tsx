@@ -3,6 +3,7 @@ import { useStore } from '@/store/useStore';
 import { Button } from './UiKit';
 import { MapContainer, TileLayer, Polygon, Polyline, Marker, useMapEvents, useMap } from 'react-leaflet';
 import L, { LatLng, LatLngExpression } from 'leaflet';
+import { useFeedbackStore } from '@/feedback/feedbackStore';
 
 type LatLngTuple = [number, number];
 
@@ -22,19 +23,23 @@ function ClickHandler({ onClick }: { onClick: (pos: LatLng) => void }) {
   return null;
 }
 
-function MapAutoFit({ points }: { points: LatLng[] }) {
+function MapAutoFit({ points, fitVersion }: { points: LatLng[]; fitVersion: number }) {
   const map = useMap();
 
   useEffect(() => {
+    if (fitVersion === 0) return;
     if (points.length === 0) return;
     const bounds = L.latLngBounds(points);
     map.fitBounds(bounds.pad(0.2));
-  }, [points, map]);
+  }, [fitVersion, map]);
 
   return null;
 }
 
 export default function ZoneMapSelector() {
+  const notifySuccess = useFeedbackStore(state => state.success);
+  const notifyError = useFeedbackStore(state => state.error);
+  const notifyInfo = useFeedbackStore(state => state.info);
   const zones = useStore(state => state.zones);
   const activeZoneId = useStore(state => state.activeZoneId);
   const setViewMode = useStore(state => state.setViewMode);
@@ -44,6 +49,7 @@ export default function ZoneMapSelector() {
   const zone = zones.find(z => String(z.id) === String(activeZoneId));
 
   const [points, setPoints] = useState<LatLng[]>([]);
+  const [fitVersion, setFitVersion] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
 
@@ -62,6 +68,7 @@ export default function ZoneMapSelector() {
     
     if (existing.length === 4 && uniqueCoords.size > 1) {
       setPoints(existing.map(p => new L.LatLng(p.latitude!, p.longitude!)));
+      setFitVersion(version => version + 1);
     } else {
       setPoints([]);
     }
@@ -80,10 +87,9 @@ export default function ZoneMapSelector() {
   }, [points, cameraMeta]);
 
   function onMapClick(pos: LatLng) {
-    setPoints(prev => {
-      if (prev.length >= 4) return prev;
-      return [...prev, pos];
-    });
+    if (points.length >= 4) return;
+    setPoints(prev => [...prev, pos]);
+    setFitVersion(version => version + 1);
   }
 
   function onReset() {
@@ -94,12 +100,15 @@ export default function ZoneMapSelector() {
       }) as any;
       updateZone(zone.id, { points: resetPoints });
     }
+    notifyInfo('Геометрия зоны на карте сброшена.');
   }
 
   async function onSave() {
     if (!zone) return;
     if (points.length !== 4) {
-      setError('Необходимо отметить все 4 точки на карте перед сохранением.');
+      const message = 'Необходимо отметить все 4 точки на карте перед сохранением.';
+      setError(message);
+      notifyError(message);
       return;
     }
     try {
@@ -115,11 +124,20 @@ export default function ZoneMapSelector() {
       }) as any;
 
       updateZone(zone.id, { points: updatedPoints });
-      await saveZone(zone.id);
+      const ok = await saveZone(zone.id);
+      if (!ok) {
+        const message = useStore.getState().error || 'Не удалось сохранить геометрию зоны.';
+        setError(message);
+        notifyError(message);
+        return;
+      }
 
+      notifySuccess('Геометрия зоны сохранена.');
       setViewMode('labeler');
     } catch (e: any) {
-      setError(String(e));
+      const message = String(e?.message || e);
+      setError(message);
+      notifyError(message);
     } finally {
       setLoading(false);
     }
@@ -150,10 +168,10 @@ export default function ZoneMapSelector() {
           Кликните 4 точки на карте по часовой стрелке, чтобы задать геометку зоны.
         </div>
 
-        <div className="row" style={{ marginTop: 12, gap: 8 }}>
+        <div className="labeler-action-grid compact">
           <Button onClick={onSave} disabled={!zone || loading}>Сохранить</Button>
-          <Button className="ghost" onClick={onCancel}>Отмена</Button>
-          <Button className="ghost" onClick={onReset} disabled={!zone}>Сбросить</Button>
+          <Button variant="ghost" onClick={onCancel}>Отмена</Button>
+          <Button variant="ghost" onClick={onReset} disabled={!zone}>Сбросить</Button>
         </div>
       </div>
 
@@ -163,7 +181,7 @@ export default function ZoneMapSelector() {
             attribution="&copy; OpenStreetMap contributors"
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
-          <MapAutoFit points={points} />
+          <MapAutoFit points={points} fitVersion={fitVersion} />
           <ClickHandler onClick={onMapClick} />
           {points.length >= 2 && (
             <>
@@ -184,38 +202,41 @@ export default function ZoneMapSelector() {
           )}
           {points.map((p, idx) => (
             <Marker
-              key={`marker-${idx}-${p.lat}-${p.lng}`}
+              key={`marker-${idx}`}
               position={p}
               icon={L.divIcon({
                 className: 'zone-point-marker',
-                html: '<div style="width:12px;height:12px;border-radius:50%;background:#ffd666;border:2px solid white;"></div>',
-                iconSize: [12, 12],
-                iconAnchor: [6, 6]
+                html: '<div style="width:24px;height:24px;display:grid;place-items:center;"><div style="width:14px;height:14px;border-radius:50%;background:#ffd666;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.35);"></div></div>',
+                iconSize: [24, 24],
+                iconAnchor: [12, 12]
               })}
               draggable
+              autoPan
+              riseOnHover
+              zIndexOffset={1000}
               eventHandlers={{
                 drag: (e) => {
-                  // Update lines in real-time during drag
                   const newPos = e.target.getLatLng();
-                  const updatedPoints = points.map((pt, i) => i === idx ? new L.LatLng(newPos.lat, newPos.lng) : pt);
-                  setPoints(updatedPoints);
+                  setPoints(prev => prev.map((pt, i) => i === idx ? new L.LatLng(newPos.lat, newPos.lng) : pt));
                 },
                 dragend: (e) => {
                   const newPos = e.target.getLatLng();
-                  const updatedPoints = points.map((pt, i) => i === idx ? new L.LatLng(newPos.lat, newPos.lng) : pt);
-                  setPoints(updatedPoints);
-                  
-                  // Sync changes to store in real-time only when all 4 points are set
-                  if (zone && updatedPoints.length === 4) {
-                    const updatedZonePoints = zone.points.map((pt, i) => {
-                      if (i < 4) {
-                        const p = updatedPoints[i];
-                        return { ...pt, latitude: p.lat, longitude: p.lng };
-                      }
-                      return pt;
-                    }) as any;
-                    updateZone(zone.id, { points: updatedZonePoints });
-                  }
+                  setPoints(prev => {
+                    const updatedPoints = prev.map((pt, i) => i === idx ? new L.LatLng(newPos.lat, newPos.lng) : pt);
+
+                    if (zone && updatedPoints.length === 4) {
+                      const updatedZonePoints = zone.points.map((pt, i) => {
+                        if (i < 4) {
+                          const p = updatedPoints[i];
+                          return { ...pt, latitude: p.lat, longitude: p.lng };
+                        }
+                        return pt;
+                      }) as any;
+                      updateZone(zone.id, { points: updatedZonePoints });
+                    }
+
+                    return updatedPoints;
+                  });
                 }
               }}
             />
