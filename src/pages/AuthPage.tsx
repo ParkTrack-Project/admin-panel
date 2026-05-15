@@ -75,11 +75,6 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
     }
   }
 
-  function enterDemoMode() {
-    session.startDemoSession();
-    navigate('dashboard');
-  }
-
   async function requestPasswordReset(e: FormEvent) {
     e.preventDefault();
     const targetEmail = (resetEmail || email).trim();
@@ -255,9 +250,6 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
         <div className="auth-actions">
           <Button variant="ghost" onClick={() => navigate(isRegister ? 'login' : 'register')}>
             {isRegister ? 'У меня уже есть аккаунт' : 'Зарегистрироваться'}
-          </Button>
-          <Button variant="ghost" onClick={enterDemoMode}>
-            Dev-вход
           </Button>
         </div>
       </section>

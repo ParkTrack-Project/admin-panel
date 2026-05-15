@@ -12,7 +12,10 @@ COPY . .
 ARG VITE_API_BASE_URL
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
-RUN npm run build
+RUN set -eux; \
+    echo "Building with VITE_API_BASE_URL=${VITE_API_BASE_URL:-<fallback>}"; \
+    npm run build; \
+    if [ -n "$VITE_API_BASE_URL" ]; then grep -R "$VITE_API_BASE_URL" /app/dist/assets >/dev/null; fi
 
 # Production stage
 FROM nginx:alpine

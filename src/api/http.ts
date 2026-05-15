@@ -5,7 +5,7 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 type Config = { baseUrl: string; token?: string };
 
 function detectDefaultApiBase() {
-  const configuredBase = (import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_BASE)?.trim();
+  const configuredBase = import.meta.env.VITE_API_BASE_URL?.trim();
   if (configuredBase) {
     return configuredBase.replace(/\/+$/, '');
   }
@@ -17,7 +17,7 @@ function detectDefaultApiBase() {
     }
   }
 
-  return 'https://api.parktrack.live';
+  return '/api/v1';
 }
 
 let cfg: Config = { baseUrl: detectDefaultApiBase() };
@@ -29,9 +29,6 @@ type ValidationIssue = {
   type?: string;
   ctx?: Record<string, any>;
 };
-
-const DEMO_PROTECTED_API_MESSAGE =
-  'Этот раздел требует настоящую backend-сессию. Dev-вход показывает интерфейс, но не даёт доступ к защищённым данным API.';
 
 export class ApiRequestError extends Error {
   status?: number;
@@ -145,11 +142,7 @@ function formatApiError(data: any, status: number) {
   return knownMessage || `HTTP ${status}`;
 }
 
-function formatRequestError(data: any, status: number, isDemoToken: boolean) {
-  if (status === 401 && isDemoToken) {
-    return DEMO_PROTECTED_API_MESSAGE;
-  }
-
+function formatRequestError(data: any, status: number) {
   return formatApiError(data, status);
 }
 
@@ -194,12 +187,11 @@ function normalizeServerMessage(message?: string) {
 
 export async function request<T>(method: HttpMethod, path: string, body?: any): Promise<T> {
   const url = `${cfg.baseUrl}${path}`;
-  const isDemoToken = cfg.token === 'dev-admin-token';
   const headers: Record<string, string> = {
     'Accept': 'application/json',
     'Content-Type': 'application/json'
   };
-  if (cfg.token && !isDemoToken) headers.Authorization = `Bearer ${cfg.token}`;
+  if (cfg.token) headers.Authorization = `Bearer ${cfg.token}`;
 
   const id = crypto.randomUUID();
   useRequestLog.getState().add({ id, ts: Date.now(), method, url, headers, body });
@@ -222,10 +214,10 @@ export async function request<T>(method: HttpMethod, path: string, body?: any): 
   useRequestLog.getState().add({ id: id + '-resp', ts: Date.now(), method, url, status: res.status, response: data });
 
   if (!res.ok) {
-    if (res.status === 401 && unauthorizedHandler && !path.startsWith('/auth/') && !isDemoToken) {
+    if (res.status === 401 && unauthorizedHandler && !path.startsWith('/auth/')) {
       unauthorizedHandler();
     }
-    const errorMessage = formatRequestError(data, res.status, isDemoToken);
+    const errorMessage = formatRequestError(data, res.status);
     throw new ApiRequestError(errorMessage, res.status, data);
   }
 
@@ -234,9 +226,8 @@ export async function request<T>(method: HttpMethod, path: string, body?: any): 
 
 export async function requestBlob(path: string): Promise<{ blob: Blob; headers: Headers }> {
   const url = `${cfg.baseUrl}${path}`;
-  const isDemoToken = cfg.token === 'dev-admin-token';
   const headers: Record<string, string> = {};
-  if (cfg.token && !isDemoToken) headers.Authorization = `Bearer ${cfg.token}`;
+  if (cfg.token) headers.Authorization = `Bearer ${cfg.token}`;
 
   const id = crypto.randomUUID();
   useRequestLog.getState().add({ id, ts: Date.now(), method: 'GET', url, headers });
@@ -258,7 +249,7 @@ export async function requestBlob(path: string): Promise<{ blob: Blob; headers: 
   });
 
   if (!res.ok) {
-    if (res.status === 401 && unauthorizedHandler && !path.startsWith('/auth/') && !isDemoToken) {
+    if (res.status === 401 && unauthorizedHandler && !path.startsWith('/auth/')) {
       unauthorizedHandler();
     }
     let data: any = undefined;
@@ -268,7 +259,7 @@ export async function requestBlob(path: string): Promise<{ blob: Blob; headers: 
     } else {
       data = await res.text().catch(() => undefined);
     }
-    const errorMessage = typeof data === 'string' && !isDemoToken ? data : formatRequestError(data, res.status, isDemoToken);
+    const errorMessage = typeof data === 'string' ? data : formatRequestError(data, res.status);
     throw new ApiRequestError(errorMessage, res.status, data);
   }
 

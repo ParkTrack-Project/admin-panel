@@ -50,7 +50,6 @@ export default function App() {
   const shouldValidateSession = Boolean(
     sessionAccessToken
     && sessionUser
-    && sessionAccessToken !== 'dev-admin-token'
     && validatedTokenRef.current !== sessionAccessToken
   );
 
@@ -72,7 +71,7 @@ export default function App() {
     let cancelled = false;
 
     async function validateSession() {
-      if (!sessionAccessToken || !sessionUser || sessionAccessToken === 'dev-admin-token') {
+      if (!sessionAccessToken || !sessionUser) {
         validatedTokenRef.current = sessionAccessToken;
         return;
       }
