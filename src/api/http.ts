@@ -5,7 +5,7 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 type Config = { baseUrl: string; token?: string };
 
 function detectDefaultApiBase() {
-  const configuredBase = (import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_BASE)?.trim();
+  const configuredBase = import.meta.env.VITE_API_BASE_URL?.trim();
   if (configuredBase) {
     return configuredBase.replace(/\/+$/, '');
   }
@@ -17,7 +17,7 @@ function detectDefaultApiBase() {
     }
   }
 
-  return 'https://api.parktrack.live';
+  return '/api/v1';
 }
 
 let cfg: Config = { baseUrl: detectDefaultApiBase() };

@@ -14,7 +14,7 @@ import { api, Camera } from '@/api/client';
 let tmpZoneId = -1;
 
 function detectDefaultApiBase() {
-  const configuredBase = (import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_BASE)?.trim();
+  const configuredBase = import.meta.env.VITE_API_BASE_URL?.trim();
   if (configuredBase) {
     return configuredBase.replace(/\/+$/, '');
   }
@@ -26,7 +26,7 @@ function detectDefaultApiBase() {
     }
   }
 
-  return 'https://api.parktrack.live';
+  return '/api/v1';
 }
 
 const toGeo = (p: PxPoint): GeoPoint => ({ x: p.x, y: p.y, longitude: null, latitude: null });
