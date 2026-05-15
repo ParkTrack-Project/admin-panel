@@ -14,7 +14,7 @@ import { api, Camera } from '@/api/client';
 let tmpZoneId = -1;
 
 function detectDefaultApiBase() {
-  const configuredBase = import.meta.env.VITE_API_BASE?.trim();
+  const configuredBase = (import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_BASE)?.trim();
   if (configuredBase) {
     return configuredBase.replace(/\/+$/, '');
   }
