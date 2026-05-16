@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useState } from 'react';
 import { api } from '@/api/client';
 import { useSessionStore } from '@/auth/sessionStore';
 import { navigate } from '@/router/routes';
@@ -12,32 +12,11 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [resetOpen, setResetOpen] = useState(false);
-  const [resetEmail, setResetEmail] = useState('');
-  const [resetToken, setResetToken] = useState('');
-  const [resetNewPassword, setResetNewPassword] = useState('');
-  const [resetInfo, setResetInfo] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
-  const [resetLoading, setResetLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
-  const notifySuccess = useFeedbackStore(state => state.success);
   const notifyError = useFeedbackStore(state => state.error);
 
   const isRegister = mode === 'register';
-
-  useEffect(() => {
-    if (isRegister) return;
-    const [, queryString = ''] = window.location.hash.split('?');
-    const params = new URLSearchParams(queryString);
-    const tokenFromLink = params.get('reset_token') || params.get('token');
-    const emailFromLink = params.get('email');
-
-    if (!tokenFromLink) return;
-    setResetOpen(true);
-    setResetToken(tokenFromLink);
-    if (emailFromLink) setResetEmail(emailFromLink);
-    setResetInfo('Reset-token из письма подставлен. Введите новый пароль и подтвердите сброс.');
-  }, [isRegister]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -72,70 +51,6 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
       setError(String(err?.message || err));
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function requestPasswordReset(e: FormEvent) {
-    e.preventDefault();
-    const targetEmail = (resetEmail || email).trim();
-    if (!targetEmail) {
-      notifyError('Укажите email для сброса пароля.');
-      return;
-    }
-
-    setResetLoading(true);
-    setError(undefined);
-    setResetInfo(undefined);
-    try {
-      const response = await api.auth.requestPasswordReset({ email: targetEmail });
-      setResetEmail(targetEmail);
-      if (response.reset_token) {
-        setResetToken(response.reset_token);
-        setResetInfo('Тестовый reset-token получен. Введите новый пароль и подтвердите сброс.');
-      } else {
-        setResetInfo('Если email есть в системе, ссылка для сброса отправлена на почту.');
-      }
-      notifySuccess('Запрос на сброс пароля создан.');
-    } catch (err: any) {
-      const message = String(err?.message || err);
-      setError(message);
-      notifyError(message);
-    } finally {
-      setResetLoading(false);
-    }
-  }
-
-  async function confirmPasswordReset(e: FormEvent) {
-    e.preventDefault();
-    if (!resetToken.trim()) {
-      notifyError('Введите reset-token.');
-      return;
-    }
-    if (resetNewPassword.length < 6) {
-      notifyError('В пароле должно быть не менее 6 символов.');
-      return;
-    }
-
-    setResetLoading(true);
-    setError(undefined);
-    try {
-      await api.auth.confirmPasswordReset({
-        token: resetToken.trim(),
-        new_password: resetNewPassword
-      });
-      setEmail(resetEmail || email);
-      setPassword('');
-      setResetOpen(false);
-      setResetToken('');
-      setResetNewPassword('');
-      setResetInfo(undefined);
-      notifySuccess('Пароль обновлён. Войдите с новым паролем.');
-    } catch (err: any) {
-      const message = String(err?.message || err);
-      setError(message);
-      notifyError(message);
-    } finally {
-      setResetLoading(false);
     }
   }
 
@@ -190,60 +105,14 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
         </form>
 
         {!isRegister && (
-          <div className="auth-reset-panel">
+          <div className="auth-secondary-action">
             <button
               type="button"
               className="auth-reset-toggle"
-              onClick={() => {
-                setResetOpen(value => !value);
-                setResetEmail(resetEmail || email);
-              }}
+              onClick={() => navigate('password-reset')}
             >
-              Сбросить пароль
+              Забыли пароль?
             </button>
-
-            {resetOpen && (
-              <div className="auth-reset-content">
-                <form className="auth-form" onSubmit={requestPasswordReset}>
-                  <Field label="Email для сброса">
-                    <Input
-                      type="email"
-                      value={resetEmail}
-                      onChange={e => setResetEmail(e.target.value)}
-                      placeholder="user@example.com"
-                      required
-                    />
-                  </Field>
-                  <Button type="submit" variant="ghost" disabled={resetLoading || !resetEmail}>
-                    Получить reset-token
-                  </Button>
-                </form>
-
-                <form className="auth-form" onSubmit={confirmPasswordReset}>
-                  <Field label="Reset-token">
-                    <Input
-                      value={resetToken}
-                      onChange={e => setResetToken(e.target.value)}
-                      placeholder="token"
-                      required
-                    />
-                  </Field>
-                  <Field label="Новый пароль">
-                    <Input
-                      type="password"
-                      value={resetNewPassword}
-                      onChange={e => setResetNewPassword(e.target.value)}
-                      placeholder="Минимум 6 символов"
-                      required
-                    />
-                  </Field>
-                  {resetInfo && <div className="notice warning">{resetInfo}</div>}
-                  <Button type="submit" disabled={resetLoading || !resetToken || !resetNewPassword}>
-                    Обновить пароль
-                  </Button>
-                </form>
-              </div>
-            )}
           </div>
         )}
 

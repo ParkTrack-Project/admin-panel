@@ -10,7 +10,8 @@ export const appRoutes = [
   'sources',
   'labeler',
   'login',
-  'register'
+  'register',
+  'password-reset'
 ] as const;
 
 export type AppRoute = typeof appRoutes[number];

@@ -579,12 +579,11 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   margin-top: 14px;
 }
 
-.auth-reset-panel {
-  display: grid;
-  gap: 12px;
+.auth-secondary-action {
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--border);
+  text-align: center;
 }
 
 .auth-reset-toggle {
@@ -595,12 +594,19 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   font: inherit;
   font-weight: 700;
   padding: 0;
-  text-align: left;
+  text-align: center;
 }
 
-.auth-reset-content {
-  display: grid;
-  gap: 14px;
+.auth-helper-text {
+  margin: -2px 0 12px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.auth-reset-confirm-form {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
 }
 
 .legacy-labeler-grid {
