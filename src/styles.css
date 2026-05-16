@@ -609,6 +609,10 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   border-top: 1px solid var(--border);
 }
 
+.auth-reset-message {
+  margin-top: 14px;
+}
+
 .legacy-labeler-grid {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);

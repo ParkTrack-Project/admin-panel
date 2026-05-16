@@ -8,6 +8,7 @@ export default function PasswordResetPage() {
   const [email, setEmail] = useState('');
   const [token, setToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [hasResetToken, setHasResetToken] = useState(false);
   const [requestLoading, setRequestLoading] = useState(false);
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [info, setInfo] = useState<string | undefined>();
@@ -23,6 +24,7 @@ export default function PasswordResetPage() {
 
     if (tokenFromLink) {
       setToken(tokenFromLink);
+      setHasResetToken(true);
       setInfo('Введите новый пароль для завершения сброса.');
     }
     if (emailFromLink) setEmail(emailFromLink);
@@ -43,7 +45,8 @@ export default function PasswordResetPage() {
       const response = await api.auth.requestPasswordReset({ email: targetEmail });
       if (response.reset_token) {
         setToken(response.reset_token);
-        setInfo('Тестовый reset-token получен. Введите новый пароль и подтвердите сброс.');
+        setHasResetToken(true);
+        setInfo('Введите новый пароль для завершения сброса.');
       } else {
         setInfo('Если email есть в системе, ссылка для сброса отправлена на почту.');
       }
@@ -60,7 +63,7 @@ export default function PasswordResetPage() {
   async function confirmPasswordReset(e: FormEvent) {
     e.preventDefault();
     if (!token.trim()) {
-      notifyError('Введите reset-token.');
+      notifyError('Ссылка сброса пароля некорректна. Запросите новую ссылку.');
       return;
     }
     if (newPassword.length < 6) {
@@ -77,6 +80,7 @@ export default function PasswordResetPage() {
       });
       setNewPassword('');
       setToken('');
+      setHasResetToken(false);
       setInfo(undefined);
       notifySuccess('Пароль обновлён. Войдите с новым паролем.');
       navigate('login');
@@ -116,30 +120,29 @@ export default function PasswordResetPage() {
           </Button>
         </form>
 
-        <form className="auth-form auth-reset-confirm-form" onSubmit={confirmPasswordReset}>
-          <Field label="Reset-token">
-            <Input
-              value={token}
-              onChange={e => setToken(e.target.value)}
-              placeholder="token"
-              required
-            />
-          </Field>
-          <Field label="Новый пароль">
-            <Input
-              type="password"
-              value={newPassword}
-              onChange={e => setNewPassword(e.target.value)}
-              placeholder="Минимум 6 символов"
-              required
-            />
-          </Field>
-          {info && <div className="notice warning">{info}</div>}
-          {error && <div className="notice error">{error}</div>}
-          <Button type="submit" disabled={confirmLoading || !token || !newPassword}>
-            {confirmLoading ? 'Обновление...' : 'Обновить пароль'}
-          </Button>
-        </form>
+        {hasResetToken ? (
+          <form className="auth-form auth-reset-confirm-form" onSubmit={confirmPasswordReset}>
+            <Field label="Новый пароль">
+              <Input
+                type="password"
+                value={newPassword}
+                onChange={e => setNewPassword(e.target.value)}
+                placeholder="Минимум 6 символов"
+                required
+              />
+            </Field>
+            {info && <div className="notice warning">{info}</div>}
+            {error && <div className="notice error">{error}</div>}
+            <Button type="submit" disabled={confirmLoading || !token || !newPassword}>
+              {confirmLoading ? 'Обновление...' : 'Обновить пароль'}
+            </Button>
+          </form>
+        ) : (
+          <>
+            {info && <div className="notice warning auth-reset-message">{info}</div>}
+            {error && <div className="notice error auth-reset-message">{error}</div>}
+          </>
+        )}
 
         <div className="auth-actions">
           <Button variant="ghost" onClick={() => navigate('login')}>К входу</Button>
