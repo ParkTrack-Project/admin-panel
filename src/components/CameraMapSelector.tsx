@@ -4,6 +4,7 @@ import { api, Camera } from '@/api/client';
 import { Button, Field, Input } from './UiKit';
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
 import L, { LatLng, LatLngExpression } from 'leaflet';
+import { useFeedbackStore } from '@/feedback/feedbackStore';
 
 const cameraIcon = L.divIcon({
   className: 'camera-marker-selected',
@@ -46,6 +47,8 @@ function hasCoordinates(latitude?: number | null, longitude?: number | null): la
 
 export default function CameraMapSelector() {
   const { cameraId, setViewMode } = useStore();
+  const notifySuccess = useFeedbackStore(state => state.success);
+  const notifyError = useFeedbackStore(state => state.error);
   const [camera, setCamera] = useState<Camera | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -80,10 +83,12 @@ export default function CameraMapSelector() {
           setLatInput('');
           setLngInput('');
         }
-      } catch (e: any) {
-        if (!cancelled) {
-          setError(String(e?.message || e));
-        }
+    } catch (e: any) {
+      if (!cancelled) {
+          const message = String(e?.message || e);
+          setError(message);
+          notifyError(message);
+      }
       } finally {
         if (!cancelled) {
           setLoading(false);
@@ -138,9 +143,12 @@ export default function CameraMapSelector() {
         latitude: point.lat,
         longitude: point.lng
       });
+      notifySuccess('Положение камеры сохранено.');
       setViewMode('labeler');
     } catch (e: any) {
-      setError(String(e));
+      const message = String(e?.message || e);
+      setError(message);
+      notifyError(message);
     } finally {
       setLoading(false);
     }
@@ -189,7 +197,7 @@ export default function CameraMapSelector() {
           />
         </Field>
 
-        <div className="row" style={{ marginTop: 12, gap: 8 }}>
+        <div className="labeler-action-grid compact">
           <Button onClick={onSave} disabled={!point || loading}>Сохранить</Button>
           <Button variant="ghost" onClick={onCancel}>Отмена</Button>
         </div>

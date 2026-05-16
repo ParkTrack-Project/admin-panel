@@ -14,7 +14,7 @@ import { api, Camera } from '@/api/client';
 let tmpZoneId = -1;
 
 function detectDefaultApiBase() {
-  const configuredBase = import.meta.env.VITE_API_BASE?.trim();
+  const configuredBase = import.meta.env.VITE_API_BASE_URL?.trim();
   if (configuredBase) {
     return configuredBase.replace(/\/+$/, '');
   }
@@ -26,7 +26,7 @@ function detectDefaultApiBase() {
     }
   }
 
-  return 'https://api.parktrack.live';
+  return '/api/v1';
 }
 
 const toGeo = (p: PxPoint): GeoPoint => ({ x: p.x, y: p.y, longitude: null, latitude: null });
@@ -66,22 +66,22 @@ type State = {
   setImage(img: ImageMeta | undefined): void;
 
   loadCameraMeta(id: number): Promise<void>;
-  saveCamera(id: number, patch: Partial<Camera>): Promise<void>;
+  saveCamera(id: number, patch: Partial<Camera>): Promise<boolean>;
 
   setTool(t: ToolMode): void;
   setView(scale: number, offsetX: number, offsetY: number): void;
 
   selectZone(id?: Id): void;
 
-  loadZones(): Promise<void>;
+  loadZones(): Promise<boolean>;
 
   addZone(): void;
   createZoneFromDraft(): void;
 
   updateZone(id: Id, patch: Partial<ParkingZone>): void;
   ensureZoneClockwise(id: Id): void;
-  removeZone(id: Id): Promise<void>;
-  saveZone(id: Id): Promise<void>;
+  removeZone(id: Id): Promise<boolean>;
+  saveZone(id: Id): Promise<boolean>;
 
   zoneDraftAddPoint(p: PxPoint): void;
   zoneDraftClear(): void;
@@ -121,8 +121,10 @@ export const useStore = create<State>((set, get) => ({
     try {
       const updated = await api.updateCamera(id, patch);
       set({ cameraMeta: updated, info: 'camera-updated' });
+      return true;
     } catch (e: any) {
       set({ error: String(e) });
+      return false;
     } finally {
       set({ loading: false });
     }
@@ -144,8 +146,10 @@ export const useStore = create<State>((set, get) => ({
       }
 
       set({ zones });
+      return true;
     } catch (e: any) {
       set({ error: String(e) });
+      return false;
     } finally {
       set({ loading: false });
     }
@@ -212,7 +216,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async removeZone(id) {
-    set({ loading: true });
+    set({ loading: true, error: undefined, info: undefined });
     try {
       const isPersisted = (typeof id === 'number' && id > 0) || typeof id === 'string';
       if (isPersisted) await api.deleteZone(id);
@@ -229,6 +233,11 @@ export const useStore = create<State>((set, get) => ({
           activeZoneId: String(s.activeZoneId) === String(id) ? undefined : s.activeZoneId
         };
       });
+      set({ info: 'zone-deleted' });
+      return true;
+    } catch (e: any) {
+      set({ error: String(e) });
+      return false;
     } finally {
       set({ loading: false });
     }
@@ -238,13 +247,14 @@ export const useStore = create<State>((set, get) => ({
     let current = get().zones.find(z => String(z.id) === String(id));
     if (!current) {
       console.warn('saveZone: zone not found', id);
-      return;
+      set({ error: 'Zone not found.' });
+      return false;
     }
     
     // Validate capacity before saving
     if (current.capacity < 1) {
       set({ error: 'Capacity must be at least 1. Please set capacity before saving.' });
-      return;
+      return false;
     }
     
     get().ensureZoneClockwise(id);
@@ -293,9 +303,11 @@ export const useStore = create<State>((set, get) => ({
           info: 'zone-updated'
         }));
       }
+      return true;
     } catch (e: any) {
       console.error('saveZone error:', e);
       set({ error: String(e) });
+      return false;
     } finally {
       set({ loading: false });
     }

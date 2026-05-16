@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { PartnerMembership, SessionUser } from '@/types';
+import type { SessionUser } from '@/types';
 
 const STORAGE_KEY = 'parktrack.session.v1';
 
@@ -15,7 +15,6 @@ type SessionState = SessionSnapshot & {
   setSession: (snapshot: SessionSnapshot) => void;
   setCurrentPartnerId: (partnerId?: number) => void;
   setValidating: (validating: boolean) => void;
-  startDemoSession: () => void;
   logout: () => void;
   hasPermission: (permission: string) => boolean;
   isAdmin: () => boolean;
@@ -45,6 +44,10 @@ function loadStoredSession(): SessionSnapshot {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as SessionSnapshot & { user?: StoredSessionUser };
+    if (parsed.accessToken === 'dev-admin-token') {
+      localStorage.removeItem(STORAGE_KEY);
+      return {};
+    }
     return {
       ...parsed,
       user: normalizeStoredUser(parsed.user)
@@ -90,63 +93,6 @@ function normalizeCurrentPartnerId(snapshot: SessionSnapshot) {
   return memberships[0]?.partner_id;
 }
 
-const adminPermissions = [
-  'users.me.view',
-  'users.me.update',
-  'users.password.update',
-  'map.view',
-  'zones.view',
-  'zones.create',
-  'zones.update',
-  'zones.delete',
-  'cameras.view',
-  'cameras.create',
-  'cameras.update',
-  'cameras.delete',
-  'sources.view',
-  'admin.users.view',
-  'admin.users.manage',
-  'admin.partners.view',
-  'admin.partners.manage',
-  'admin.system.view',
-  'admin.system.manage',
-  'admin.monitoring.view'
-];
-
-const demoMembership: PartnerMembership = {
-  partner_id: 10,
-  role: 'partner_admin',
-  permissions: [
-    'partner_members.view',
-    'partner_members.update',
-    'partner_access.manage',
-    'sources.view',
-    'cameras.view',
-    'cameras.create',
-    'cameras.update',
-    'cameras.delete',
-    'zones.view',
-    'zones.create',
-    'zones.update',
-    'zones.delete'
-  ],
-  read_scope: 'partner_all',
-  write_scope: 'partner_all',
-  delete_scope: 'partner_all',
-  is_active: true
-};
-
-function buildDemoUser(): SessionUser {
-  return {
-    user_id: 1,
-    email: 'admin@parktrack.local',
-    full_name: 'ParkTrack Admin',
-    global_role: 'admin',
-    permissions: adminPermissions,
-    partner_memberships: [demoMembership]
-  };
-}
-
 const initialSession = loadStoredSession();
 
 export const useSessionStore = create<SessionState>((set, get) => ({
@@ -187,16 +133,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   setValidating(validating) {
     set({ validating });
-  },
-
-  startDemoSession() {
-    const snapshot = {
-      accessToken: 'dev-admin-token',
-      user: buildDemoUser(),
-      currentPartnerId: undefined
-    };
-    storeSession(snapshot);
-    set(snapshot);
   },
 
   logout() {

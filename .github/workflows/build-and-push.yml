@@ -9,6 +9,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  IS_DEFAULT: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
 
 jobs:
   build-and-push:
@@ -57,10 +58,37 @@ jobs:
         with:
           context: .
           build-args: |
-            VITE_API_BASE_URL=${{ vars.VITE_API_BASE_URL }}
+            VITE_API_BASE_URL=${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) && vars.VITE_DEV_API_BASE_URL || vars.VITE_API_BASE_URL }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           platforms: linux/amd64,linux/arm64
           cache-to: type=gha,mode=max
+  deploy:
+    needs:
+      - build-and-push
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            if [ "${{ env.IS_DEFAULT }}" = "true" ]; then
+              cd ${{ secrets.COMPOSE_DIRECTORY_PATH }}
+              docker compose up -d
+            else
+              cd ${{ secrets.DEVELOPMENT_COMPOSE_DIRECTORY_PATH }}
+              docker compose -p parktrack-dev up -d
+            fi

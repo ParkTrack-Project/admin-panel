@@ -29,6 +29,29 @@ function formatConfidence(value?: number) {
   return `${(value * 100).toFixed(0)}%`;
 }
 
+function getRejectedStatus(result: PromiseSettledResult<unknown>) {
+  if (result.status !== 'rejected') return undefined;
+  const reason = result.reason as { status?: unknown } | undefined;
+  return typeof reason?.status === 'number' ? reason.status : undefined;
+}
+
+function formatDashboardLoadError(results: Array<{
+  label: string;
+  result: PromiseSettledResult<unknown>;
+  ignoreStatuses?: number[];
+}>) {
+  const failed = results
+    .filter(({ result, ignoreStatuses }) => {
+      if (result.status !== 'rejected') return false;
+      const status = getRejectedStatus(result);
+      return !status || !ignoreStatuses?.includes(status);
+    })
+    .map(result => result.label);
+
+  if (!failed.length) return undefined;
+  return `Не удалось обновить: ${failed.join(', ')}. Остальные данные загружены.`;
+}
+
 export default function DashboardPage() {
   const session = useSessionStore();
   const currentPartnerId = useSessionStore(state => state.currentPartnerId);
@@ -59,9 +82,12 @@ export default function DashboardPage() {
           version: version.status === 'fulfilled' ? version.value : undefined,
           cameras: cameras.status === 'fulfilled' ? cameras.value : [],
           zones: zones.status === 'fulfilled' ? zones.value : [],
-          error: [health, version, cameras, zones].some(result => result.status === 'rejected')
-            ? 'Часть данных временно недоступна'
-            : undefined
+          error: formatDashboardLoadError([
+            { label: 'статус API', result: health },
+            { label: 'версию API', result: version },
+            { label: 'камеры', result: cameras, ignoreStatuses: [401, 403] },
+            { label: 'зоны', result: zones }
+          ])
         });
       } catch (error: any) {
         if (!cancelled) {

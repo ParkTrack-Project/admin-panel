@@ -3,6 +3,7 @@ import { useSessionStore } from '@/auth/sessionStore';
 import { api } from '@/api/client';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
 import { Button, Field, Input } from '@/components/UiKit';
+import { validateOptionalPhone } from '@/utils/phone';
 
 export default function ProfilePage() {
   const user = useSessionStore(s => s.user);
@@ -10,7 +11,6 @@ export default function ProfilePage() {
   const currentPartnerId = useSessionStore(s => s.currentPartnerId);
   const setSession = useSessionStore(s => s.setSession);
   const notifySuccess = useFeedbackStore(state => state.success);
-  const notifyInfo = useFeedbackStore(state => state.info);
   const [profileForm, setProfileForm] = useState({
     fullName: '',
     phone: ''
@@ -26,7 +26,6 @@ export default function ProfilePage() {
   const [passwordError, setPasswordError] = useState<string | undefined>();
   const role = user?.global_role ?? '—';
   const memberships = user?.partner_memberships ?? [];
-  const isDevSession = accessToken === 'dev-admin-token';
   const hasProfileChanges = useMemo(() => (
     profileForm.fullName.trim() !== (user?.full_name ?? '')
     || profileForm.phone.trim() !== (user?.phone ?? '')
@@ -64,6 +63,12 @@ export default function ProfilePage() {
       return;
     }
 
+    const phoneError = validateOptionalPhone(phone);
+    if (phoneError) {
+      setProfileError(phoneError);
+      return;
+    }
+
     setProfileSaving(true);
     setProfileError(undefined);
 
@@ -73,40 +78,26 @@ export default function ProfilePage() {
         phone: phone || null
       };
 
-      if (isDevSession) {
-        setSession({
-          accessToken,
-          currentPartnerId,
-          user: {
-            ...currentUser,
-            full_name: patch.full_name,
-            phone: patch.phone,
-            updated_at: new Date().toISOString()
-          }
-        });
-        notifyInfo('Профиль обновлён локально в dev-сессии.');
-      } else {
-        const updated = await api.users.updateMe(patch);
-        setSession({
-          accessToken,
-          currentPartnerId,
-          user: {
-            ...currentUser,
-            user_id: updated.user_id,
-            email: updated.email,
-            full_name: updated.full_name,
-            phone: updated.phone ?? null,
-            global_role: updated.global_role ?? updated.global_roles?.[0] ?? currentUser.global_role,
-            is_active: updated.is_active ?? currentUser.is_active,
-            is_email_verified: updated.is_email_verified ?? currentUser.is_email_verified,
-            created_at: updated.created_at ?? currentUser.created_at,
-            updated_at: updated.updated_at ?? currentUser.updated_at,
-            permissions: currentUser.permissions,
-            partner_memberships: currentUser.partner_memberships
-          }
-        });
-        notifySuccess('Профиль сохранён.');
-      }
+      const updated = await api.users.updateMe(patch);
+      setSession({
+        accessToken,
+        currentPartnerId,
+        user: {
+          ...currentUser,
+          user_id: updated.user_id,
+          email: updated.email,
+          full_name: updated.full_name,
+          phone: updated.phone ?? null,
+          global_role: updated.global_role ?? updated.global_roles?.[0] ?? currentUser.global_role,
+          is_active: updated.is_active ?? currentUser.is_active,
+          is_email_verified: updated.is_email_verified ?? currentUser.is_email_verified,
+          created_at: updated.created_at ?? currentUser.created_at,
+          updated_at: updated.updated_at ?? currentUser.updated_at,
+          permissions: currentUser.permissions,
+          partner_memberships: currentUser.partner_memberships
+        }
+      });
+      notifySuccess('Профиль сохранён.');
     } catch (error: any) {
       setProfileError(String(error?.message || error));
     } finally {
@@ -115,7 +106,7 @@ export default function ProfilePage() {
   }
 
   async function onChangePassword() {
-    if (!passwordForm.currentPassword.trim() && !isDevSession) {
+    if (!passwordForm.currentPassword.trim()) {
       setPasswordError('Введите текущий пароль.');
       return;
     }
@@ -134,15 +125,11 @@ export default function ProfilePage() {
     setPasswordError(undefined);
 
     try {
-      if (isDevSession) {
-        notifyInfo('Пароль в dev-сессии отмечен как обновлённый локально.');
-      } else {
-        await api.users.updatePassword({
-          old_password: passwordForm.currentPassword,
-          new_password: passwordForm.newPassword
-        });
-        notifySuccess('Пароль обновлён.');
-      }
+      await api.users.updatePassword({
+        old_password: passwordForm.currentPassword,
+        new_password: passwordForm.newPassword
+      });
+      notifySuccess('Пароль обновлён.');
 
       setPasswordForm({
         currentPassword: '',
@@ -240,7 +227,7 @@ export default function ProfilePage() {
                   setPasswordError(undefined);
                   setPasswordForm(prev => ({ ...prev, currentPassword: e.target.value }));
                 }}
-                placeholder={isDevSession ? 'Не требуется в dev-сессии' : 'Введите текущий пароль'}
+                placeholder="Введите текущий пароль"
               />
             </Field>
             <Field label="Новый пароль">

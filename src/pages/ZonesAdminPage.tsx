@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/api/client';
 import { Button, Field, Input, Select } from '@/components/UiKit';
-import { BulkActionBar } from '@/components/BulkActionBar';
+import { BulkActionBar, BulkSelectionCheckbox } from '@/components/BulkActionBar';
 import { useStore } from '@/store/useStore';
 import { navigate } from '@/router/routes';
 import type { ParkingZone } from '@/types';
@@ -492,7 +492,13 @@ export default function ZonesAdminPage() {
         </div>
       </div>
 
-      <div className="filter-bar">
+      <form
+        className="filter-bar"
+        onSubmit={(event) => {
+          event.preventDefault();
+          load();
+        }}
+      >
         <Field label="Camera ID">
           <Input
             value={filters.cameraId}
@@ -580,8 +586,9 @@ export default function ZonesAdminPage() {
             placeholder="Без ограничения"
           />
         </Field>
-        <Button variant="ghost" onClick={load} disabled={loading}>Применить</Button>
+        <Button type="submit" variant="ghost" disabled={loading}>Применить</Button>
         <Button
+          type="button"
           variant="ghost"
           onClick={() => setFilters({
             cameraId: '',
@@ -597,7 +604,7 @@ export default function ZonesAdminPage() {
         >
           Сбросить
         </Button>
-      </div>
+      </form>
 
       <div className="section-panel zone-create-panel">
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap' }}>
@@ -628,8 +635,6 @@ export default function ZonesAdminPage() {
         selectedCount={selectedZoneIds.size}
         totalCount={visibleZones.length}
         busy={saveState.loading || deleteLoading}
-        onSelectAll={() => setSelectedZoneIds(new Set(visibleZoneIds))}
-        onClear={() => setSelectedZoneIds(new Set())}
         onActivate={() => onBulkSetZonesActive(true)}
         onDeactivate={() => onBulkSetZonesActive(false)}
         onDelete={onBulkDeleteZones}
@@ -639,7 +644,15 @@ export default function ZonesAdminPage() {
         <div className="section-panel">
           <div className="table-scroll">
             <div className="table-header zones-admin">
-              <span className="bulk-check-cell"></span>
+              <span className="bulk-check-cell">
+                <BulkSelectionCheckbox
+                  selectedCount={selectedZoneIds.size}
+                  totalCount={visibleZoneIds.length}
+                  busy={saveState.loading || deleteLoading}
+                  label="Выбрать все отфильтрованные зоны"
+                  onToggleAll={checked => setSelectedZoneIds(checked ? new Set(visibleZoneIds) : new Set())}
+                />
+              </span>
               <span>ID</span>
               <span>Камера</span>
               <span>Тип</span>

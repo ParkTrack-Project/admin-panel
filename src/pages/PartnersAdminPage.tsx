@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSessionStore } from '@/auth/sessionStore';
 import { api, type PartnerMemberResponse, type PartnerResponse, type UserProfileResponse } from '@/api/client';
 import { Button, Field, Input, Select } from '@/components/UiKit';
-import { BulkActionBar } from '@/components/BulkActionBar';
+import { BulkActionBar, BulkSelectionCheckbox } from '@/components/BulkActionBar';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
+import { validateOptionalPhone } from '@/utils/phone';
 import type { AccessScope } from '@/types';
 
 type AdminPartner = {
@@ -337,6 +338,12 @@ export default function PartnersAdminPage() {
       return;
     }
 
+    const phoneError = validateOptionalPhone(contactPhone);
+    if (phoneError) {
+      setSaveError(phoneError);
+      return;
+    }
+
     setSaveLoading(true);
     setSaveError(undefined);
     try {
@@ -366,6 +373,12 @@ export default function PartnersAdminPage() {
 
     if (!legalName || !slug) {
       setCreateError('Заполните все обязательные поля.');
+      return;
+    }
+
+    const phoneError = validateOptionalPhone(contactPhone);
+    if (phoneError) {
+      setCreateError(phoneError);
       return;
     }
 
@@ -625,8 +638,6 @@ export default function PartnersAdminPage() {
         totalCount={filteredPartners.length}
         busy={bulkLoading}
         canMutate={canManagePartners}
-        onSelectAll={() => setSelectedPartnerIds(new Set(filteredPartnerIds))}
-        onClear={() => setSelectedPartnerIds(new Set())}
         onActivate={() => onBulkSetPartnersActive(true)}
         onDeactivate={() => onBulkSetPartnersActive(false)}
         onDelete={onBulkDeletePartners}
@@ -664,7 +675,15 @@ export default function PartnersAdminPage() {
         <div className="section-panel">
           <div className="table-scroll">
             <div className="table-header partners-contract">
-              <span className="bulk-check-cell"></span>
+              <span className="bulk-check-cell">
+                <BulkSelectionCheckbox
+                  selectedCount={selectedPartnerIds.size}
+                  totalCount={filteredPartnerIds.length}
+                  busy={bulkLoading}
+                  label="Выбрать всех отфильтрованных партнёров"
+                  onToggleAll={checked => setSelectedPartnerIds(checked ? new Set(filteredPartnerIds) : new Set())}
+                />
+              </span>
               <span>ID</span>
               <span>Name</span>
               <span>Slug</span>

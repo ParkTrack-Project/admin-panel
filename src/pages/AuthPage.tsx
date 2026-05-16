@@ -3,6 +3,8 @@ import { api } from '@/api/client';
 import { useSessionStore } from '@/auth/sessionStore';
 import { navigate } from '@/router/routes';
 import { Button, Field, Input } from '@/components/UiKit';
+import { useFeedbackStore } from '@/feedback/feedbackStore';
+import { validateOptionalPhone } from '@/utils/phone';
 
 export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   const session = useSessionStore();
@@ -12,13 +14,24 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const notifyError = useFeedbackStore(state => state.error);
 
   const isRegister = mode === 'register';
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    setLoading(true);
     setError(undefined);
+
+    if (isRegister) {
+      const phoneError = validateOptionalPhone(phone);
+      if (phoneError) {
+        setError(phoneError);
+        notifyError(phoneError);
+        return;
+      }
+    }
+
+    setLoading(true);
 
     try {
       const response = isRegister
@@ -39,11 +52,6 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
     } finally {
       setLoading(false);
     }
-  }
-
-  function enterDemoMode() {
-    session.startDemoSession();
-    navigate('dashboard');
   }
 
   return (
@@ -96,12 +104,21 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
           </Button>
         </form>
 
+        {!isRegister && (
+          <div className="auth-secondary-action">
+            <button
+              type="button"
+              className="auth-reset-toggle"
+              onClick={() => navigate('password-reset')}
+            >
+              Забыли пароль?
+            </button>
+          </div>
+        )}
+
         <div className="auth-actions">
           <Button variant="ghost" onClick={() => navigate(isRegister ? 'login' : 'register')}>
             {isRegister ? 'У меня уже есть аккаунт' : 'Зарегистрироваться'}
-          </Button>
-          <Button variant="ghost" onClick={enterDemoMode}>
-            Dev-вход
           </Button>
         </div>
       </section>

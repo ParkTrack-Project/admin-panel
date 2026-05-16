@@ -3,6 +3,7 @@ import { useStore } from '@/store/useStore';
 import { Button } from './UiKit';
 import { MapContainer, TileLayer, Polygon, Polyline, Marker, useMapEvents, useMap } from 'react-leaflet';
 import L, { LatLng, LatLngExpression } from 'leaflet';
+import { useFeedbackStore } from '@/feedback/feedbackStore';
 
 type LatLngTuple = [number, number];
 
@@ -36,6 +37,9 @@ function MapAutoFit({ points, fitVersion }: { points: LatLng[]; fitVersion: numb
 }
 
 export default function ZoneMapSelector() {
+  const notifySuccess = useFeedbackStore(state => state.success);
+  const notifyError = useFeedbackStore(state => state.error);
+  const notifyInfo = useFeedbackStore(state => state.info);
   const zones = useStore(state => state.zones);
   const activeZoneId = useStore(state => state.activeZoneId);
   const setViewMode = useStore(state => state.setViewMode);
@@ -96,12 +100,15 @@ export default function ZoneMapSelector() {
       }) as any;
       updateZone(zone.id, { points: resetPoints });
     }
+    notifyInfo('Геометрия зоны на карте сброшена.');
   }
 
   async function onSave() {
     if (!zone) return;
     if (points.length !== 4) {
-      setError('Необходимо отметить все 4 точки на карте перед сохранением.');
+      const message = 'Необходимо отметить все 4 точки на карте перед сохранением.';
+      setError(message);
+      notifyError(message);
       return;
     }
     try {
@@ -117,11 +124,20 @@ export default function ZoneMapSelector() {
       }) as any;
 
       updateZone(zone.id, { points: updatedPoints });
-      await saveZone(zone.id);
+      const ok = await saveZone(zone.id);
+      if (!ok) {
+        const message = useStore.getState().error || 'Не удалось сохранить геометрию зоны.';
+        setError(message);
+        notifyError(message);
+        return;
+      }
 
+      notifySuccess('Геометрия зоны сохранена.');
       setViewMode('labeler');
     } catch (e: any) {
-      setError(String(e));
+      const message = String(e?.message || e);
+      setError(message);
+      notifyError(message);
     } finally {
       setLoading(false);
     }
@@ -152,7 +168,7 @@ export default function ZoneMapSelector() {
           Кликните 4 точки на карте по часовой стрелке, чтобы задать геометку зоны.
         </div>
 
-        <div className="row" style={{ marginTop: 12, gap: 8 }}>
+        <div className="labeler-action-grid compact">
           <Button onClick={onSave} disabled={!zone || loading}>Сохранить</Button>
           <Button variant="ghost" onClick={onCancel}>Отмена</Button>
           <Button variant="ghost" onClick={onReset} disabled={!zone}>Сбросить</Button>

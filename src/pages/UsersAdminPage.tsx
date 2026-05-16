@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSessionStore } from '@/auth/sessionStore';
 import { api, type UserProfileResponse, type PartnerMemberResponse, type PartnerResponse } from '@/api/client';
 import { Button, Field, Input, Select } from '@/components/UiKit';
-import { BulkActionBar } from '@/components/BulkActionBar';
+import { BulkActionBar, BulkSelectionCheckbox } from '@/components/BulkActionBar';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
+import { validateOptionalPhone } from '@/utils/phone';
 import type { AccessScope, PartnerMembership } from '@/types';
 
 type AdminUser = {
@@ -339,6 +340,12 @@ export default function UsersAdminPage() {
       return;
     }
 
+    const phoneError = validateOptionalPhone(phone);
+    if (phoneError) {
+      setSaveError(phoneError);
+      return;
+    }
+
     setSaveLoading(true);
     setSaveError(undefined);
     try {
@@ -467,6 +474,12 @@ export default function UsersAdminPage() {
       return;
     }
 
+    const phoneError = validateOptionalPhone(phone);
+    if (phoneError) {
+      setCreateUserError(phoneError);
+      return;
+    }
+
     setCreateUserLoading(true);
     setCreateUserError(undefined);
     try {
@@ -592,8 +605,6 @@ export default function UsersAdminPage() {
         totalCount={filteredUsers.length}
         busy={bulkLoading}
         canMutate={canManageUsers}
-        onSelectAll={() => setSelectedUserIds(new Set(filteredUserIds))}
-        onClear={() => setSelectedUserIds(new Set())}
         onActivate={() => onBulkSetUsersActive(true)}
         onDeactivate={() => onBulkSetUsersActive(false)}
         onDelete={onBulkDeleteUsers}
@@ -692,7 +703,15 @@ export default function UsersAdminPage() {
         <div className="section-panel">
           <div className="table-scroll">
             <div className="table-header users-contract">
-              <span className="bulk-check-cell"></span>
+              <span className="bulk-check-cell">
+                <BulkSelectionCheckbox
+                  selectedCount={selectedUserIds.size}
+                  totalCount={filteredUserIds.length}
+                  busy={bulkLoading}
+                  label="Выбрать всех отфильтрованных пользователей"
+                  onToggleAll={checked => setSelectedUserIds(checked ? new Set(filteredUserIds) : new Set())}
+                />
+              </span>
               <span>ID</span>
               <span>Email</span>
               <span>Роль</span>
