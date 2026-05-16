@@ -11,6 +11,7 @@ import AccessStatePage from '@/pages/AccessStatePage';
 import AuthPage from '@/pages/AuthPage';
 import DashboardPage from '@/pages/DashboardPage';
 import PartnersAdminPage from '@/pages/PartnersAdminPage';
+import PasswordResetPage from '@/pages/PasswordResetPage';
 import ProfilePage from '@/pages/ProfilePage';
 import SourcesPage from '@/pages/SourcesPage';
 import UsersAdminPage from '@/pages/UsersAdminPage';
@@ -132,10 +133,10 @@ export default function App() {
 
   let content: React.ReactNode;
 
-  if (route === 'login' || route === 'register') {
+  if (route === 'login' || route === 'register' || route === 'password-reset') {
     content = (
       <AppErrorBoundary>
-        <AuthPage mode={route} />
+        {route === 'password-reset' ? <PasswordResetPage /> : <AuthPage mode={route} />}
       </AppErrorBoundary>
     );
   } else if (sessionValidating || shouldValidateSession) {
