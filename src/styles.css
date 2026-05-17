@@ -651,9 +651,25 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
 .camera-list-header,
 .camera-list-item {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) 70px 88px;
+  grid-template-columns: 42px minmax(180px, 1fr) 70px 110px;
   gap: 10px;
   align-items: center;
+  min-width: 440px;
+}
+
+.camera-list-scroll .table-list {
+  min-width: 440px;
+}
+
+.camera-list-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.camera-list-item .status-pill {
+  justify-self: start;
+  min-width: 88px;
+  justify-content: center;
 }
 
 .camera-list-item {

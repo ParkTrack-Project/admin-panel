@@ -547,64 +547,66 @@ export default function CamerasPage() {
 
         {error && <div className="notice error" style={{ marginBottom: 12 }}>{error}</div>}
         <div className="section-panel" style={{ marginBottom: 12 }}>
-          <div className="table-header camera-list-header">
-            <span className="bulk-check-cell">
-              <BulkSelectionCheckbox
-                selectedCount={selectedCameraIds.size}
-                totalCount={visibleCameraIds.length}
-                busy={bulkLoading}
-                label="Выбрать все отфильтрованные камеры"
-                onToggleAll={checked => setSelectedCameraIds(checked ? new Set(visibleCameraIds) : new Set())}
-              />
-            </span>
-            <span>Камера</span>
-            <span>Зоны</span>
-            <span>Статус</span>
-          </div>
-          <div className="table-list">
-            {cameras.map(cam => {
-              const isActive = cam.camera_id === selectedId;
-              const zonesCount = zoneCounts[cam.camera_id];
-              const isBulkSelected = selectedCameraIds.has(cam.camera_id);
-              return (
-                <div
-                  key={cam.camera_id}
-                  role="button"
-                  tabIndex={0}
-                  className={`camera-list-item ${isActive ? 'active' : ''} ${isBulkSelected ? 'bulk-row-selected' : ''}`}
-                  onMouseEnter={() => setHoverId(cam.camera_id)}
-                  onMouseLeave={() => setHoverId(id => (id === cam.camera_id ? undefined : id))}
-                  onClick={() => setSelectedId(cam.camera_id)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      setSelectedId(cam.camera_id);
-                    }
-                  }}
-                >
-                  <span className="bulk-check-cell">
-                    <input
-                      type="checkbox"
-                      checked={isBulkSelected}
-                      onClick={e => e.stopPropagation()}
-                      onChange={e => toggleSelectedCamera(cam.camera_id, e.target.checked)}
-                      aria-label={`Выбрать камеру ${cam.camera_id}`}
-                    />
-                  </span>
-                  <span>
-                    <strong>{cam.title}</strong>
-                    <span className="small" style={{ display: 'block' }}>ID: {cam.camera_id}</span>
-                  </span>
-                  <span>{typeof zonesCount === 'number' ? zonesCount : '—'}</span>
-                  <span className={`status-pill ${cam.is_active === false ? 'paused' : 'active'}`}>
-                    {cam.is_active === false ? 'paused' : 'active'}
-                  </span>
-                </div>
-              );
-            })}
-            {!loading && !cameras.length && (
-              <div className="empty-state">Камеры не найдены</div>
-            )}
+          <div className="table-scroll camera-list-scroll">
+            <div className="table-header camera-list-header">
+              <span className="bulk-check-cell">
+                <BulkSelectionCheckbox
+                  selectedCount={selectedCameraIds.size}
+                  totalCount={visibleCameraIds.length}
+                  busy={bulkLoading}
+                  label="Выбрать все отфильтрованные камеры"
+                  onToggleAll={checked => setSelectedCameraIds(checked ? new Set(visibleCameraIds) : new Set())}
+                />
+              </span>
+              <span>Камера</span>
+              <span>Зоны</span>
+              <span>Статус</span>
+            </div>
+            <div className="table-list">
+              {cameras.map(cam => {
+                const isActive = cam.camera_id === selectedId;
+                const zonesCount = zoneCounts[cam.camera_id];
+                const isBulkSelected = selectedCameraIds.has(cam.camera_id);
+                return (
+                  <div
+                    key={cam.camera_id}
+                    role="button"
+                    tabIndex={0}
+                    className={`camera-list-item ${isActive ? 'active' : ''} ${isBulkSelected ? 'bulk-row-selected' : ''}`}
+                    onMouseEnter={() => setHoverId(cam.camera_id)}
+                    onMouseLeave={() => setHoverId(id => (id === cam.camera_id ? undefined : id))}
+                    onClick={() => setSelectedId(cam.camera_id)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedId(cam.camera_id);
+                      }
+                    }}
+                  >
+                    <span className="bulk-check-cell">
+                      <input
+                        type="checkbox"
+                        checked={isBulkSelected}
+                        onClick={e => e.stopPropagation()}
+                        onChange={e => toggleSelectedCamera(cam.camera_id, e.target.checked)}
+                        aria-label={`Выбрать камеру ${cam.camera_id}`}
+                      />
+                    </span>
+                    <span className="camera-list-title">
+                      <strong>{cam.title}</strong>
+                      <span className="small" style={{ display: 'block' }}>ID: {cam.camera_id}</span>
+                    </span>
+                    <span>{typeof zonesCount === 'number' ? zonesCount : '—'}</span>
+                    <span className={`status-pill ${cam.is_active === false ? 'paused' : 'active'}`}>
+                      {cam.is_active === false ? 'paused' : 'active'}
+                    </span>
+                  </div>
+                );
+              })}
+              {!loading && !cameras.length && (
+                <div className="empty-state">Камеры не найдены</div>
+              )}
+            </div>
           </div>
         </div>
 
