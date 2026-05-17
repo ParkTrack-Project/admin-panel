@@ -613,6 +613,12 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   margin-top: 14px;
 }
 
+.auth-reset-password-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
 .zone-point-marker {
   cursor: move;
 }
