@@ -7,6 +7,13 @@ import { useFeedbackStore } from '@/feedback/feedbackStore';
 
 type LatLngTuple = [number, number];
 
+const zonePointIcon = L.divIcon({
+  className: 'zone-point-marker',
+  html: '<div class="zone-point-marker-hit"><div class="zone-point-marker-dot"></div></div>',
+  iconSize: [28, 28],
+  iconAnchor: [14, 14]
+});
+
 function hasCoordinates(latitude?: number | null, longitude?: number | null): latitude is number {
   return typeof latitude === 'number'
     && Number.isFinite(latitude)
@@ -34,6 +41,56 @@ function MapAutoFit({ points, fitVersion }: { points: LatLng[]; fitVersion: numb
   }, [fitVersion, map]);
 
   return null;
+}
+
+function DraggableZonePolygon({
+  points,
+  onMove,
+  onMoveEnd
+}: {
+  points: LatLng[];
+  onMove: (points: LatLng[]) => void;
+  onMoveEnd: (points: LatLng[]) => void;
+}) {
+  const map = useMap();
+  const polygon = points.map(p => [p.lat, p.lng] as LatLngTuple);
+
+  function onMouseDown(e: any) {
+    if (points.length !== 4) return;
+    L.DomEvent.stop(e);
+    map.dragging.disable();
+
+    const start = e.latlng as LatLng;
+    const origin = points.map(point => new L.LatLng(point.lat, point.lng));
+    let latest = origin;
+
+    const onMouseMove = (moveEvent: any) => {
+      const current = moveEvent.latlng as LatLng;
+      const latDelta = current.lat - start.lat;
+      const lngDelta = current.lng - start.lng;
+      latest = origin.map(point => new L.LatLng(point.lat + latDelta, point.lng + lngDelta));
+      onMove(latest);
+    };
+
+    const onMouseUp = () => {
+      map.off('mousemove', onMouseMove);
+      map.off('mouseup', onMouseUp);
+      map.dragging.enable();
+      onMoveEnd(latest);
+    };
+
+    map.on('mousemove', onMouseMove);
+    map.on('mouseup', onMouseUp);
+  }
+
+  return (
+    <Polygon
+      key={`polygon-${points.map(p => `${p.lat},${p.lng}`).join(';')}`}
+      positions={polygon}
+      pathOptions={{ color: '#ff7a45', fillOpacity: 0.24, weight: 2 }}
+      eventHandlers={{ mousedown: onMouseDown }}
+    />
+  );
 }
 
 export default function ZoneMapSelector() {
@@ -90,6 +147,18 @@ export default function ZoneMapSelector() {
     if (points.length >= 4) return;
     setPoints(prev => [...prev, pos]);
     setFitVersion(version => version + 1);
+  }
+
+  function syncZonePoints(nextPoints: LatLng[]) {
+    if (!zone || nextPoints.length !== 4) return;
+    const updatedZonePoints = zone.points.map((pt, i) => {
+      if (i < 4) {
+        const p = nextPoints[i];
+        return { ...pt, latitude: p.lat, longitude: p.lng };
+      }
+      return pt;
+    }) as any;
+    updateZone(zone.id, { points: updatedZonePoints });
   }
 
   function onReset() {
@@ -165,7 +234,7 @@ export default function ZoneMapSelector() {
         {error && <div className="small" style={{ color: '#ff6b6b' }}>{error}</div>}
 
         <div className="small" style={{ marginTop: 8 }}>
-          Кликните 4 точки на карте по часовой стрелке, чтобы задать геометку зоны.
+          Кликните 4 точки на карте по часовой стрелке. После этого можно двигать точки или перетащить всю зону.
         </div>
 
         <div className="labeler-action-grid compact">
@@ -186,10 +255,13 @@ export default function ZoneMapSelector() {
           {points.length >= 2 && (
             <>
               {points.length === 4 ? (
-                <Polygon 
-                  key={`polygon-${points.map(p => `${p.lat},${p.lng}`).join(';')}`}
-                  positions={polygon} 
-                  pathOptions={{ color: '#ff7a45', fillOpacity: 0.2, weight: 2 }} 
+                <DraggableZonePolygon
+                  points={points}
+                  onMove={setPoints}
+                  onMoveEnd={(nextPoints) => {
+                    setPoints(nextPoints);
+                    syncZonePoints(nextPoints);
+                  }}
                 />
               ) : (
                 <Polyline 
@@ -204,37 +276,20 @@ export default function ZoneMapSelector() {
             <Marker
               key={`marker-${idx}`}
               position={p}
-              icon={L.divIcon({
-                className: 'zone-point-marker',
-                html: '<div style="width:24px;height:24px;display:grid;place-items:center;"><div style="width:14px;height:14px;border-radius:50%;background:#ffd666;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.35);"></div></div>',
-                iconSize: [24, 24],
-                iconAnchor: [12, 12]
-              })}
+              icon={zonePointIcon}
               draggable
               autoPan
               riseOnHover
               zIndexOffset={1000}
               eventHandlers={{
-                drag: (e) => {
-                  const newPos = e.target.getLatLng();
-                  setPoints(prev => prev.map((pt, i) => i === idx ? new L.LatLng(newPos.lat, newPos.lng) : pt));
+                mousedown: (e) => {
+                  L.DomEvent.stopPropagation(e.originalEvent);
                 },
                 dragend: (e) => {
                   const newPos = e.target.getLatLng();
                   setPoints(prev => {
                     const updatedPoints = prev.map((pt, i) => i === idx ? new L.LatLng(newPos.lat, newPos.lng) : pt);
-
-                    if (zone && updatedPoints.length === 4) {
-                      const updatedZonePoints = zone.points.map((pt, i) => {
-                        if (i < 4) {
-                          const p = updatedPoints[i];
-                          return { ...pt, latitude: p.lat, longitude: p.lng };
-                        }
-                        return pt;
-                      }) as any;
-                      updateZone(zone.id, { points: updatedZonePoints });
-                    }
-
+                    syncZonePoints(updatedPoints);
                     return updatedPoints;
                   });
                 }
