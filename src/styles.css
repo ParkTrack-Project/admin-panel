@@ -639,6 +639,11 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   box-shadow: 0 1px 5px rgba(0, 0, 0, .35);
 }
 
+.zone-map-visible-line,
+.zone-map-drag-line {
+  cursor: move;
+}
+
 .legacy-labeler-grid {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
