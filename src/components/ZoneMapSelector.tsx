@@ -43,7 +43,7 @@ function MapAutoFit({ points, fitVersion }: { points: LatLng[]; fitVersion: numb
   return null;
 }
 
-function DraggableZonePolygon({
+function DraggableZoneShape({
   points,
   onMove,
   onMoveEnd
@@ -53,10 +53,12 @@ function DraggableZonePolygon({
   onMoveEnd: (points: LatLng[]) => void;
 }) {
   const map = useMap();
-  const polygon = points.map(p => [p.lat, p.lng] as LatLngTuple);
+  const line = points.map(p => [p.lat, p.lng] as LatLngTuple);
+  const isComplete = points.length === 4;
+  const dragLine = isComplete ? [...line, line[0]] : line;
 
   function onMouseDown(e: any) {
-    if (points.length !== 4) return;
+    if (points.length < 2) return;
     L.DomEvent.stop(e);
     map.dragging.disable();
 
@@ -84,12 +86,29 @@ function DraggableZonePolygon({
   }
 
   return (
-    <Polygon
-      key={`polygon-${points.map(p => `${p.lat},${p.lng}`).join(';')}`}
-      positions={polygon}
-      pathOptions={{ color: '#ff7a45', fillOpacity: 0.24, weight: 2 }}
-      eventHandlers={{ mousedown: onMouseDown }}
-    />
+    <>
+      {isComplete ? (
+        <Polygon
+          key={`polygon-${points.map(p => `${p.lat},${p.lng}`).join(';')}`}
+          positions={line}
+          pathOptions={{ color: '#ff7a45', fillOpacity: 0.24, weight: 2, className: 'zone-map-visible-line' }}
+          eventHandlers={{ mousedown: onMouseDown }}
+        />
+      ) : (
+        <Polyline
+          key={`polyline-${points.map(p => `${p.lat},${p.lng}`).join(';')}`}
+          positions={line}
+          pathOptions={{ color: '#ff7a45', dashArray: '10, 5', weight: 2, className: 'zone-map-visible-line' }}
+          eventHandlers={{ mousedown: onMouseDown }}
+        />
+      )}
+      <Polyline
+        key={`drag-line-${points.map(p => `${p.lat},${p.lng}`).join(';')}`}
+        positions={dragLine}
+        pathOptions={{ color: '#ff7a45', opacity: 0.01, weight: 18, lineCap: 'round', lineJoin: 'round', className: 'zone-map-drag-line' }}
+        eventHandlers={{ mousedown: onMouseDown }}
+      />
+    </>
   );
 }
 
@@ -216,8 +235,6 @@ export default function ZoneMapSelector() {
     setViewMode('labeler');
   }
 
-  const polygon: LatLngTuple[] = points.map(p => [p.lat, p.lng]);
-
   return (
     <>
       <div className="sidebar">
@@ -234,7 +251,7 @@ export default function ZoneMapSelector() {
         {error && <div className="small" style={{ color: '#ff6b6b' }}>{error}</div>}
 
         <div className="small" style={{ marginTop: 8 }}>
-          Кликните 4 точки на карте по часовой стрелке. После этого можно двигать точки или перетащить всю зону.
+          Кликните 4 точки на карте по часовой стрелке. После этого можно двигать точки, линии или перетащить всю зону.
         </div>
 
         <div className="labeler-action-grid compact">
@@ -253,24 +270,14 @@ export default function ZoneMapSelector() {
           <MapAutoFit points={points} fitVersion={fitVersion} />
           <ClickHandler onClick={onMapClick} />
           {points.length >= 2 && (
-            <>
-              {points.length === 4 ? (
-                <DraggableZonePolygon
-                  points={points}
-                  onMove={setPoints}
-                  onMoveEnd={(nextPoints) => {
-                    setPoints(nextPoints);
-                    syncZonePoints(nextPoints);
-                  }}
-                />
-              ) : (
-                <Polyline 
-                  key={`polyline-${points.map(p => `${p.lat},${p.lng}`).join(';')}`}
-                  positions={polygon} 
-                  pathOptions={{ color: '#ff7a45', dashArray: '10, 5', weight: 2 }} 
-                />
-              )}
-            </>
+            <DraggableZoneShape
+              points={points}
+              onMove={setPoints}
+              onMoveEnd={(nextPoints) => {
+                setPoints(nextPoints);
+                syncZonePoints(nextPoints);
+              }}
+            />
           )}
           {points.map((p, idx) => (
             <Marker

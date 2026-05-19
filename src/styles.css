@@ -639,6 +639,11 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   box-shadow: 0 1px 5px rgba(0, 0, 0, .35);
 }
 
+.zone-map-visible-line,
+.zone-map-drag-line {
+  cursor: move;
+}
+
 .legacy-labeler-grid {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -784,6 +789,23 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
 .camera-preview:fullscreen .camera-preview-header {
   color: #ffffff;
   margin-bottom: 0;
+}
+
+.camera-preview:fullscreen .camera-preview-actions .button {
+  min-height: 34px;
+  background: rgba(255, 255, 255, 0.94);
+  border-color: rgba(255, 255, 255, 0.9);
+  color: #102015;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
+}
+
+.camera-preview:fullscreen .camera-preview-actions .button:hover:not(:disabled) {
+  background: #ffffff;
+  border-color: #ffffff;
+}
+
+.camera-preview:fullscreen .camera-preview-actions .button:disabled {
+  opacity: 0.72;
 }
 
 .camera-preview-header h3 {
