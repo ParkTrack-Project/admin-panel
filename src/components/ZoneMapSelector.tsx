@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { Button } from './UiKit';
 import { MapContainer, TileLayer, Polygon, Polyline, Marker, useMapEvents, useMap } from 'react-leaflet';
@@ -46,11 +46,13 @@ function MapAutoFit({ points, fitVersion }: { points: LatLng[]; fitVersion: numb
 function DraggableZoneShape({
   points,
   onMove,
-  onMoveEnd
+  onMoveEnd,
+  onInteractionStart
 }: {
   points: LatLng[];
   onMove: (points: LatLng[]) => void;
   onMoveEnd: (points: LatLng[]) => void;
+  onInteractionStart: () => void;
 }) {
   const map = useMap();
   const line = points.map(p => [p.lat, p.lng] as LatLngTuple);
@@ -60,6 +62,7 @@ function DraggableZoneShape({
   function onMouseDown(e: any) {
     if (points.length < 2) return;
     L.DomEvent.stop(e);
+    onInteractionStart();
     map.dragging.disable();
 
     const start = e.latlng as LatLng;
@@ -78,6 +81,7 @@ function DraggableZoneShape({
       map.off('mousemove', onMouseMove);
       map.off('mouseup', onMouseUp);
       map.dragging.enable();
+      onInteractionStart();
       onMoveEnd(latest);
     };
 
@@ -128,6 +132,7 @@ export default function ZoneMapSelector() {
   const [fitVersion, setFitVersion] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const suppressMapClickUntilRef = useRef(0);
 
   useEffect(() => {
     if (!zone) {
@@ -163,9 +168,14 @@ export default function ZoneMapSelector() {
   }, [points, cameraMeta]);
 
   function onMapClick(pos: LatLng) {
+    if (Date.now() < suppressMapClickUntilRef.current) return;
     if (points.length >= 4) return;
     setPoints(prev => [...prev, pos]);
     setFitVersion(version => version + 1);
+  }
+
+  function suppressMapClick() {
+    suppressMapClickUntilRef.current = Date.now() + 350;
   }
 
   function syncZonePoints(nextPoints: LatLng[]) {
@@ -273,6 +283,7 @@ export default function ZoneMapSelector() {
             <DraggableZoneShape
               points={points}
               onMove={setPoints}
+              onInteractionStart={suppressMapClick}
               onMoveEnd={(nextPoints) => {
                 setPoints(nextPoints);
                 syncZonePoints(nextPoints);
@@ -291,8 +302,10 @@ export default function ZoneMapSelector() {
               eventHandlers={{
                 mousedown: (e) => {
                   L.DomEvent.stopPropagation(e.originalEvent);
+                  suppressMapClick();
                 },
                 dragend: (e) => {
+                  suppressMapClick();
                   const newPos = e.target.getLatLng();
                   setPoints(prev => {
                     const updatedPoints = prev.map((pt, i) => i === idx ? new L.LatLng(newPos.lat, newPos.lng) : pt);
