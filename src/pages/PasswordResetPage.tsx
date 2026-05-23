@@ -8,6 +8,7 @@ export default function PasswordResetPage() {
   const [email, setEmail] = useState('');
   const [token, setToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [hasResetToken, setHasResetToken] = useState(false);
   const [requestLoading, setRequestLoading] = useState(false);
   const [confirmLoading, setConfirmLoading] = useState(false);
@@ -70,6 +71,10 @@ export default function PasswordResetPage() {
       notifyError('В пароле должно быть не менее 6 символов.');
       return;
     }
+    if (newPassword !== confirmPassword) {
+      notifyError('Подтверждение пароля не совпадает.');
+      return;
+    }
 
     setConfirmLoading(true);
     setError(undefined);
@@ -79,6 +84,7 @@ export default function PasswordResetPage() {
         new_password: newPassword
       });
       setNewPassword('');
+      setConfirmPassword('');
       setToken('');
       setHasResetToken(false);
       setInfo(undefined);
@@ -104,41 +110,52 @@ export default function PasswordResetPage() {
           </div>
         </div>
 
-        <form className="auth-form" onSubmit={requestPasswordReset}>
-          <p className="auth-helper-text">Укажите email, чтобы получить ссылку для восстановления доступа.</p>
-          <Field label="Email">
-            <Input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="user@example.com"
-              required
-            />
-          </Field>
-          <Button type="submit" variant="ghost" disabled={requestLoading || !email}>
-            {requestLoading ? 'Отправка...' : 'Отправить ссылку'}
-          </Button>
-        </form>
-
         {hasResetToken ? (
-          <form className="auth-form auth-reset-confirm-form" onSubmit={confirmPasswordReset}>
-            <Field label="Новый пароль">
-              <Input
-                type="password"
-                value={newPassword}
-                onChange={e => setNewPassword(e.target.value)}
-                placeholder="Минимум 6 символов"
-                required
-              />
-            </Field>
+          <form className="auth-form" onSubmit={confirmPasswordReset}>
+            <p className="auth-helper-text">Введите новый пароль для завершения восстановления доступа.</p>
+            <div className="auth-reset-password-grid">
+              <Field label="Новый пароль">
+                <Input
+                  type="password"
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  placeholder="Минимум 6 символов"
+                  required
+                />
+              </Field>
+              <Field label="Подтверждение">
+                <Input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  placeholder="Повторите новый пароль"
+                  required
+                />
+              </Field>
+            </div>
             {info && <div className="notice warning">{info}</div>}
             {error && <div className="notice error">{error}</div>}
-            <Button type="submit" disabled={confirmLoading || !token || !newPassword}>
+            <Button type="submit" disabled={confirmLoading || !token || !newPassword || !confirmPassword}>
               {confirmLoading ? 'Обновление...' : 'Обновить пароль'}
             </Button>
           </form>
         ) : (
           <>
+            <form className="auth-form" onSubmit={requestPasswordReset}>
+              <p className="auth-helper-text">Укажите email, чтобы получить ссылку для восстановления доступа.</p>
+              <Field label="Email">
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="user@example.com"
+                  required
+                />
+              </Field>
+              <Button type="submit" variant="ghost" disabled={requestLoading || !email}>
+                {requestLoading ? 'Отправка...' : 'Отправить ссылку'}
+              </Button>
+            </form>
             {info && <div className="notice warning auth-reset-message">{info}</div>}
             {error && <div className="notice error auth-reset-message">{error}</div>}
           </>
