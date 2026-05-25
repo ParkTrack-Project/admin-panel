@@ -9,6 +9,30 @@ export type GeoPoint = {
   latitude: number | null;
 };
 
+export const ZONE_LOCATION_TYPES = ['street', 'yard', 'open_lot', 'underground', 'multilevel'] as const;
+
+export type ZoneLocationType = typeof ZONE_LOCATION_TYPES[number] | null;
+
+export const ZONE_LOCATION_TYPE_LABELS: Record<NonNullable<ZoneLocationType>, string> = {
+  street: 'street - уличная',
+  yard: 'yard - дворовая',
+  open_lot: 'open_lot - открытая площадка',
+  underground: 'underground - подземная',
+  multilevel: 'multilevel - многоуровневая'
+};
+
+export function parseZoneLocationType(value: string | null | undefined): ZoneLocationType {
+  const normalized = value?.trim();
+  if (!normalized) return null;
+  return (ZONE_LOCATION_TYPES as readonly string[]).includes(normalized)
+    ? normalized as NonNullable<ZoneLocationType>
+    : null;
+}
+
+export function formatZoneLocationType(value: ZoneLocationType | undefined): string {
+  return value ? ZONE_LOCATION_TYPE_LABELS[value] : 'Не задан';
+}
+
 export type ParkingZone = {
   id: Id;                        // zone_id
   camera_id: number;
@@ -29,7 +53,7 @@ export type ParkingZone = {
   partner_id?: number | null;
   created_by_user_id?: number | null;
   is_active?: boolean;
-  location_type?: 'street' | 'yard' | 'parking_lot' | 'garage' | string | null;
+  location_type?: ZoneLocationType;
   is_private?: boolean | null;
   is_accessible?: boolean | null;
   occupancy_updated_at?: string;
