@@ -1,5 +1,7 @@
-import type { GeoPoint, Id, ParkingZone, PxPoint } from '@/types';
+import type { GeoPoint, Id, ParkingZone, PxPoint, ZoneLocationType } from '@/types';
 import { buildQuery, request } from './http';
+
+export type { ZoneLocationType } from '@/types';
 
 export type ZonePoint = {
   latitude: number;
@@ -18,8 +20,6 @@ export type ZoneGeometry = {
 export type ZoneImagePolygon = [PxPoint, PxPoint, PxPoint, PxPoint];
 
 export type ZoneConfidenceLevel = 'low' | 'medium' | 'high' | string | null;
-
-export type ZoneLocationType = 'street' | 'yard' | 'parking_lot' | 'garage' | string | null;
 
 export type ZoneView = 'full' | 'map';
 

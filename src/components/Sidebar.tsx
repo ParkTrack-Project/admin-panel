@@ -2,6 +2,7 @@ import { useStore } from '@/store/useStore';
 import { Button, Field, Input, Select, Textarea } from './UiKit';
 import { useState, useEffect } from 'react';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
+import { formatZoneLocationType, parseZoneLocationType, ZONE_LOCATION_TYPES, ZONE_LOCATION_TYPE_LABELS } from '@/types';
 
 function formatDate(dateStr?: string): string {
   if (!dateStr) return '—';
@@ -230,7 +231,7 @@ export default function Sidebar() {
               мест: {z.capacity} • цена: {z.pay}
             </div>
             <div className="small">
-              партнёр: {z.partner_id ?? '—'} • {z.location_type || 'локация —'} • {z.is_active === false ? 'inactive' : 'active'}
+              партнёр: {z.partner_id ?? '—'} • {formatZoneLocationType(z.location_type)} • {z.is_active === false ? 'inactive' : 'active'}
             </div>
           </div>
         ))}
@@ -258,23 +259,22 @@ export default function Sidebar() {
             <Input type="number" min={0} value={zone.pay}
               onChange={e=>s.updateZone(zone.id,{pay: parseInt(e.target.value||'0',10)})}/>
           </Field>
-          <Field label="Partner ID">
+          <Field label="Партнёр ID">
             <Input
               value={zone.partner_id ?? ''}
               onChange={e=>s.updateZone(zone.id,{partner_id: parseOptionalPositiveInt(e.target.value)})}
               placeholder={camera?.partner_id ? `Камера: #${camera.partner_id}` : 'Не задан'}
             />
           </Field>
-          <Field label="Location Type">
+          <Field label="Тип расположения">
             <Select
               value={zone.location_type ?? ''}
-              onChange={e=>s.updateZone(zone.id,{location_type: e.target.value || null})}
+              onChange={e=>s.updateZone(zone.id,{location_type: parseZoneLocationType(e.target.value)})}
             >
               <option value="">Не задан</option>
-              <option value="street">street</option>
-              <option value="yard">yard</option>
-              <option value="parking_lot">parking_lot</option>
-              <option value="garage">garage</option>
+              {ZONE_LOCATION_TYPES.map(locationType => (
+                <option key={locationType} value={locationType}>{ZONE_LOCATION_TYPE_LABELS[locationType]}</option>
+              ))}
             </Select>
           </Field>
           <Field label="Флаги">
@@ -293,7 +293,7 @@ export default function Sidebar() {
                   checked={zone.is_private === true}
                   onChange={e=>s.updateZone(zone.id,{is_private: e.target.checked})}
                 />
-                <span className="small">Private</span>
+                <span className="small">Частная</span>
               </label>
               <label className="zone-flag-toggle">
                 <input
@@ -301,7 +301,7 @@ export default function Sidebar() {
                   checked={zone.is_accessible === true}
                   onChange={e=>s.updateZone(zone.id,{is_accessible: e.target.checked})}
                 />
-                <span className="small">Accessible</span>
+                <span className="small">Инвалидная</span>
               </label>
             </div>
           </Field>
