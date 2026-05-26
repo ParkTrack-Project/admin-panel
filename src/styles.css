@@ -791,6 +791,10 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   margin-bottom: 0;
 }
 
+.camera-preview:fullscreen .camera-preview-header .small {
+  color: rgba(255, 255, 255, 0.72);
+}
+
 .camera-preview:fullscreen .camera-preview-actions .button {
   min-height: 34px;
   background: rgba(255, 255, 255, 0.94);
@@ -819,6 +823,54 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.snapshot-mode-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(84px, 1fr));
+  min-height: 36px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #eef6f0;
+}
+
+.snapshot-mode-option {
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #4f5c55;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.snapshot-mode-option.active {
+  background: #ffffff;
+  color: var(--accent);
+  box-shadow: 0 1px 4px rgba(18, 35, 24, 0.12);
+}
+
+.snapshot-mode-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.camera-preview:fullscreen .snapshot-mode-toggle {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.camera-preview:fullscreen .snapshot-mode-option {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.camera-preview:fullscreen .snapshot-mode-option.active {
+  background: #ffffff;
+  color: #102015;
 }
 
 .camera-preview-image {

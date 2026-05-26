@@ -184,6 +184,7 @@ export default function CamerasPage() {
   const snapshotPreviewRef = useRef<HTMLDivElement | null>(null);
   const [snapshot, setSnapshot] = useState<SnapshotState>({ loading: false });
   const [snapshotReloadKey, setSnapshotReloadKey] = useState(0);
+  const [snapshotAnnotated, setSnapshotAnnotated] = useState(true);
   const [isSnapshotFullscreen, setIsSnapshotFullscreen] = useState(false);
   const [editor, setEditor] = useState<CameraEditorState | null>(null);
   const [saveState, setSaveState] = useState<CameraSaveState>({ loading: false });
@@ -289,7 +290,7 @@ export default function CamerasPage() {
       setSnapshot({ loading: true });
       try {
         const data = await api.getSnapshot(selectedCamera.camera_id, {
-          annotated: true,
+          annotated: snapshotAnnotated,
           fallback_to_raw: true
         });
         if (!cancelled) {
@@ -310,7 +311,7 @@ export default function CamerasPage() {
         URL.revokeObjectURL(lastImageUrl);
       }
     };
-  }, [selectedCamera?.camera_id, snapshotReloadKey]);
+  }, [selectedCamera?.camera_id, snapshotAnnotated, snapshotReloadKey]);
 
   useEffect(() => {
     if (!selectedCamera) {
@@ -744,8 +745,31 @@ export default function CamerasPage() {
             {saveState.error && <div className="notice error">{saveState.error}</div>}
             <div className="camera-preview" ref={snapshotPreviewRef}>
               <div className="camera-preview-header">
-                <h3>Распознанные автомобили</h3>
+                <div>
+                  <h3>{snapshotAnnotated ? 'Распознанные автомобили' : 'Текущий кадр'}</h3>
+                  <div className="small">
+                    {snapshotAnnotated ? 'Разметка включена' : 'Разметка скрыта'}
+                  </div>
+                </div>
                 <div className="camera-preview-actions">
+                  <div className="snapshot-mode-toggle" role="group" aria-label="Режим просмотра кадра">
+                    <button
+                      type="button"
+                      className={`snapshot-mode-option ${snapshotAnnotated ? 'active' : ''}`}
+                      onClick={() => setSnapshotAnnotated(true)}
+                      disabled={snapshot.loading}
+                    >
+                      Разметка
+                    </button>
+                    <button
+                      type="button"
+                      className={`snapshot-mode-option ${!snapshotAnnotated ? 'active' : ''}`}
+                      onClick={() => setSnapshotAnnotated(false)}
+                      disabled={snapshot.loading}
+                    >
+                      Кадр
+                    </button>
+                  </div>
                   {snapshot.data?.image_url && (
                     <Button
                       variant="ghost"
