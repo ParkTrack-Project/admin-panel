@@ -4,7 +4,14 @@ import { Button, Field, Input, Select } from '@/components/UiKit';
 import { BulkActionBar, BulkSelectionCheckbox } from '@/components/BulkActionBar';
 import { useStore } from '@/store/useStore';
 import { navigate } from '@/router/routes';
-import type { ParkingZone } from '@/types';
+import {
+  formatZoneLocationType,
+  parseZoneLocationType,
+  ZONE_LOCATION_TYPES,
+  ZONE_LOCATION_TYPE_LABELS,
+  type ParkingZone,
+  type ZoneLocationType
+} from '@/types';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
 import { useSessionStore } from '@/auth/sessionStore';
 
@@ -13,7 +20,7 @@ type ZoneFilters = {
   partnerId: string;
   status: 'all' | 'active' | 'inactive';
   zoneType: 'all' | ParkingZone['zone_type'];
-  locationType: 'all' | 'none' | 'street' | 'yard' | 'parking_lot' | 'garage';
+  locationType: 'all' | 'none' | NonNullable<ZoneLocationType>;
   payMode: 'all' | 'paid' | 'free';
   accessibility: 'all' | 'accessible' | 'regular';
   privacy: 'all' | 'private' | 'public';
@@ -336,7 +343,7 @@ export default function ZonesAdminPage() {
     }
 
     if (editor.partnerId.trim() && (!Number.isFinite(partnerId) || partnerId === null || partnerId < 1)) {
-      setSaveState({ loading: false, error: 'Partner ID должен быть положительным числом.' });
+      setSaveState({ loading: false, error: 'ID партнёра должен быть положительным числом.' });
       return;
     }
 
@@ -348,7 +355,7 @@ export default function ZonesAdminPage() {
         capacity,
         pay,
         partner_id: partnerId,
-        location_type: editor.locationType.trim() || null,
+        location_type: parseZoneLocationType(editor.locationType),
         is_active: editor.isActive,
         is_private: editor.isPrivate,
         is_accessible: editor.isAccessible
@@ -506,7 +513,7 @@ export default function ZonesAdminPage() {
             placeholder="Все камеры"
           />
         </Field>
-        <Field label="Partner ID">
+        <Field label="Партнёр ID">
           <Input
             value={filters.partnerId || (currentPartnerId !== undefined ? String(currentPartnerId) : '')}
             onChange={e => setFilters(prev => ({ ...prev, partnerId: e.target.value }))}
@@ -534,17 +541,16 @@ export default function ZonesAdminPage() {
             <option value="disabled">disabled</option>
           </Select>
         </Field>
-        <Field label="Location Type">
+        <Field label="Тип расположения">
           <Select
             value={filters.locationType}
             onChange={e => setFilters(prev => ({ ...prev, locationType: e.target.value as ZoneFilters['locationType'] }))}
           >
             <option value="all">Все</option>
             <option value="none">Не задан</option>
-            <option value="street">street</option>
-            <option value="yard">yard</option>
-            <option value="parking_lot">parking_lot</option>
-            <option value="garage">garage</option>
+            {ZONE_LOCATION_TYPES.map(locationType => (
+              <option key={locationType} value={locationType}>{ZONE_LOCATION_TYPE_LABELS[locationType]}</option>
+            ))}
           </Select>
         </Field>
         <Field label="Платность">
@@ -573,8 +579,8 @@ export default function ZonesAdminPage() {
             onChange={e => setFilters(prev => ({ ...prev, privacy: e.target.value as ZoneFilters['privacy'] }))}
           >
             <option value="all">Все</option>
-            <option value="public">Public</option>
-            <option value="private">Private</option>
+            <option value="public">Публичные</option>
+            <option value="private">Частные</option>
           </Select>
         </Field>
         <Field label="Макс. цена">
@@ -703,7 +709,7 @@ export default function ZonesAdminPage() {
                     <span className={`status-pill ${zone.is_active === false ? 'paused' : 'active'}`}>
                       {zone.is_active === false ? 'paused' : 'active'}
                     </span>
-                    <span>{zone.location_type ?? '—'}</span>
+                    <span>{formatZoneLocationType(zone.location_type)}</span>
                   </div>
                 );
               })}
@@ -752,7 +758,7 @@ export default function ZonesAdminPage() {
 
               <div className="details-grid zone-meta-grid">
                 <div className="detail-card">
-                  <div className="metric-label">Partner ID</div>
+                  <div className="metric-label">Партнёр ID</div>
                   <div className="detail-value">{selectedZone.partner_id ?? '—'}</div>
                 </div>
                 <div className="detail-card">
@@ -764,13 +770,13 @@ export default function ZonesAdminPage() {
                   </div>
                 </div>
                 <div className="detail-card">
-                  <div className="metric-label">Location</div>
-                  <div className="detail-value">{selectedZone.location_type ?? '—'}</div>
+                  <div className="metric-label">Тип расположения</div>
+                  <div className="detail-value">{formatZoneLocationType(selectedZone.location_type)}</div>
                 </div>
                 <div className="detail-card">
                   <div className="metric-label">Доступность</div>
                   <div className="detail-value">
-                    {selectedZone.is_private ? 'private' : 'public'} / {selectedZone.is_accessible ? 'accessible' : 'regular'}
+                    {selectedZone.is_private ? 'Частная' : 'Публичная'} / {selectedZone.is_accessible ? 'Инвалидная' : 'Обычная'}
                   </div>
                 </div>
               </div>
@@ -829,7 +835,7 @@ export default function ZonesAdminPage() {
                       }}
                     />
                   </Field>
-                  <Field label="Partner ID">
+                  <Field label="Партнёр ID">
                     <Input
                       value={editor.partnerId}
                       onChange={e => {
@@ -839,7 +845,7 @@ export default function ZonesAdminPage() {
                       placeholder="Не задан"
                     />
                   </Field>
-                  <Field label="Location Type">
+                  <Field label="Тип расположения">
                     <Select
                       value={editor.locationType}
                       onChange={e => {
@@ -848,10 +854,9 @@ export default function ZonesAdminPage() {
                       }}
                     >
                       <option value="">Не задан</option>
-                      <option value="street">street</option>
-                      <option value="yard">yard</option>
-                      <option value="parking_lot">parking_lot</option>
-                      <option value="garage">garage</option>
+                      {ZONE_LOCATION_TYPES.map(locationType => (
+                        <option key={locationType} value={locationType}>{ZONE_LOCATION_TYPE_LABELS[locationType]}</option>
+                      ))}
                     </Select>
                   </Field>
                   <Field label="Флаги">
@@ -876,7 +881,7 @@ export default function ZonesAdminPage() {
                             setEditor(prev => prev ? ({ ...prev, isPrivate: e.target.checked }) : prev);
                           }}
                         />
-                        <span className="small">Private</span>
+                        <span className="small">Частная</span>
                       </label>
                       <label className="zone-flag-toggle">
                         <input
@@ -887,7 +892,7 @@ export default function ZonesAdminPage() {
                             setEditor(prev => prev ? ({ ...prev, isAccessible: e.target.checked }) : prev);
                           }}
                         />
-                        <span className="small">Accessible</span>
+                        <span className="small">Инвалидная</span>
                       </label>
                     </div>
                   </Field>
