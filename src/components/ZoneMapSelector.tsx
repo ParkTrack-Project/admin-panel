@@ -270,12 +270,15 @@ export default function ZoneMapSelector() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const suppressMapClickUntilRef = useRef(0);
+  const lastFittedZoneIdRef = useRef<string | undefined>();
 
   useEffect(() => {
     if (!zone) {
       setPoints([]);
+      lastFittedZoneIdRef.current = undefined;
       return;
     }
+    const zoneId = String(zone.id);
     const existing = zone.points
       .filter(point => typeof point.latitude === 'number' && typeof point.longitude === 'number')
       .slice(0, 4);
@@ -283,9 +286,13 @@ export default function ZoneMapSelector() {
 
     if (existing.length === 4 && uniqueCoords.size > 1) {
       setPoints(existing.map(point => ({ lat: point.latitude!, lng: point.longitude! })));
-      setFitVersion(version => version + 1);
+      if (lastFittedZoneIdRef.current !== zoneId) {
+        lastFittedZoneIdRef.current = zoneId;
+        setFitVersion(version => version + 1);
+      }
     } else {
       setPoints([]);
+      lastFittedZoneIdRef.current = zoneId;
     }
   }, [zone]);
 
