@@ -3,47 +3,17 @@ import { useStore } from '@/store/useStore';
 import { api, Camera, CameraSnapshot, CreateCameraRequest } from '@/api/client';
 import { Button, Field, Input, Select, Textarea } from './UiKit';
 import { BulkActionBar, BulkSelectionCheckbox } from './BulkActionBar';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
-import L, { LatLngExpression } from 'leaflet';
 import { navigate } from '@/router/routes';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
 import { useSessionStore } from '@/auth/sessionStore';
-
-const defaultIcon = L.icon({
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowAnchor: [12, 41]
-});
-L.Marker.prototype.options.icon = defaultIcon;
+import { fitYandexMap, yandexPoint, type YandexPoint } from '@/maps/yandex';
+import { useYandexMap } from '@/maps/useYandexMap';
 
 function hasCoordinates(latitude?: number | null, longitude?: number | null): latitude is number {
   return typeof latitude === 'number'
     && Number.isFinite(latitude)
     && typeof longitude === 'number'
     && Number.isFinite(longitude);
-}
-
-function MapAutoCenter({ cameras, selectedId }: { cameras: Camera[]; selectedId?: number }) {
-  const map = useMap();
-
-  useEffect(() => {
-    if (!cameras.length) return;
-    const selected = cameras.find(c => c.camera_id === selectedId && hasCoordinates(c.latitude, c.longitude));
-    if (selected) {
-      map.setView([selected.latitude, selected.longitude], 17);
-      return;
-    }
-    const pts = cameras
-      .filter(c => hasCoordinates(c.latitude, c.longitude))
-      .map(c => [c.latitude, c.longitude] as [number, number]);
-    if (!pts.length) return;
-    const bounds = L.latLngBounds(pts);
-    map.fitBounds(bounds.pad(0.2));
-  }, [cameras, selectedId, map]);
-
-  return null;
 }
 
 type SnapshotState = {
@@ -101,6 +71,130 @@ function normalizeEditor(editor: CameraEditorState) {
     calib: editor.calib.trim(),
     isActive: editor.isActive
   };
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function cameraMapPoint(camera?: Camera): YandexPoint | null {
+  if (!camera || !hasCoordinates(camera.latitude, camera.longitude)) return null;
+  return yandexPoint(camera.latitude, camera.longitude);
+}
+
+function YandexCamerasMap({
+  cameras,
+  selectedId,
+  hoverId,
+  onSelect,
+  onHover,
+  onOpenLabeler
+}: {
+  cameras: Camera[];
+  selectedId?: number;
+  hoverId?: number;
+  onSelect: (cameraId: number) => void;
+  onHover: (cameraId?: number) => void;
+  onOpenLabeler: (camera: Camera) => void;
+}) {
+  const mapRef = useRef<HTMLDivElement | null>(null);
+  const selectedCamera = cameras.find(camera => camera.camera_id === selectedId);
+  const firstCamera = cameras.find(camera => hasCoordinates(camera.latitude, camera.longitude));
+  const center = cameraMapPoint(selectedCamera) ?? cameraMapPoint(firstCamera) ?? yandexPoint(59.9386, 30.3141);
+  const { ymaps, map, loading, error } = useYandexMap(mapRef, {
+    center,
+    zoom: selectedCamera ? 17 : 14
+  });
+
+  useEffect(() => {
+    if (!map) return;
+    const selectedPoint = cameraMapPoint(selectedCamera);
+    if (selectedPoint) {
+      map.setCenter(selectedPoint, 17, { duration: 200 });
+      return;
+    }
+
+    const points = cameras
+      .map(cameraMapPoint)
+      .filter((point): point is YandexPoint => Boolean(point));
+    if (points.length) {
+      fitYandexMap(map, points, 14);
+      return;
+    }
+    map.setCenter(yandexPoint(59.9386, 30.3141), 14, { duration: 200 });
+  }, [map, cameras, selectedCamera?.camera_id]);
+
+  useEffect(() => {
+    if (!ymaps || !map) return;
+
+    const collection = new ymaps.GeoObjectCollection();
+    cameras
+      .filter(camera => hasCoordinates(camera.latitude, camera.longitude))
+      .forEach(camera => {
+        const isSelected = camera.camera_id === selectedId;
+        const isHover = camera.camera_id === hoverId;
+        const isActive = camera.is_active !== false;
+        const color = !isActive ? '#ff4d4f' : isSelected ? '#ff7a45' : isHover ? '#ffd666' : '#2f54eb';
+        const placemark = new ymaps.Placemark(
+          yandexPoint(camera.latitude, camera.longitude),
+          {
+            hintContent: camera.title,
+            balloonContent: `
+              <div class="yandex-map-balloon">
+                <div class="yandex-map-balloon-title">${escapeHtml(camera.title)}</div>
+                <div class="small">ID: ${camera.camera_id}</div>
+                <button type="button" class="button primary yandex-map-balloon-action" data-yandex-camera-labeler="${camera.camera_id}">
+                  Разметка
+                </button>
+              </div>
+            `
+          },
+          {
+            preset: 'islands#circleDotIcon',
+            iconColor: color
+          }
+        );
+
+        placemark.events.add('click', () => onSelect(camera.camera_id));
+        placemark.events.add('mouseenter', () => onHover(camera.camera_id));
+        placemark.events.add('mouseleave', () => onHover(undefined));
+        collection.add(placemark);
+      });
+
+    map.geoObjects.add(collection);
+    return () => {
+      map.geoObjects.remove(collection);
+    };
+  }, [ymaps, map, cameras, selectedId, hoverId, onSelect, onHover]);
+
+  useEffect(() => {
+    function onBalloonAction(event: MouseEvent) {
+      const target = event.target instanceof Element
+        ? event.target.closest('[data-yandex-camera-labeler]')
+        : null;
+      if (!target) return;
+      const cameraId = Number((target as HTMLElement).dataset.yandexCameraLabeler);
+      const camera = cameras.find(item => item.camera_id === cameraId);
+      if (camera) {
+        onOpenLabeler(camera);
+      }
+    }
+
+    document.addEventListener('click', onBalloonAction);
+    return () => document.removeEventListener('click', onBalloonAction);
+  }, [cameras, onOpenLabeler]);
+
+  return (
+    <div className="yandex-map-host" ref={mapRef}>
+      {loading && <div className="map-status-overlay">Загрузка Яндекс.Карт...</div>}
+      {error && <div className="map-status-overlay error">{error}</div>}
+    </div>
+  );
 }
 
 type MediaSize = {
@@ -322,12 +416,6 @@ export default function CamerasPage() {
     setEditor(cameraToEditor(selectedCamera));
     setSaveState({ loading: false });
   }, [selectedCamera?.camera_id]);
-
-  const center: LatLngExpression = useMemo(() => {
-    const first = cameras.find(c => hasCoordinates(c.latitude, c.longitude));
-    if (first) return [first.latitude, first.longitude];
-    return [59.9386, 30.3141];
-  }, [cameras]);
 
   function openLabeler(cam: Camera) {
     setLabelerReturnRoute('cameras');
@@ -870,52 +958,14 @@ export default function CamerasPage() {
       </div>
 
       <div className="canvas">
-        <MapContainer center={center} zoom={14} style={{ width: '100%', height: '100%' }}>
-          <TileLayer
-            attribution="&copy; OpenStreetMap contributors"
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
-          <MapAutoCenter cameras={cameras} selectedId={selectedId} />
-          {cameras.filter(c => hasCoordinates(c.latitude, c.longitude)).map(cam => {
-            const isActive = cam.camera_id === selectedId;
-            const isHover = cam.camera_id === hoverId;
-            const isCameraActive = cam.is_active !== false;
-            let color = '#2f54eb';
-            if (!isCameraActive) color = '#ff4d4f';
-            else if (isActive) color = '#ff7a45';
-            else if (isHover) color = '#ffd666';
-
-            const icon = L.divIcon({
-              className: 'camera-marker',
-              html: `<div style="width:${isActive ? 18 : 12}px;height:${isActive ? 18 : 12}px;border-radius:50%;background:${color};border:2px solid white;"></div>`,
-              iconSize: [isActive ? 18 : 12, isActive ? 18 : 12],
-              iconAnchor: [9, 9]
-            });
-
-            return (
-              <Marker
-                key={cam.camera_id}
-                position={[cam.latitude, cam.longitude]}
-                eventHandlers={{
-                  click: () => setSelectedId(cam.camera_id),
-                  mouseover: () => setHoverId(cam.camera_id),
-                  mouseout: () => setHoverId(id => (id === cam.camera_id ? undefined : id))
-                }}
-                icon={icon}
-              >
-                <Popup>
-                  <div style={{ maxWidth: 220 }}>
-                    <div><b>{cam.title}</b></div>
-                    <div className="small">ID: {cam.camera_id}</div>
-                    <div style={{ marginTop: 6, display: 'flex', gap: 6 }}>
-                      <Button onClick={() => openLabeler(cam)}>Разметка</Button>
-                    </div>
-                  </div>
-                </Popup>
-              </Marker>
-            );
-          })}
-        </MapContainer>
+        <YandexCamerasMap
+          cameras={cameras}
+          selectedId={selectedId}
+          hoverId={hoverId}
+          onSelect={setSelectedId}
+          onHover={setHoverId}
+          onOpenLabeler={openLabeler}
+        />
       </div>
     </>
   );

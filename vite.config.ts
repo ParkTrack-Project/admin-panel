@@ -21,7 +21,6 @@ export default defineConfig({
           // Выделяем большие библиотеки в отдельные чанки
           'react-vendor': ['react', 'react-dom'],
           'konva-vendor': ['konva', 'react-konva'],
-          'leaflet-vendor': ['leaflet', 'react-leaflet'],
           'zustand-vendor': ['zustand']
         }
       }

@@ -1,48 +1,95 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { api, Camera } from '@/api/client';
 import { Button, Field, Input } from './UiKit';
-import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
-import L, { LatLng, LatLngExpression } from 'leaflet';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
+import { yandexPoint, type YandexPoint } from '@/maps/yandex';
+import { useYandexMap } from '@/maps/useYandexMap';
 
-const cameraIcon = L.divIcon({
-  className: 'camera-marker-selected',
-  html: '<div style="width:18px;height:18px;border-radius:50%;background:#ff7a45;border:2px solid white;"></div>',
-  iconSize: [18, 18],
-  iconAnchor: [9, 9]
-});
-
-function ClickHandler({ onClick }: { onClick: (pos: LatLng) => void }) {
-  useMapEvents({
-    click(e) {
-      onClick(e.latlng);
-    }
-  });
-  return null;
-}
-
-function MapAutoFocus({ point, camera }: { point: LatLng | null; camera: Camera | null }) {
-  const map = useMap();
-
-  useEffect(() => {
-    if (point) {
-      map.setView(point, 17);
-      return;
-    }
-    if (hasCoordinates(camera?.latitude, camera?.longitude)) {
-      map.setView([camera.latitude, camera.longitude], 17);
-    }
-  }, [point, camera, map]);
-
-  return null;
-}
+type MapPoint = {
+  lat: number;
+  lng: number;
+};
 
 function hasCoordinates(latitude?: number | null, longitude?: number | null): latitude is number {
   return typeof latitude === 'number'
     && Number.isFinite(latitude)
     && typeof longitude === 'number'
     && Number.isFinite(longitude);
+}
+
+function toYandexPoint(point: MapPoint): YandexPoint {
+  return yandexPoint(point.lat, point.lng);
+}
+
+function CameraLocationMap({
+  center,
+  point,
+  camera,
+  onPointChange
+}: {
+  center: YandexPoint;
+  point: MapPoint | null;
+  camera: Camera | null;
+  onPointChange: (point: MapPoint) => void;
+}) {
+  const mapRef = useRef<HTMLDivElement | null>(null);
+  const { ymaps, map, loading, error } = useYandexMap(mapRef, { center, zoom: 15 });
+
+  useEffect(() => {
+    if (!map) return;
+    if (point) {
+      map.setCenter(toYandexPoint(point), 17, { duration: 200 });
+      return;
+    }
+    if (hasCoordinates(camera?.latitude, camera?.longitude)) {
+      map.setCenter(yandexPoint(camera.latitude, camera.longitude), 17, { duration: 200 });
+    }
+  }, [map, point, camera?.camera_id]);
+
+  useEffect(() => {
+    if (!map) return;
+    const onClick = (event: any) => {
+      const coords = event.get('coords') as YandexPoint;
+      onPointChange({ lat: coords[0], lng: coords[1] });
+    };
+    map.events.add('click', onClick);
+    return () => {
+      map.events.remove('click', onClick);
+    };
+  }, [map, onPointChange]);
+
+  useEffect(() => {
+    if (!ymaps || !map || !point) return;
+    const placemark = new ymaps.Placemark(
+      toYandexPoint(point),
+      {
+        hintContent: 'Положение камеры'
+      },
+      {
+        preset: 'islands#circleDotIcon',
+        iconColor: '#ff7a45',
+        draggable: true
+      }
+    );
+
+    placemark.events.add('dragend', () => {
+      const coords = placemark.geometry.getCoordinates() as YandexPoint;
+      onPointChange({ lat: coords[0], lng: coords[1] });
+    });
+
+    map.geoObjects.add(placemark);
+    return () => {
+      map.geoObjects.remove(placemark);
+    };
+  }, [ymaps, map, point, onPointChange]);
+
+  return (
+    <div className="yandex-map-host" ref={mapRef}>
+      {loading && <div className="map-status-overlay">Загрузка Яндекс.Карт...</div>}
+      {error && <div className="map-status-overlay error">{error}</div>}
+    </div>
+  );
 }
 
 export default function CameraMapSelector() {
@@ -52,7 +99,7 @@ export default function CameraMapSelector() {
   const [camera, setCamera] = useState<Camera | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
-  const [point, setPoint] = useState<LatLng | null>(null);
+  const [point, setPoint] = useState<MapPoint | null>(null);
   const [latInput, setLatInput] = useState('');
   const [lngInput, setLngInput] = useState('');
 
@@ -74,8 +121,7 @@ export default function CameraMapSelector() {
         if (cancelled) return;
         setCamera(cam);
         if (hasCoordinates(cam.latitude, cam.longitude)) {
-          const newPoint = new L.LatLng(cam.latitude, cam.longitude);
-          setPoint(newPoint);
+          setPoint({ lat: cam.latitude, lng: cam.longitude });
           setLatInput(cam.latitude.toString());
           setLngInput(cam.longitude.toString());
         } else {
@@ -113,7 +159,7 @@ export default function CameraMapSelector() {
     const lat = parseFloat(value);
     if (!isNaN(lat) && lat >= -90 && lat <= 90) {
       const lng = point ? point.lng : (parseFloat(lngInput) || 30.3141);
-      setPoint(new L.LatLng(lat, lng));
+      setPoint({ lat, lng });
     }
   }
 
@@ -122,16 +168,16 @@ export default function CameraMapSelector() {
     const lng = parseFloat(value);
     if (!isNaN(lng) && lng >= -180 && lng <= 180) {
       const lat = point ? point.lat : (parseFloat(latInput) || 59.9386);
-      setPoint(new L.LatLng(lat, lng));
+      setPoint({ lat, lng });
     }
   }
 
-  const center: LatLngExpression = useMemo(() => {
-    if (point) return point;
+  const center = useMemo<YandexPoint>(() => {
+    if (point) return toYandexPoint(point);
     if (hasCoordinates(camera?.latitude, camera?.longitude)) {
-      return [camera.latitude, camera.longitude];
+      return yandexPoint(camera.latitude, camera.longitude);
     }
-    return [59.9386, 30.3141];
+    return yandexPoint(59.9386, 30.3141);
   }, [camera, point]);
 
   async function onSave() {
@@ -170,7 +216,7 @@ export default function CameraMapSelector() {
             <div>Текущие координаты: {camera.latitude?.toFixed(6)}, {camera.longitude?.toFixed(6)}</div>
           </div>
         )}
-        {loading && <div className="small">Загрузка…</div>}
+        {loading && <div className="small">Загрузка...</div>}
         {error && <div className="small" style={{ color: '#ff6b6b' }}>{error}</div>}
 
         <div className="small" style={{ marginTop: 8, marginBottom: 12 }}>
@@ -204,15 +250,12 @@ export default function CameraMapSelector() {
       </div>
 
       <div className="canvas">
-        <MapContainer center={center} zoom={15} style={{ width: '100%', height: '100%' }}>
-          <TileLayer
-            attribution="&copy; OpenStreetMap contributors"
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
-          <MapAutoFocus point={point} camera={camera} />
-          <ClickHandler onClick={setPoint} />
-          {point && <Marker position={point} icon={cameraIcon} />}
-        </MapContainer>
+        <CameraLocationMap
+          center={center}
+          point={point}
+          camera={camera}
+          onPointChange={setPoint}
+        />
       </div>
     </>
   );
