@@ -35,7 +35,6 @@ function YandexZoneGeometryMap({
   points,
   fitVersion,
   onMapClick,
-  onPointsDraftChange,
   onPointsCommit,
   onInteractionStart
 }: {
@@ -43,7 +42,6 @@ function YandexZoneGeometryMap({
   points: MapPoint[];
   fitVersion: number;
   onMapClick: (point: MapPoint) => void;
-  onPointsDraftChange: (points: MapPoint[]) => void;
   onPointsCommit: (points: MapPoint[]) => void;
   onInteractionStart: () => void;
 }) {
@@ -83,6 +81,34 @@ function YandexZoneGeometryMap({
     if (!ymaps || !map) return;
 
     const collection = new ymaps.GeoObjectCollection();
+    const isComplete = points.length === 4;
+    const placemarks: any[] = [];
+    let shape: any;
+    let dragLine: any;
+
+    const visibleLineCoordinates = (nextPoints: MapPoint[]) => nextPoints.map(toYandexPoint);
+    const dragLineCoordinates = (nextPoints: MapPoint[]) => {
+      const coordinates = visibleLineCoordinates(nextPoints);
+      return isComplete && coordinates.length > 0
+        ? [...coordinates, coordinates[0]]
+        : coordinates;
+    };
+
+    const updateMapGeometry = (nextPoints: MapPoint[]) => {
+      const coordinates = visibleLineCoordinates(nextPoints);
+      if (shape) {
+        shape.geometry.setCoordinates(isComplete ? [coordinates] : coordinates);
+      }
+      if (dragLine) {
+        dragLine.geometry.setCoordinates(dragLineCoordinates(nextPoints));
+      }
+      placemarks.forEach((placemark, index) => {
+        const point = nextPoints[index];
+        if (point) {
+          placemark.geometry.setCoordinates(toYandexPoint(point));
+        }
+      });
+    };
 
     const startShapeDrag = (event: any) => {
       if (points.length < 2) return;
@@ -104,7 +130,7 @@ function YandexZoneGeometryMap({
           lat: point.lat + latDelta,
           lng: point.lng + lngDelta
         }));
-        onPointsDraftChange(latest);
+        updateMapGeometry(latest);
       };
 
       const onMouseUp = () => {
@@ -130,7 +156,7 @@ function YandexZoneGeometryMap({
         const current = moveEvent.get('coords') as YandexPoint | undefined;
         if (!current) return;
         latest[pointIndex] = fromYandexPoint(current);
-        onPointsDraftChange([...latest]);
+        updateMapGeometry(latest);
       };
 
       const onMouseUp = () => {
@@ -147,8 +173,7 @@ function YandexZoneGeometryMap({
 
     if (points.length >= 2) {
       const coordinates = points.map(toYandexPoint);
-      const isComplete = points.length === 4;
-      const shape = isComplete
+      shape = isComplete
         ? new ymaps.Polygon(
           [coordinates],
           {},
@@ -173,11 +198,8 @@ function YandexZoneGeometryMap({
           }
         );
 
-      const dragLineCoordinates = isComplete
-        ? [...coordinates, coordinates[0]]
-        : coordinates;
-      const dragLine = new ymaps.Polyline(
-        dragLineCoordinates,
+      dragLine = new ymaps.Polyline(
+        dragLineCoordinates(points),
         {},
         {
           strokeColor: '#ff7a45',
@@ -209,6 +231,7 @@ function YandexZoneGeometryMap({
       );
 
       placemark.events.add('mousedown', (event: any) => startPointDrag(index, event));
+      placemarks.push(placemark);
       collection.add(placemark);
     });
 
@@ -216,7 +239,7 @@ function YandexZoneGeometryMap({
     return () => {
       map.geoObjects.remove(collection);
     };
-  }, [ymaps, map, points, onInteractionStart, onMapClick, onPointsCommit, onPointsDraftChange]);
+  }, [ymaps, map, points, onInteractionStart, onMapClick, onPointsCommit]);
 
   return (
     <div className="yandex-map-host" ref={mapRef}>
@@ -295,6 +318,11 @@ export default function ZoneMapSelector() {
       return point;
     }) as any;
     updateZone(zone.id, { points: updatedZonePoints });
+  }
+
+  function commitMapPoints(nextPoints: MapPoint[]) {
+    setPoints(nextPoints);
+    syncZonePoints(nextPoints);
   }
 
   function onReset() {
@@ -384,8 +412,7 @@ export default function ZoneMapSelector() {
           points={points}
           fitVersion={fitVersion}
           onMapClick={onMapClick}
-          onPointsDraftChange={setPoints}
-          onPointsCommit={syncZonePoints}
+          onPointsCommit={commitMapPoints}
           onInteractionStart={suppressMapClick}
         />
       </div>
