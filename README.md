@@ -83,7 +83,7 @@
 - `React + TypeScript + Vite`
 - `zustand`
 - `react-konva`
-- `leaflet / react-leaflet`
+- `Yandex Maps JS API 2.1`
 
 ## Требования
 
@@ -116,6 +116,7 @@ http://localhost:5173
 
 ```env
 VITE_API_BASE_URL=https://api.dev.parktrack.live/api/v1
+VITE_YANDEX_MAPS_API_KEY=your-yandex-maps-api-key
 ```
 
 Если переменная не задана:
@@ -124,6 +125,16 @@ VITE_API_BASE_URL=https://api.dev.parktrack.live/api/v1
 - на остальных доменах приложение использует относительный путь `/api/v1`
 
 Ручного поля `API Base` в интерфейсе нет: конечный пользователь не должен настраивать backend-адрес внутри UI.
+
+## Yandex Maps
+
+Карты камер и геометрии зон работают через Yandex Maps JS API 2.1. Для staging / production нужно передавать ключ на этапе сборки:
+
+```env
+VITE_YANDEX_MAPS_API_KEY=your-yandex-maps-api-key
+```
+
+Для совместимости также поддерживается старое имя `VITE_YMAPS_API_KEY`, но новое значение `VITE_YANDEX_MAPS_API_KEY` предпочтительнее.
 
 ## Как приложение работает с backend
 
