@@ -48,7 +48,12 @@ function YandexZoneGeometryMap({
   onInteractionStart: () => void;
 }) {
   const mapRef = useRef<HTMLDivElement | null>(null);
+  const pointsRef = useRef(points);
   const { ymaps, map, loading, error } = useYandexMap(mapRef, { center, zoom: 16 });
+
+  useEffect(() => {
+    pointsRef.current = points;
+  }, [points]);
 
   useEffect(() => {
     if (!map || points.length > 0) return;
@@ -56,9 +61,10 @@ function YandexZoneGeometryMap({
   }, [map, center, points.length]);
 
   useEffect(() => {
-    if (!map || fitVersion === 0 || points.length === 0) return;
-    fitYandexMap(map, points.map(toYandexPoint), 16);
-  }, [map, fitVersion, points]);
+    const pointsToFit = pointsRef.current;
+    if (!map || fitVersion === 0 || pointsToFit.length === 0) return;
+    fitYandexMap(map, pointsToFit.map(toYandexPoint), 16);
+  }, [map, fitVersion]);
 
   useEffect(() => {
     if (!map) return;
