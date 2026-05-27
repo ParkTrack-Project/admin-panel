@@ -22,6 +22,16 @@ type SnapshotState = {
   data?: CameraSnapshot;
 };
 
+function snapshotCacheKey(cameraId: number, annotated: boolean) {
+  return `${cameraId}:${annotated ? 'annotated' : 'frame'}`;
+}
+
+function revokeSnapshotData(data?: CameraSnapshot) {
+  if (data?.image_url?.startsWith('blob:')) {
+    URL.revokeObjectURL(data.image_url);
+  }
+}
+
 type CameraEditorState = {
   title: string;
   source: string;
@@ -276,6 +286,9 @@ export default function CamerasPage() {
     isActive: 'all'
   });
   const snapshotPreviewRef = useRef<HTMLDivElement | null>(null);
+  const snapshotCacheRef = useRef<Map<string, CameraSnapshot>>(new Map());
+  const snapshotRequestsRef = useRef<Map<string, Promise<CameraSnapshot>>>(new Map());
+  const snapshotCacheAliveRef = useRef(true);
   const [snapshot, setSnapshot] = useState<SnapshotState>({ loading: false });
   const [snapshotReloadKey, setSnapshotReloadKey] = useState(0);
   const [snapshotAnnotated, setSnapshotAnnotated] = useState(true);
@@ -295,6 +308,74 @@ export default function CamerasPage() {
     if (!selectedCamera || !editor) return false;
     return JSON.stringify(normalizeEditor(editor)) !== JSON.stringify(normalizeEditor(cameraToEditor(selectedCamera)));
   }, [selectedCamera, editor]);
+
+  useEffect(() => {
+    return () => {
+      snapshotCacheAliveRef.current = false;
+      for (const cachedSnapshot of snapshotCacheRef.current.values()) {
+        revokeSnapshotData(cachedSnapshot);
+      }
+      snapshotCacheRef.current.clear();
+      snapshotRequestsRef.current.clear();
+    };
+  }, []);
+
+  function fetchSnapshot(cameraId: number, annotated: boolean) {
+    const key = snapshotCacheKey(cameraId, annotated);
+    const cached = snapshotCacheRef.current.get(key);
+    if (cached) return Promise.resolve(cached);
+
+    const inFlight = snapshotRequestsRef.current.get(key);
+    if (inFlight) return inFlight;
+
+    let request: Promise<CameraSnapshot>;
+    request = api.getSnapshot(cameraId, {
+      annotated,
+      fallback_to_raw: true
+    }).then(data => {
+      if (!snapshotCacheAliveRef.current) {
+        revokeSnapshotData(data);
+        return data;
+      }
+
+      if (snapshotRequestsRef.current.get(key) !== request) {
+        revokeSnapshotData(data);
+        return data;
+      }
+
+      const previous = snapshotCacheRef.current.get(key);
+      if (previous && previous.image_url !== data.image_url) {
+        revokeSnapshotData(previous);
+      }
+      snapshotCacheRef.current.set(key, data);
+      return data;
+    }).finally(() => {
+      if (snapshotRequestsRef.current.get(key) === request) {
+        snapshotRequestsRef.current.delete(key);
+      }
+    });
+
+    snapshotRequestsRef.current.set(key, request);
+    return request;
+  }
+
+  function prefetchOtherSnapshotMode(cameraId: number, annotated: boolean) {
+    const otherMode = !annotated;
+    const key = snapshotCacheKey(cameraId, otherMode);
+    if (snapshotCacheRef.current.has(key) || snapshotRequestsRef.current.has(key)) return;
+    fetchSnapshot(cameraId, otherMode).catch(() => undefined);
+  }
+
+  function refreshCurrentSnapshot() {
+    if (selectedCamera) {
+      const key = snapshotCacheKey(selectedCamera.camera_id, snapshotAnnotated);
+      const cached = snapshotCacheRef.current.get(key);
+      revokeSnapshotData(cached);
+      snapshotCacheRef.current.delete(key);
+      snapshotRequestsRef.current.delete(key);
+    }
+    setSnapshotReloadKey(key => key + 1);
+  }
 
   async function loadCameras() {
     setLoading(true);
@@ -373,7 +454,6 @@ export default function CamerasPage() {
 
   useEffect(() => {
     let cancelled = false;
-    let lastImageUrl: string | undefined;
 
     async function loadSnapshot() {
       if (!selectedCamera) {
@@ -381,15 +461,20 @@ export default function CamerasPage() {
         return;
       }
 
+      const key = snapshotCacheKey(selectedCamera.camera_id, snapshotAnnotated);
+      const cached = snapshotCacheRef.current.get(key);
+      if (cached) {
+        setSnapshot({ loading: false, data: cached });
+        prefetchOtherSnapshotMode(selectedCamera.camera_id, snapshotAnnotated);
+        return;
+      }
+
       setSnapshot({ loading: true });
       try {
-        const data = await api.getSnapshot(selectedCamera.camera_id, {
-          annotated: snapshotAnnotated,
-          fallback_to_raw: true
-        });
+        const data = await fetchSnapshot(selectedCamera.camera_id, snapshotAnnotated);
         if (!cancelled) {
-          lastImageUrl = data.image_url;
           setSnapshot({ loading: false, data });
+          prefetchOtherSnapshotMode(selectedCamera.camera_id, snapshotAnnotated);
         }
       } catch (e: any) {
         if (!cancelled) {
@@ -401,9 +486,6 @@ export default function CamerasPage() {
     loadSnapshot();
     return () => {
       cancelled = true;
-      if (lastImageUrl?.startsWith('blob:')) {
-        URL.revokeObjectURL(lastImageUrl);
-      }
     };
   }, [selectedCamera?.camera_id, snapshotAnnotated, snapshotReloadKey]);
 
@@ -845,7 +927,6 @@ export default function CamerasPage() {
                       type="button"
                       className={`snapshot-mode-option ${snapshotAnnotated ? 'active' : ''}`}
                       onClick={() => setSnapshotAnnotated(true)}
-                      disabled={snapshot.loading}
                     >
                       Разметка
                     </button>
@@ -853,7 +934,6 @@ export default function CamerasPage() {
                       type="button"
                       className={`snapshot-mode-option ${!snapshotAnnotated ? 'active' : ''}`}
                       onClick={() => setSnapshotAnnotated(false)}
-                      disabled={snapshot.loading}
                     >
                       Кадр
                     </button>
@@ -869,7 +949,7 @@ export default function CamerasPage() {
                   )}
                   <Button
                     variant="ghost"
-                    onClick={() => setSnapshotReloadKey(key => key + 1)}
+                    onClick={refreshCurrentSnapshot}
                   >
                     Обновить кадр
                   </Button>
