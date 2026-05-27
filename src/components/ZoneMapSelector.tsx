@@ -1,18 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import { Button } from './UiKit';
-import { MapContainer, TileLayer, Polygon, Polyline, Marker, useMapEvents, useMap } from 'react-leaflet';
-import L, { LatLng, LatLngExpression } from 'leaflet';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
+import { fitYandexMap, yandexPoint, type YandexPoint } from '@/maps/yandex';
+import { useYandexMap } from '@/maps/useYandexMap';
 
-type LatLngTuple = [number, number];
-
-const zonePointIcon = L.divIcon({
-  className: 'zone-point-marker',
-  html: '<div class="zone-point-marker-hit"><div class="zone-point-marker-dot"></div></div>',
-  iconSize: [28, 28],
-  iconAnchor: [14, 14]
-});
+type MapPoint = {
+  lat: number;
+  lng: number;
+};
 
 function hasCoordinates(latitude?: number | null, longitude?: number | null): latitude is number {
   return typeof latitude === 'number'
@@ -21,98 +17,206 @@ function hasCoordinates(latitude?: number | null, longitude?: number | null): la
     && Number.isFinite(longitude);
 }
 
-function ClickHandler({ onClick }: { onClick: (pos: LatLng) => void }) {
-  useMapEvents({
-    click(e) {
-      onClick(e.latlng);
-    }
-  });
-  return null;
+function toYandexPoint(point: MapPoint): YandexPoint {
+  return yandexPoint(point.lat, point.lng);
 }
 
-function MapAutoFit({ points, fitVersion }: { points: LatLng[]; fitVersion: number }) {
-  const map = useMap();
-
-  useEffect(() => {
-    if (fitVersion === 0) return;
-    if (points.length === 0) return;
-    const bounds = L.latLngBounds(points);
-    map.fitBounds(bounds.pad(0.2));
-  }, [fitVersion, map]);
-
-  return null;
+function fromYandexPoint(point: YandexPoint): MapPoint {
+  return { lat: point[0], lng: point[1] };
 }
 
-function DraggableZoneShape({
+function stopYandexEvent(event: any) {
+  if (typeof event?.stopPropagation === 'function') event.stopPropagation();
+  if (typeof event?.preventDefault === 'function') event.preventDefault();
+}
+
+function YandexZoneGeometryMap({
+  center,
   points,
-  onMove,
-  onMoveEnd,
+  fitVersion,
+  onMapClick,
+  onPointsDraftChange,
+  onPointsCommit,
   onInteractionStart
 }: {
-  points: LatLng[];
-  onMove: (points: LatLng[]) => void;
-  onMoveEnd: (points: LatLng[]) => void;
+  center: YandexPoint;
+  points: MapPoint[];
+  fitVersion: number;
+  onMapClick: (point: MapPoint) => void;
+  onPointsDraftChange: (points: MapPoint[]) => void;
+  onPointsCommit: (points: MapPoint[]) => void;
   onInteractionStart: () => void;
 }) {
-  const map = useMap();
-  const line = points.map(p => [p.lat, p.lng] as LatLngTuple);
-  const isComplete = points.length === 4;
-  const dragLine = isComplete ? [...line, line[0]] : line;
+  const mapRef = useRef<HTMLDivElement | null>(null);
+  const { ymaps, map, loading, error } = useYandexMap(mapRef, { center, zoom: 16 });
 
-  function onMouseDown(e: any) {
-    if (points.length < 2) return;
-    L.DomEvent.stop(e);
-    onInteractionStart();
-    map.dragging.disable();
+  useEffect(() => {
+    if (!map || points.length > 0) return;
+    map.setCenter(center, 16, { duration: 200 });
+  }, [map, center, points.length]);
 
-    const start = e.latlng as LatLng;
-    const origin = points.map(point => new L.LatLng(point.lat, point.lng));
-    let latest = origin;
+  useEffect(() => {
+    if (!map || fitVersion === 0 || points.length === 0) return;
+    fitYandexMap(map, points.map(toYandexPoint), 16);
+  }, [map, fitVersion, points]);
 
-    const onMouseMove = (moveEvent: any) => {
-      const current = moveEvent.latlng as LatLng;
-      const latDelta = current.lat - start.lat;
-      const lngDelta = current.lng - start.lng;
-      latest = origin.map(point => new L.LatLng(point.lat + latDelta, point.lng + lngDelta));
-      onMove(latest);
+  useEffect(() => {
+    if (!map) return;
+    const onClick = (event: any) => {
+      const coords = event.get('coords') as YandexPoint | undefined;
+      if (!coords) return;
+      onMapClick(fromYandexPoint(coords));
     };
+    map.events.add('click', onClick);
+    return () => {
+      map.events.remove('click', onClick);
+    };
+  }, [map, onMapClick]);
 
-    const onMouseUp = () => {
-      map.off('mousemove', onMouseMove);
-      map.off('mouseup', onMouseUp);
-      map.dragging.enable();
+  useEffect(() => {
+    if (!ymaps || !map) return;
+
+    const collection = new ymaps.GeoObjectCollection();
+
+    const startShapeDrag = (event: any) => {
+      if (points.length < 2) return;
+      stopYandexEvent(event);
       onInteractionStart();
-      onMoveEnd(latest);
+      map.behaviors.disable(['drag']);
+
+      const start = event.get('coords') as YandexPoint | undefined;
+      if (!start) return;
+      const origin = points.map(point => ({ ...point }));
+      let latest = origin;
+
+      const onMouseMove = (moveEvent: any) => {
+        const current = moveEvent.get('coords') as YandexPoint | undefined;
+        if (!current) return;
+        const latDelta = current[0] - start[0];
+        const lngDelta = current[1] - start[1];
+        latest = origin.map(point => ({
+          lat: point.lat + latDelta,
+          lng: point.lng + lngDelta
+        }));
+        onPointsDraftChange(latest);
+      };
+
+      const onMouseUp = () => {
+        map.events.remove('mousemove', onMouseMove);
+        map.events.remove('mouseup', onMouseUp);
+        map.behaviors.enable(['drag']);
+        onInteractionStart();
+        onPointsCommit(latest);
+      };
+
+      map.events.add('mousemove', onMouseMove);
+      map.events.add('mouseup', onMouseUp);
     };
 
-    map.on('mousemove', onMouseMove);
-    map.on('mouseup', onMouseUp);
-  }
+    const startPointDrag = (pointIndex: number, event: any) => {
+      stopYandexEvent(event);
+      onInteractionStart();
+      map.behaviors.disable(['drag']);
+
+      const latest = points.map(point => ({ ...point }));
+
+      const onMouseMove = (moveEvent: any) => {
+        const current = moveEvent.get('coords') as YandexPoint | undefined;
+        if (!current) return;
+        latest[pointIndex] = fromYandexPoint(current);
+        onPointsDraftChange([...latest]);
+      };
+
+      const onMouseUp = () => {
+        map.events.remove('mousemove', onMouseMove);
+        map.events.remove('mouseup', onMouseUp);
+        map.behaviors.enable(['drag']);
+        onInteractionStart();
+        onPointsCommit([...latest]);
+      };
+
+      map.events.add('mousemove', onMouseMove);
+      map.events.add('mouseup', onMouseUp);
+    };
+
+    if (points.length >= 2) {
+      const coordinates = points.map(toYandexPoint);
+      const isComplete = points.length === 4;
+      const shape = isComplete
+        ? new ymaps.Polygon(
+          [coordinates],
+          {},
+          {
+            strokeColor: '#ff7a45',
+            strokeOpacity: 0.92,
+            strokeWidth: 2,
+            fillColor: '#ff7a453d',
+            fillOpacity: 0.24,
+            zIndex: 250
+          }
+        )
+        : new ymaps.Polyline(
+          coordinates,
+          {},
+          {
+            strokeColor: '#ff7a45',
+            strokeOpacity: 0.92,
+            strokeWidth: 2,
+            strokeStyle: 'dash',
+            zIndex: 250
+          }
+        );
+
+      const dragLineCoordinates = isComplete
+        ? [...coordinates, coordinates[0]]
+        : coordinates;
+      const dragLine = new ymaps.Polyline(
+        dragLineCoordinates,
+        {},
+        {
+          strokeColor: '#ff7a45',
+          strokeOpacity: 0.01,
+          strokeWidth: 22,
+          zIndex: 300,
+          cursor: 'move'
+        }
+      );
+
+      shape.events.add('mousedown', startShapeDrag);
+      dragLine.events.add('mousedown', startShapeDrag);
+      collection.add(shape);
+      collection.add(dragLine);
+    }
+
+    points.forEach((point, index) => {
+      const placemark = new ymaps.Placemark(
+        toYandexPoint(point),
+        {
+          hintContent: `Точка ${index + 1}`
+        },
+        {
+          preset: 'islands#circleIcon',
+          iconColor: '#ffd43b',
+          zIndex: 500,
+          cursor: 'move'
+        }
+      );
+
+      placemark.events.add('mousedown', (event: any) => startPointDrag(index, event));
+      collection.add(placemark);
+    });
+
+    map.geoObjects.add(collection);
+    return () => {
+      map.geoObjects.remove(collection);
+    };
+  }, [ymaps, map, points, onInteractionStart, onMapClick, onPointsCommit, onPointsDraftChange]);
 
   return (
-    <>
-      {isComplete ? (
-        <Polygon
-          key={`polygon-${points.map(p => `${p.lat},${p.lng}`).join(';')}`}
-          positions={line}
-          pathOptions={{ color: '#ff7a45', fillOpacity: 0.24, weight: 2, className: 'zone-map-visible-line' }}
-          eventHandlers={{ mousedown: onMouseDown }}
-        />
-      ) : (
-        <Polyline
-          key={`polyline-${points.map(p => `${p.lat},${p.lng}`).join(';')}`}
-          positions={line}
-          pathOptions={{ color: '#ff7a45', dashArray: '10, 5', weight: 2, className: 'zone-map-visible-line' }}
-          eventHandlers={{ mousedown: onMouseDown }}
-        />
-      )}
-      <Polyline
-        key={`drag-line-${points.map(p => `${p.lat},${p.lng}`).join(';')}`}
-        positions={dragLine}
-        pathOptions={{ color: '#ff7a45', opacity: 0.01, weight: 18, lineCap: 'round', lineJoin: 'round', className: 'zone-map-drag-line' }}
-        eventHandlers={{ mousedown: onMouseDown }}
-      />
-    </>
+    <div className="yandex-map-host" ref={mapRef}>
+      {loading && <div className="map-status-overlay">Загрузка Яндекс.Карт...</div>}
+      {error && <div className="map-status-overlay error">{error}</div>}
+    </div>
   );
 }
 
@@ -128,7 +232,7 @@ export default function ZoneMapSelector() {
   const saveZone = useStore(state => state.saveZone);
   const zone = zones.find(z => String(z.id) === String(activeZoneId));
 
-  const [points, setPoints] = useState<LatLng[]>([]);
+  const [points, setPoints] = useState<MapPoint[]>([]);
   const [fitVersion, setFitVersion] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -139,35 +243,32 @@ export default function ZoneMapSelector() {
       setPoints([]);
       return;
     }
-    // Load existing zone points, but only if they have unique coordinates
-    // (ignore if all points have same coords, which happens when camera coords were used as default)
     const existing = zone.points
-      .filter(p => typeof p.latitude === 'number' && typeof p.longitude === 'number')
-      .slice(0, 4) as any[];
-    
-    const uniqueCoords = new Set(existing.map(p => `${p.latitude},${p.longitude}`));
-    
+      .filter(point => typeof point.latitude === 'number' && typeof point.longitude === 'number')
+      .slice(0, 4);
+    const uniqueCoords = new Set(existing.map(point => `${point.latitude},${point.longitude}`));
+
     if (existing.length === 4 && uniqueCoords.size > 1) {
-      setPoints(existing.map(p => new L.LatLng(p.latitude!, p.longitude!)));
+      setPoints(existing.map(point => ({ lat: point.latitude!, lng: point.longitude! })));
       setFitVersion(version => version + 1);
     } else {
       setPoints([]);
     }
   }, [zone]);
 
-  const center: LatLngExpression = useMemo(() => {
+  const center = useMemo<YandexPoint>(() => {
     if (points.length > 0) {
-      const lat = points.reduce((s, p) => s + p.lat, 0) / points.length;
-      const lng = points.reduce((s, p) => s + p.lng, 0) / points.length;
-      return [lat, lng];
+      const lat = points.reduce((sum, point) => sum + point.lat, 0) / points.length;
+      const lng = points.reduce((sum, point) => sum + point.lng, 0) / points.length;
+      return yandexPoint(lat, lng);
     }
     if (hasCoordinates(cameraMeta?.latitude, cameraMeta?.longitude)) {
-      return [cameraMeta.latitude, cameraMeta.longitude];
+      return yandexPoint(cameraMeta.latitude, cameraMeta.longitude);
     }
-    return [59.9386, 30.3141];
+    return yandexPoint(59.9386, 30.3141);
   }, [points, cameraMeta]);
 
-  function onMapClick(pos: LatLng) {
+  function onMapClick(pos: MapPoint) {
     if (Date.now() < suppressMapClickUntilRef.current) return;
     if (points.length >= 4) return;
     setPoints(prev => [...prev, pos]);
@@ -178,14 +279,14 @@ export default function ZoneMapSelector() {
     suppressMapClickUntilRef.current = Date.now() + 350;
   }
 
-  function syncZonePoints(nextPoints: LatLng[]) {
+  function syncZonePoints(nextPoints: MapPoint[]) {
     if (!zone || nextPoints.length !== 4) return;
-    const updatedZonePoints = zone.points.map((pt, i) => {
-      if (i < 4) {
-        const p = nextPoints[i];
-        return { ...pt, latitude: p.lat, longitude: p.lng };
+    const updatedZonePoints = zone.points.map((point, index) => {
+      if (index < 4) {
+        const nextPoint = nextPoints[index];
+        return { ...point, latitude: nextPoint.lat, longitude: nextPoint.lng };
       }
-      return pt;
+      return point;
     }) as any;
     updateZone(zone.id, { points: updatedZonePoints });
   }
@@ -193,8 +294,8 @@ export default function ZoneMapSelector() {
   function onReset() {
     setPoints([]);
     if (zone) {
-      const resetPoints = zone.points.map((pt, i) => {
-        return { ...pt, latitude: null, longitude: null };
+      const resetPoints = zone.points.map(point => {
+        return { ...point, latitude: null, longitude: null };
       }) as any;
       updateZone(zone.id, { points: resetPoints });
     }
@@ -213,12 +314,12 @@ export default function ZoneMapSelector() {
       setLoading(true);
       setError(undefined);
 
-      const updatedPoints = zone.points.map((pt, idx) => {
-        if (idx < 4) {
-          const p = points[idx];
-          return { ...pt, latitude: p.lat, longitude: p.lng };
+      const updatedPoints = zone.points.map((point, index) => {
+        if (index < 4) {
+          const nextPoint = points[index];
+          return { ...point, latitude: nextPoint.lat, longitude: nextPoint.lng };
         }
-        return pt;
+        return point;
       }) as any;
 
       updateZone(zone.id, { points: updatedPoints });
@@ -257,7 +358,7 @@ export default function ZoneMapSelector() {
             <div>Вместимость: {zone.capacity}</div>
           </div>
         )}
-        {loading && <div className="small">Сохранение…</div>}
+        {loading && <div className="small">Сохранение...</div>}
         {error && <div className="small" style={{ color: '#ff6b6b' }}>{error}</div>}
 
         <div className="small" style={{ marginTop: 8 }}>
@@ -272,51 +373,15 @@ export default function ZoneMapSelector() {
       </div>
 
       <div className="canvas">
-        <MapContainer center={center} zoom={16} style={{ width: '100%', height: '100%' }}>
-          <TileLayer
-            attribution="&copy; OpenStreetMap contributors"
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
-          <MapAutoFit points={points} fitVersion={fitVersion} />
-          <ClickHandler onClick={onMapClick} />
-          {points.length >= 2 && (
-            <DraggableZoneShape
-              points={points}
-              onMove={setPoints}
-              onInteractionStart={suppressMapClick}
-              onMoveEnd={(nextPoints) => {
-                setPoints(nextPoints);
-                syncZonePoints(nextPoints);
-              }}
-            />
-          )}
-          {points.map((p, idx) => (
-            <Marker
-              key={`marker-${idx}`}
-              position={p}
-              icon={zonePointIcon}
-              draggable
-              autoPan
-              riseOnHover
-              zIndexOffset={1000}
-              eventHandlers={{
-                mousedown: (e) => {
-                  L.DomEvent.stopPropagation(e.originalEvent);
-                  suppressMapClick();
-                },
-                dragend: (e) => {
-                  suppressMapClick();
-                  const newPos = e.target.getLatLng();
-                  setPoints(prev => {
-                    const updatedPoints = prev.map((pt, i) => i === idx ? new L.LatLng(newPos.lat, newPos.lng) : pt);
-                    syncZonePoints(updatedPoints);
-                    return updatedPoints;
-                  });
-                }
-              }}
-            />
-          ))}
-        </MapContainer>
+        <YandexZoneGeometryMap
+          center={center}
+          points={points}
+          fitVersion={fitVersion}
+          onMapClick={onMapClick}
+          onPointsDraftChange={setPoints}
+          onPointsCommit={syncZonePoints}
+          onInteractionStart={suppressMapClick}
+        />
       </div>
     </>
   );
