@@ -788,6 +788,8 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   border-radius: 8px;
   background: #f8fbf8;
   padding: 10px;
+  overflow: hidden;
+  container-type: inline-size;
 }
 
 .camera-preview:fullscreen {
@@ -815,10 +817,16 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
 
 .camera-preview-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.camera-preview-header > div:first-child {
+  min-width: 0;
+  flex: 1 1 140px;
 }
 
 .camera-preview:fullscreen .camera-preview-header {
@@ -854,20 +862,31 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
 
 .camera-preview-actions {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 240px;
+}
+
+.camera-preview-actions .button {
+  min-width: 0;
+  flex: 1 1 128px;
 }
 
 .snapshot-mode-toggle {
   display: grid;
-  grid-template-columns: repeat(2, minmax(84px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   min-height: 36px;
   padding: 3px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: #eef6f0;
+  min-width: 176px;
+  max-width: 100%;
+  flex: 1 1 190px;
 }
 
 .snapshot-mode-option {
@@ -881,6 +900,28 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@container (max-width: 560px) {
+  .camera-preview-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .camera-preview-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .snapshot-mode-toggle,
+  .camera-preview-actions .button {
+    width: 100%;
+    flex-basis: 100%;
+  }
 }
 
 .snapshot-mode-option.active {
