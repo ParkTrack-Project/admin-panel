@@ -36,6 +36,11 @@ const hasCoordinates = (latitude?: number | null, longitude?: number | null) => 
   && typeof longitude === 'number'
   && Number.isFinite(longitude)
 );
+const revokeImage = (image?: ImageMeta) => {
+  if (image?.url.startsWith('blob:')) {
+    URL.revokeObjectURL(image.url);
+  }
+};
 
 type State = {
   apiBase: string;
@@ -43,6 +48,7 @@ type State = {
   cameraId: string;
   labelerReturnRoute?: 'cameras' | 'zones';
   image?: ImageMeta;
+  imageCameraId?: string;
   cameraMeta?: Camera;
 
   viewMode: ViewMode;
@@ -63,7 +69,7 @@ type State = {
   setViewMode(mode: ViewMode): void;
   setCamera(id: string): void;
   setLabelerReturnRoute(route?: 'cameras' | 'zones'): void;
-  setImage(img: ImageMeta | undefined): void;
+  setImage(img: ImageMeta | undefined, cameraId?: string): void;
 
   loadCameraMeta(id: number): Promise<void>;
   saveCamera(id: number, patch: Partial<Camera>): Promise<boolean>;
@@ -92,6 +98,7 @@ export const useStore = create<State>((set, get) => ({
   cameraId: '',
   labelerReturnRoute: 'cameras',
   image: undefined,
+  imageCameraId: undefined,
   cameraMeta: undefined,
   viewMode: 'cameras',
   tool: 'select',
@@ -103,9 +110,36 @@ export const useStore = create<State>((set, get) => ({
   loading: false,
 
   setViewMode(mode) { set({ viewMode: mode }); },
-  setCamera(id) { set({ cameraId: id }); },
+  setCamera(id) {
+    set((state) => {
+      if (state.cameraId === id) {
+        return { cameraId: id };
+      }
+      revokeImage(state.image);
+      return {
+        cameraId: id,
+        image: undefined,
+        imageCameraId: undefined,
+        cameraMeta: undefined,
+        zones: [],
+        activeZoneId: undefined,
+        zoneDraft: null,
+        tool: 'select'
+      };
+    });
+  },
   setLabelerReturnRoute(route) { set({ labelerReturnRoute: route }); },
-  setImage(img) { set({ image: img }); },
+  setImage(img, cameraId) {
+    set((state) => {
+      if (state.image?.url && state.image.url !== img?.url) {
+        revokeImage(state.image);
+      }
+      return {
+        image: img,
+        imageCameraId: img ? cameraId : undefined
+      };
+    });
+  },
 
   async loadCameraMeta(id) {
     try {
