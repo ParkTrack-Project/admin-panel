@@ -4,10 +4,17 @@ import { Button } from './UiKit';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
 import { fitYandexMap, yandexPoint, type YandexPoint } from '@/maps/yandex';
 import { useYandexMap } from '@/maps/useYandexMap';
+import type { ParkingZone } from '@/types';
 
 type MapPoint = {
   lat: number;
   lng: number;
+};
+
+type ZoneMapOverlay = {
+  id: ParkingZone['id'];
+  points: MapPoint[];
+  isActive?: boolean;
 };
 
 function hasCoordinates(latitude?: number | null, longitude?: number | null): latitude is number {
@@ -25,6 +32,15 @@ function fromYandexPoint(point: YandexPoint): MapPoint {
   return { lat: point[0], lng: point[1] };
 }
 
+function zoneGeoPoints(zone: ParkingZone): MapPoint[] | null {
+  const points = zone.points
+    .filter(point => hasCoordinates(point.latitude, point.longitude))
+    .slice(0, 4)
+    .map(point => ({ lat: point.latitude!, lng: point.longitude! }));
+  const uniqueCoords = new Set(points.map(point => `${point.lat},${point.lng}`));
+  return points.length === 4 && uniqueCoords.size > 1 ? points : null;
+}
+
 function stopYandexEventPropagation(event: any) {
   if (typeof event?.stopPropagation === 'function') event.stopPropagation();
 }
@@ -32,6 +48,7 @@ function stopYandexEventPropagation(event: any) {
 function YandexZoneGeometryMap({
   center,
   points,
+  otherZones,
   fitVersion,
   onMapClick,
   onPointsCommit,
@@ -39,6 +56,7 @@ function YandexZoneGeometryMap({
 }: {
   center: YandexPoint;
   points: MapPoint[];
+  otherZones: ZoneMapOverlay[];
   fitVersion: number;
   onMapClick: (point: MapPoint) => void;
   onPointsCommit: (points: MapPoint[]) => void;
@@ -109,6 +127,26 @@ function YandexZoneGeometryMap({
         }
       });
     };
+
+    otherZones.forEach(otherZone => {
+      const coordinates = otherZone.points.map(toYandexPoint);
+      const polygon = new ymaps.Polygon(
+        [coordinates],
+        {
+          hintContent: `Зона #${String(otherZone.id)}`
+        },
+        {
+          strokeColor: otherZone.isActive === false ? '#9ca3af' : '#0f766e',
+          strokeOpacity: 0.72,
+          strokeWidth: 2,
+          fillColor: otherZone.isActive === false ? '#9ca3af' : '#0f766e',
+          fillOpacity: otherZone.isActive === false ? 0.08 : 0.14,
+          zIndex: 80,
+          interactivityModel: 'default#transparent'
+        }
+      );
+      collection.add(polygon);
+    });
 
     const pointsFromDraggedGeometry = (geoObject: any) => {
       const coordinates = geoObject.geometry.getCoordinates();
@@ -243,7 +281,7 @@ function YandexZoneGeometryMap({
       map.behaviors.enable(['drag']);
       map.geoObjects.remove(collection);
     };
-  }, [ymaps, map, points, onInteractionStart, onMapClick, onPointsCommit]);
+  }, [ymaps, map, points, otherZones, onInteractionStart, onMapClick, onPointsCommit]);
 
   return (
     <div className="yandex-map-host" ref={mapRef}>
@@ -308,11 +346,27 @@ export default function ZoneMapSelector() {
     return yandexPoint(59.9386, 30.3141);
   }, [points, cameraMeta]);
 
+  const otherZoneOverlays = useMemo<ZoneMapOverlay[]>(() => {
+    if (!zone) return [];
+    return zones
+      .filter(item => String(item.id) !== String(zone.id) && item.camera_id === zone.camera_id)
+      .reduce<ZoneMapOverlay[]>((acc, item) => {
+        const itemPoints = zoneGeoPoints(item);
+        if (itemPoints) {
+          acc.push({
+            id: item.id,
+            points: itemPoints,
+            isActive: item.is_active
+          });
+        }
+        return acc;
+      }, []);
+  }, [zones, zone?.id, zone?.camera_id]);
+
   function onMapClick(pos: MapPoint) {
     if (Date.now() < suppressMapClickUntilRef.current) return;
     if (points.length >= 4) return;
     setPoints(prev => [...prev, pos]);
-    setFitVersion(version => version + 1);
   }
 
   function suppressMapClick() {
@@ -421,6 +475,7 @@ export default function ZoneMapSelector() {
         <YandexZoneGeometryMap
           center={center}
           points={points}
+          otherZones={otherZoneOverlays}
           fitVersion={fitVersion}
           onMapClick={onMapClick}
           onPointsCommit={commitMapPoints}
