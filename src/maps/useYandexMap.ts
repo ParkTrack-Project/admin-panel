@@ -5,6 +5,7 @@ type UseYandexMapOptions = {
   center: YandexPoint;
   zoom: number;
   controls?: string[];
+  syncView?: boolean;
 };
 
 type YandexMapState = {
@@ -16,7 +17,7 @@ type YandexMapState = {
 
 export function useYandexMap(
   containerRef: RefObject<HTMLDivElement>,
-  { center, zoom, controls = ['zoomControl'] }: UseYandexMapOptions
+  { center, zoom, controls = ['zoomControl'], syncView = true }: UseYandexMapOptions
 ) {
   const [state, setState] = useState<YandexMapState>({ loading: true });
   const centerKey = useMemo(() => center.join(','), [center]);
@@ -55,9 +56,9 @@ export function useYandexMap(
   }, []);
 
   useEffect(() => {
-    if (!state.map) return;
+    if (!syncView || !state.map) return;
     state.map.setCenter(center, zoom, { duration: 200 });
-  }, [state.map, centerKey, zoom]);
+  }, [state.map, centerKey, zoom, syncView]);
 
   return state;
 }

@@ -64,7 +64,7 @@ function YandexZoneGeometryMap({
 }) {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const pointsRef = useRef(points);
-  const { ymaps, map, loading, error } = useYandexMap(mapRef, { center, zoom: 16 });
+  const { ymaps, map, loading, error } = useYandexMap(mapRef, { center, zoom: 16, syncView: false });
 
   useEffect(() => {
     pointsRef.current = points;
