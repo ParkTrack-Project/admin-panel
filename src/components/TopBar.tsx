@@ -2,20 +2,18 @@ import { useStore } from '@/store/useStore';
 import { apiConfig, api } from '@/api/client';
 import { useSessionStore } from '@/auth/sessionStore';
 import { Button, Field, Input, FilePicker } from './UiKit';
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { navigate } from '@/router/routes';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
 
 export default function TopBar() {
-  const { apiBase, token, cameraId, viewMode, setImage, image, setViewMode, labelerReturnRoute } = useStore();
+  const { apiBase, token, cameraId, viewMode, setImage, image, imageCameraId, setViewMode, labelerReturnRoute } = useStore();
   const sessionAccessToken = useSessionStore(state => state.accessToken);
   const [imageUrlInput, setImageUrlInput] = useState('');
   const [loadingSnapshot, setLoadingSnapshot] = useState(false);
   const notifySuccess = useFeedbackStore(state => state.success);
   const notifyError = useFeedbackStore(state => state.error);
   const notifyWarning = useFeedbackStore(state => state.warning);
-  const currentBlobUrlRef = useRef<string | null>(null);
-  const loadedCameraIdRef = useRef<string | null>(null);
   const effectiveToken = sessionAccessToken || token;
 
   useEffect(() => {
@@ -27,7 +25,7 @@ export default function TopBar() {
     if (!url) return;
     try {
       const img = await loadImage(url);
-      setImage(img);
+      setImage(img, cameraId || undefined);
       fitToView(img);
       notifySuccess('Изображение открыто.');
     } catch (error: any) {
@@ -38,8 +36,7 @@ export default function TopBar() {
   const loadByCameraId = useCallback(async () => {
     if (!cameraId) return;
     
-    // Prevent duplicate loads for the same camera
-    if (loadedCameraIdRef.current === cameraId && image?.url) {
+    if (image?.url && imageCameraId === cameraId) {
       return;
     }
     
@@ -49,28 +46,21 @@ export default function TopBar() {
       const snap = await api.getSnapshot(parseInt(cameraId, 10));
       
       if (snap?.image_url) {
-        // Clean up previous blob URL to prevent memory leaks
-        if (currentBlobUrlRef.current && currentBlobUrlRef.current.startsWith('blob:')) {
-          URL.revokeObjectURL(currentBlobUrlRef.current);
-        }
-        
-        currentBlobUrlRef.current = snap.image_url;
-        loadedCameraIdRef.current = cameraId;
         const img = await loadImage(snap.image_url);
-        setImage(img);
+        setImage(img, cameraId);
         fitToView(img);
       } else {
         console.warn('Snapshot missing image_url, using fallback');
-        const img = await loadImage('/sample.jpg');
-        setImage(img);
+        const img = await loadImage('/sample.png');
+        setImage(img, cameraId);
         fitToView(img);
         notifyWarning('Snapshot недоступен, открыт тестовый кадр.');
       }
     } catch (error) {
       console.error('Error loading snapshot:', error);
       try {
-        const img = await loadImage('/sample.jpg');
-        setImage(img);
+        const img = await loadImage('/sample.png');
+        setImage(img, cameraId);
         fitToView(img);
         notifyWarning('Не удалось загрузить snapshot, открыт тестовый кадр.');
       } catch (fallbackError) {
@@ -80,7 +70,7 @@ export default function TopBar() {
     } finally {
       setLoadingSnapshot(false);
     }
-  }, [cameraId, apiBase, effectiveToken, setImage, image]);
+  }, [cameraId, apiBase, effectiveToken, setImage, image, imageCameraId]);
 
   function fitToView(img: { naturalWidth: number; naturalHeight: number; url: string }) {
     useStore.getState().setView(1, 0, 0);
@@ -89,6 +79,7 @@ export default function TopBar() {
   const isLabeler = viewMode === 'labeler';
 
   function backToOrigin() {
+    setImage(undefined);
     if (labelerReturnRoute === 'zones') {
       navigate('zones');
       return;
@@ -96,21 +87,6 @@ export default function TopBar() {
     setViewMode('cameras');
     navigate('cameras');
   }
-
-  // Cleanup blob URLs on unmount to prevent memory leaks
-  useEffect(() => {
-    return () => {
-      if (currentBlobUrlRef.current && currentBlobUrlRef.current.startsWith('blob:')) {
-        URL.revokeObjectURL(currentBlobUrlRef.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    if (viewMode !== 'labeler' || !cameraId) {
-      loadedCameraIdRef.current = null;
-    }
-  }, [viewMode, cameraId]);
 
   useEffect(() => {
     if (viewMode === 'labeler' && cameraId) {
@@ -156,7 +132,7 @@ export default function TopBar() {
                 try {
                   const url = URL.createObjectURL(f);
                   const img = await loadImage(url);
-                  setImage(img);
+                  setImage(img, cameraId || undefined);
                   fitToView(img);
                   notifySuccess('Файл изображения открыт.');
                 } catch (error: any) {

@@ -28,6 +28,15 @@ function parseOptionalPositiveInt(value: string): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  const tagName = target.tagName.toLowerCase();
+  return target.isContentEditable
+    || tagName === 'input'
+    || tagName === 'textarea'
+    || tagName === 'select';
+}
+
 export default function Sidebar() {
   const s = useStore();
   const notifySuccess = useFeedbackStore(state => state.success);
@@ -142,6 +151,54 @@ export default function Sidebar() {
     }
   }
 
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (isEditableTarget(event.target) || event.altKey || event.ctrlKey || event.metaKey) return;
+
+      const key = event.key.toLowerCase();
+      if (key === 'n') {
+        event.preventDefault();
+        startDrawZone();
+        return;
+      }
+
+      if (key === 'escape') {
+        event.preventDefault();
+        if (s.tool === 'drawZone') {
+          s.zoneDraftClear();
+          notifyInfo('Рисование зоны отменено.');
+        } else {
+          s.setTool('select');
+          notifyInfo('Режим выбора включён.');
+        }
+        return;
+      }
+
+      if (!zone) return;
+
+      if (key === 'e') {
+        event.preventDefault();
+        s.setTool('editZone');
+        notifyInfo('Редактирование полигона включено.');
+        return;
+      }
+
+      if (key === 's') {
+        event.preventDefault();
+        saveActiveZone();
+        return;
+      }
+
+      if (key === 'm') {
+        event.preventDefault();
+        openZoneOnMap();
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [zone?.id, s.tool, s.zoneDraft?.length]);
+
   return (
     <div className="sidebar">
       <div className="row" style={{justifyContent:'space-between'}}>
@@ -201,7 +258,9 @@ export default function Sidebar() {
       )}
 
       <div className="labeler-action-stack">
-        <Button onClick={startDrawZone}>+ Добавить зону</Button>
+        <Button onClick={startDrawZone} title="N">
+          + Добавить зону
+        </Button>
         <Button variant="ghost" onClick={openCameraOnMap}>
           Отметить камеру на карте
         </Button>
@@ -311,15 +370,15 @@ export default function Sidebar() {
           </div>
 
           <div className="labeler-action-grid">
-            <Button onClick={()=>s.setTool('editZone')}>Редактировать полигон</Button>
-            <Button variant="ghost" onClick={finishEditing}>Готово</Button>
+            <Button onClick={()=>s.setTool('editZone')} title="E">Редактировать полигон</Button>
+            <Button variant="ghost" onClick={finishEditing} title="Esc">Готово</Button>
           </div>
           <div className="labeler-action-grid">
-            <Button onClick={saveActiveZone}>Сохранить зону</Button>
+            <Button onClick={saveActiveZone} title="S">Сохранить зону</Button>
             <Button variant="danger" onClick={removeActiveZone}>Удалить зону</Button>
           </div>
           <div className="labeler-action-grid compact">
-            <Button variant="ghost" onClick={openZoneOnMap}>
+            <Button variant="ghost" onClick={openZoneOnMap} title="M">
               Геометрия на карте
             </Button>
           </div>

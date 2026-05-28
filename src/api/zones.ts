@@ -273,7 +273,7 @@ function buildZoneCreateBody(zone: ParkingZone) {
     zone_type: zone.zone_type,
     capacity: zone.capacity,
     pay: zone.pay,
-    geometry: zone.geometry ?? buildZoneGeometry(zone.points),
+    geometry: buildZoneGeometry(zone.points),
     image_polygon: (zone.image_polygon ?? buildImagePolygon(zone.image_quad ?? zone.points)).map(point => [point.x, point.y]),
     partner_id: zone.partner_id,
     is_active: zone.is_active,
@@ -298,7 +298,7 @@ function buildZoneUpdateBody(zone: ParkingZone) {
   if (zone.is_private !== undefined) body.is_private = zone.is_private;
   if (zone.is_accessible !== undefined) body.is_accessible = zone.is_accessible;
 
-  body.geometry = zone.geometry ?? buildZoneGeometry(zone.points);
+  body.geometry = buildZoneGeometry(zone.points);
   body.image_polygon = (zone.image_polygon ?? buildImagePolygon(zone.image_quad ?? zone.points)).map(point => [point.x, point.y]);
 
   return body;
