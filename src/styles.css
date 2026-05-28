@@ -714,6 +714,20 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   margin-bottom: 12px;
 }
 
+.camera-list-scroll {
+  max-height: clamp(280px, 38vh, 520px);
+  overflow-x: auto;
+  overflow-y: auto;
+}
+
+.camera-list-scroll .camera-list-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #fff;
+  box-shadow: 0 1px 0 #edf1ee;
+}
+
 .camera-list-header,
 .camera-list-item {
   display: grid;
