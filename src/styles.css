@@ -156,6 +156,22 @@ body { background: var(--bg); color: var(--text); font-family: Inter, system-ui,
   stroke-width: 1.5;
 }
 
+.chart-grid-line {
+  stroke: #e6eee8;
+  stroke-width: 1;
+}
+
+.chart-axis-tick {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.chart-axis-label {
+  fill: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .chart-legend {
   display: flex;
   flex-wrap: wrap;
