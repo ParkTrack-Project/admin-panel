@@ -30,15 +30,6 @@ function isEditableTarget(target: EventTarget | null) {
     || tagName === 'select';
 }
 
-function isEditableTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) return false;
-  const tagName = target.tagName.toLowerCase();
-  return target.isContentEditable
-    || tagName === 'input'
-    || tagName === 'textarea'
-    || tagName === 'select';
-}
-
 export default function Sidebar() {
   const s = useStore();
   const notifySuccess = useFeedbackStore(state => state.success);
