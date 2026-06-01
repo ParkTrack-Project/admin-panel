@@ -555,7 +555,7 @@ export default function ZonesAdminPage() {
             <option value="regular">Обычные</option>
           </Select>
         </Field>
-        <Field label="Видимость">
+        <Field label="Тип доступа">
           <Select
             value={filters.privacy}
             onChange={e => setFilters(prev => ({ ...prev, privacy: e.target.value as ZoneFilters['privacy'] }))}
