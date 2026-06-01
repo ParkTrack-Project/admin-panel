@@ -6,9 +6,10 @@ import CamerasPage from '@/components/CamerasPage';
 import CameraMapSelector from '@/components/CameraMapSelector';
 import ZoneMapSelector from '@/components/ZoneMapSelector';
 import { useStore } from '@/store/useStore';
-import AdminShell from '@/layout/AdminShell';
+import AdminShell, { canViewAnalyticsSection } from '@/layout/AdminShell';
 import AccessStatePage from '@/pages/AccessStatePage';
 import AuthPage from '@/pages/AuthPage';
+import AnalyticsPage from '@/pages/AnalyticsPage';
 import DashboardPage from '@/pages/DashboardPage';
 import PartnersAdminPage from '@/pages/PartnersAdminPage';
 import PasswordResetPage from '@/pages/PasswordResetPage';
@@ -155,8 +156,9 @@ export default function App() {
       </AppErrorBoundary>
     );
   } else {
+    const analyticsAccessDenied = route === 'analytics' && !canViewAnalyticsSection(useSessionStore.getState());
     const requiredPermissions = routePermissions[route];
-    if (requiredPermissions && !requiredPermissions.some(permission => sessionHasPermission(permission))) {
+    if (analyticsAccessDenied || (requiredPermissions && !requiredPermissions.some(permission => sessionHasPermission(permission)))) {
       content = (
         <AdminShell route={route}>
           <AccessStatePage
@@ -191,6 +193,7 @@ function renderRoute(route: AppRoute, viewMode: ViewMode) {
   if (route === 'profile') return <ProfilePage />;
   if (route === 'users') return <UsersAdminPage />;
   if (route === 'partners') return <PartnersAdminPage />;
+  if (route === 'analytics') return <AnalyticsPage />;
   if (route === 'zones') return <ZonesAdminPage />;
   if (route === 'sources') return <SourcesPage />;
   if (route === 'cameras') {
