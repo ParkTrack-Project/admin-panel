@@ -41,10 +41,6 @@ type ZoneSaveState = {
   error?: string;
 };
 
-type ZoneCreateState = {
-  cameraId: string;
-};
-
 function formatDate(dateStr?: string) {
   if (!dateStr) return '—';
   try {
@@ -139,10 +135,6 @@ export default function ZonesAdminPage() {
   const [selectedZoneId, setSelectedZoneId] = useState<string | undefined>();
   const [editor, setEditor] = useState<ZoneEditorState | null>(null);
   const [saveState, setSaveState] = useState<ZoneSaveState>({ loading: false });
-  const [createState, setCreateState] = useState<ZoneCreateState>({
-    cameraId: ''
-  });
-  const [createLoading, setCreateLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [selectedZoneIds, setSelectedZoneIds] = useState<Set<string>>(() => new Set());
   const [filters, setFilters] = useState<ZoneFilters>({
@@ -245,16 +237,6 @@ export default function ZonesAdminPage() {
     }
   }, [activeZoneId, selectedZoneId, selectZone]);
 
-  useEffect(() => {
-    if (selectedZone) {
-      setCreateState(prev => ({ ...prev, cameraId: String(selectedZone.camera_id) }));
-      return;
-    }
-    if (filters.cameraId.trim()) {
-      setCreateState(prev => ({ ...prev, cameraId: filters.cameraId.trim() }));
-    }
-  }, [selectedZone?.id, filters.cameraId]);
-
   async function prepareZoneWorkspace(zone: ParkingZone) {
     store.setLabelerReturnRoute('zones');
     store.setCamera(String(zone.camera_id));
@@ -288,35 +270,6 @@ export default function ZonesAdminPage() {
       }, 0);
     } catch (err: any) {
       setError(`Не удалось открыть карту зоны: ${String(err?.message || err)}`);
-    }
-  }
-
-  async function startCreateZone() {
-    const cameraId = parseInt(createState.cameraId, 10);
-    if (!Number.isFinite(cameraId) || cameraId < 1) {
-      setError('Для создания зоны укажите корректный Camera ID.');
-      return;
-    }
-
-    setCreateLoading(true);
-    setError(undefined);
-    try {
-      await api.getCamera(cameraId);
-      store.setLabelerReturnRoute('zones');
-      store.setCamera(String(cameraId));
-      await Promise.all([
-        store.loadCameraMeta(cameraId),
-        store.loadZones()
-      ]);
-      store.selectZone(undefined);
-      store.zoneDraftClear();
-      store.addZone();
-      store.setViewMode('labeler');
-      navigate('labeler');
-    } catch (err: any) {
-      setError(`Не удалось открыть создание зоны: ${String(err?.message || err)}`);
-    } finally {
-      setCreateLoading(false);
     }
   }
 
@@ -461,12 +414,7 @@ export default function ZonesAdminPage() {
             {currentPartnerId !== undefined ? ` · партнёр #${currentPartnerId}` : ''}
           </p>
         </div>
-        <div className="row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <Button onClick={startCreateZone} disabled={createLoading}>
-            {createLoading ? 'Открытие...' : '+ Новая зона'}
-          </Button>
-          <Button onClick={load} disabled={loading}>{loading ? 'Загрузка...' : 'Обновить'}</Button>
-        </div>
+        <Button onClick={load} disabled={loading}>{loading ? 'Загрузка...' : 'Обновить'}</Button>
       </div>
 
       <div className="metric-grid">
@@ -592,29 +540,6 @@ export default function ZonesAdminPage() {
           Сбросить
         </Button>
       </form>
-
-      <div className="section-panel zone-create-panel">
-        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-          <div>
-            <h2 style={{ marginBottom: 4 }}>Создание зоны</h2>
-            <div className="small">Новая зона создаётся через разметчик, потому что геометрию нужно отрисовать на изображении камеры.</div>
-          </div>
-        </div>
-        <div className="zone-create-grid">
-          <Field label="Camera ID">
-            <Input
-              value={createState.cameraId}
-              onChange={e => setCreateState(prev => ({ ...prev, cameraId: e.target.value }))}
-              placeholder="ID камеры"
-            />
-          </Field>
-          <div className="zone-create-actions">
-            <Button onClick={startCreateZone} disabled={createLoading}>
-              {createLoading ? 'Открытие...' : 'Открыть создание в разметке'}
-            </Button>
-          </div>
-        </div>
-      </div>
 
       {error && <div className="notice error">{error}</div>}
 
