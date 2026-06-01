@@ -258,6 +258,7 @@ export type LegacySeriesQuery = AnalyticsRange & {
   partner_id?: number;
   zone_id?: number | string;
   camera_id?: number | string;
+  granularity?: AnalyticsGranularity;
 };
 
 function analyticsQuery(query: AnalyticsQuery = {}) {
@@ -291,6 +292,7 @@ function legacySeriesQuery(query: LegacySeriesQuery = {}, view: 'series') {
     camera_id: query.camera_id,
     from: query.from,
     to: query.to,
+    granularity: query.granularity,
     view
   });
 }

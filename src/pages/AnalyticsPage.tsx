@@ -82,8 +82,16 @@ type AnalyticsRouteState =
 
 const AUTO_REFRESH_MS = 60_000;
 const MAX_VISIBLE_SERIES = 10;
+const MAX_CHART_POINTS = 120;
+const MAX_MARKER_POINTS = 90;
 const STALE_THRESHOLD_MINUTES = Number(import.meta.env.VITE_ANALYTICS_STALE_MINUTES ?? 10);
 const CHART_COLORS = ['#128a45', '#2563eb', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2', '#be123c', '#4d7c0f', '#9333ea', '#0f766e'];
+const GRANULARITY_LABELS: Record<AnalyticsGranularity, string> = {
+  '5m': '5 минут',
+  '15m': '15 минут',
+  '1h': '1 час',
+  '1d': '1 день'
+};
 
 function emptyState<T>(): LoadState<T> {
   return { loading: false };
@@ -198,6 +206,126 @@ function formatDateTime(value?: string | null) {
   if (!value) return '—';
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU');
+}
+
+function parsePointTime(value: string) {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatAxisDateTime(value: string | number) {
+  const date = typeof value === 'number' ? new Date(value) : new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function formatAxisNumber(value: number, unit?: string) {
+  const digits = Math.abs(value) >= 10 || value === 0 ? 0 : 1;
+  return `${value.toFixed(digits)}${unit ?? ''}`;
+}
+
+function sortChartPoints(points: ChartPoint[]) {
+  return [...points].sort((a, b) => {
+    const aTime = parsePointTime(a.x);
+    const bTime = parsePointTime(b.x);
+    if (aTime !== null && bTime !== null) return aTime - bTime;
+    return a.x.localeCompare(b.x);
+  });
+}
+
+function bucketPointTime(value: string, granularity?: AnalyticsGranularity) {
+  if (!granularity) return value;
+  const time = parsePointTime(value);
+  if (time === null) return value;
+
+  const date = new Date(time);
+  if (granularity === '1d') {
+    date.setHours(0, 0, 0, 0);
+  } else if (granularity === '1h') {
+    date.setMinutes(0, 0, 0);
+  } else {
+    const stepMinutes = granularity === '5m' ? 5 : 15;
+    date.setMinutes(Math.floor(date.getMinutes() / stepMinutes) * stepMinutes, 0, 0);
+  }
+  return date.toISOString();
+}
+
+function compactLinePoints(points: ChartPoint[], maxPoints = MAX_CHART_POINTS, granularity?: AnalyticsGranularity): ChartPoint[] {
+  const grouped = new Map<string, { sum: number; count: number; meta?: Record<string, unknown> }>();
+  points.forEach(point => {
+    if (typeof point.y !== 'number' || !Number.isFinite(point.y)) return;
+    const key = bucketPointTime(point.x, granularity);
+    const bucket = grouped.get(key) ?? { sum: 0, count: 0, meta: point.meta };
+    bucket.sum += point.y;
+    bucket.count += 1;
+    grouped.set(key, bucket);
+  });
+
+  const averaged = sortChartPoints([...grouped.entries()].map(([x, value]) => ({
+    x,
+    y: value.sum / value.count,
+    meta: {
+      ...value.meta,
+      aggregated_count: value.count
+    }
+  })));
+
+  if (averaged.length <= maxPoints) return averaged;
+
+  const bucketSize = Math.ceil(averaged.length / maxPoints);
+  const compacted: ChartPoint[] = [];
+  for (let index = 0; index < averaged.length; index += bucketSize) {
+    const bucket = averaged.slice(index, index + bucketSize);
+    const values = bucket.map(point => point.y).filter((value): value is number => typeof value === 'number');
+    if (!values.length) continue;
+    const middle = bucket[Math.floor(bucket.length / 2)];
+    compacted.push({
+      x: middle.x,
+      y: values.reduce((sum, value) => sum + value, 0) / values.length,
+      meta: { aggregated_count: bucket.length }
+    });
+  }
+  return compacted;
+}
+
+function compactBarPoints(points: ChartPoint[], maxPoints = MAX_CHART_POINTS, granularity?: AnalyticsGranularity): ChartPoint[] {
+  const grouped = new Map<string, number>();
+  points.forEach(point => {
+    if (typeof point.y !== 'number' || !Number.isFinite(point.y)) return;
+    const key = bucketPointTime(point.x, granularity);
+    grouped.set(key, (grouped.get(key) ?? 0) + point.y);
+  });
+
+  const summed = sortChartPoints([...grouped.entries()].map(([x, y]) => ({ x, y })));
+  if (summed.length <= maxPoints) return summed;
+
+  const bucketSize = Math.ceil(summed.length / maxPoints);
+  const compacted: ChartPoint[] = [];
+  for (let index = 0; index < summed.length; index += bucketSize) {
+    const bucket = summed.slice(index, index + bucketSize);
+    const middle = bucket[Math.floor(bucket.length / 2)];
+    compacted.push({
+      x: middle.x,
+      y: bucket.reduce((sum, point) => sum + (point.y ?? 0), 0),
+      meta: { aggregated_count: bucket.length }
+    });
+  }
+  return compacted;
+}
+
+function chartTimeDomain(series: ChartSeries[]) {
+  const timestamps = series
+    .flatMap(item => item.points.map(point => parsePointTime(point.x)))
+    .filter((value): value is number => value !== null);
+  if (!timestamps.length) return null;
+  const min = Math.min(...timestamps);
+  const max = Math.max(...timestamps);
+  return min === max ? null : { min, max };
 }
 
 function formatDuration(seconds?: number | null) {
@@ -524,6 +652,7 @@ function AnalyticsDashboard() {
       targets.map(target => api.analytics.legacyOccupancySeries({
         partner_id: currentPartnerId,
         ...range,
+        granularity: filters.granularity,
         ...target.query
       }))
     );
@@ -531,6 +660,7 @@ function AnalyticsDashboard() {
       targets.map(target => api.analytics.legacyForecastSeries({
         partner_id: currentPartnerId,
         ...range,
+        granularity: filters.granularity,
         ...target.query
       }))
     );
@@ -648,19 +778,19 @@ function AnalyticsDashboard() {
 
       <div className="analytics-chart-grid">
         <Block title="Занятость" state={legacyOccupancy}>
-          <LineChart series={occupancySeries} unit="%" emptyMessage="Нет данных за выбранный период" />
+          <LineChart series={occupancySeries} unit="%" granularity={filters.granularity} yLabel="Занятость, %" emptyMessage="Нет данных за выбранный период" />
         </Block>
 
         <Block title="Прогноз занятости" state={legacyForecast}>
-          <LineChart series={forecastSeries} unit="%" emptyMessage="Прогноз недоступен" />
+          <LineChart series={forecastSeries} unit="%" granularity={filters.granularity} yLabel="Занятость, %" emptyMessage="Прогноз недоступен" />
         </Block>
 
         <Block title="Количество наблюдений" state={legacyOccupancy}>
-          <BarChart points={observationBars} emptyMessage="Нет наблюдений за выбранный период" />
+          <BarChart points={observationBars} granularity={filters.granularity} yLabel="Наблюдений" emptyMessage="Нет наблюдений за выбранный период" />
         </Block>
 
         <Block title="Уверенность модели" state={legacyOccupancy}>
-          <LineChart series={confidenceSeries} unit="%" emptyMessage="Нет данных по уверенности модели" />
+          <LineChart series={confidenceSeries} unit="%" granularity={filters.granularity} yLabel="Уверенность, %" emptyMessage="Нет данных по уверенности модели" />
         </Block>
       </div>
     </section>
@@ -923,37 +1053,94 @@ function AnalyticsBackendStub({
   );
 }
 
-function LineChart({ series, unit, emptyMessage }: { series: ChartSeries[]; unit?: string; emptyMessage: string }) {
+function LineChart({
+  series,
+  unit,
+  emptyMessage,
+  granularity,
+  xLabel = 'Время',
+  yLabel = unit ? `Значение, ${unit}` : 'Значение'
+}: {
+  series: ChartSeries[];
+  unit?: string;
+  emptyMessage: string;
+  granularity?: AnalyticsGranularity;
+  xLabel?: string;
+  yLabel?: string;
+}) {
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
-  const visibleSeries = series.filter(item => !hidden.has(item.key));
+  const visibleSeries = series
+    .filter(item => !hidden.has(item.key))
+    .map(item => ({ ...item, points: compactLinePoints(item.points, MAX_CHART_POINTS, granularity) }));
   const values = visibleSeries.flatMap(item => item.points.map(point => point.y).filter((value): value is number => typeof value === 'number'));
-  const maxValue = Math.max(1, ...values);
-  const minValue = Math.min(0, ...values);
+  const maxValue = unit === '%' ? Math.max(100, ...values) : Math.max(1, ...values);
+  const minValue = unit === '%' ? 0 : Math.min(0, ...values);
   const width = 720;
   const height = 260;
-  const padding = 34;
+  const padding = { top: 24, right: 20, bottom: 54, left: 58 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const domain = chartTimeDomain(visibleSeries);
+  const longestSeries = visibleSeries.reduce<ChartSeries | undefined>(
+    (current, item) => !current || item.points.length > current.points.length ? item : current,
+    undefined
+  );
+  const totalPointCount = visibleSeries.reduce((sum, item) => sum + item.points.length, 0);
+  const showMarkers = totalPointCount <= MAX_MARKER_POINTS;
 
   if (!series.length || !series.some(item => item.points.length)) {
     return <div className="empty-state">{emptyMessage}</div>;
   }
 
-  const toX = (pointIndex: number, total: number) => {
-    if (total <= 1) return padding;
-    return padding + (pointIndex / (total - 1)) * (width - padding * 2);
+  const toX = (point: ChartPoint, pointIndex: number, total: number) => {
+    const timestamp = parsePointTime(point.x);
+    if (domain && timestamp !== null) {
+      return padding.left + ((timestamp - domain.min) / (domain.max - domain.min)) * plotWidth;
+    }
+    if (total <= 1) return padding.left;
+    return padding.left + (pointIndex / (total - 1)) * plotWidth;
   };
   const toY = (value: number | null) => {
     const safeValue = value ?? minValue;
-    return height - padding - ((safeValue - minValue) / (maxValue - minValue || 1)) * (height - padding * 2);
+    return height - padding.bottom - ((safeValue - minValue) / (maxValue - minValue || 1)) * plotHeight;
   };
+  const yTicks = unit === '%'
+    ? [0, 25, 50, 75, 100]
+    : [minValue, minValue + (maxValue - minValue) / 2, maxValue];
+  const xTicks = domain
+    ? [
+      { x: padding.left, label: formatAxisDateTime(domain.min) },
+      { x: padding.left + plotWidth / 2, label: formatAxisDateTime(domain.min + (domain.max - domain.min) / 2) },
+      { x: padding.left + plotWidth, label: formatAxisDateTime(domain.max) }
+    ]
+    : [0, 0.5, 1].map(position => {
+      const points = longestSeries?.points ?? [];
+      const index = points.length <= 1 ? 0 : Math.round(position * (points.length - 1));
+      return {
+        x: padding.left + position * plotWidth,
+        label: points[index]?.x ? formatAxisDateTime(points[index].x) : ''
+      };
+    }).filter(tick => tick.label);
 
   return (
     <div className="analytics-chart">
-      <svg viewBox={`0 0 ${width} ${height}`} role="img">
-        <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} className="chart-axis" />
-        <line x1={padding} y1={padding} x2={padding} y2={height - padding} className="chart-axis" />
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${yLabel} по оси ${xLabel}`}>
+        {yTicks.map((tick, index) => {
+          const y = toY(tick);
+          return (
+            <g key={`y-${index}`}>
+              <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} className="chart-grid-line" />
+              <text x={padding.left - 10} y={y + 4} textAnchor="end" className="chart-axis-tick">
+                {formatAxisNumber(tick, unit)}
+              </text>
+            </g>
+          );
+        })}
+        <line x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} className="chart-axis" />
+        <line x1={padding.left} y1={padding.top} x2={padding.left} y2={height - padding.bottom} className="chart-axis" />
         {visibleSeries.map(item => {
           const points = item.points
-            .map((point, index) => point.y === null ? null : `${toX(index, item.points.length)},${toY(point.y)}`)
+            .map((point, index) => point.y === null ? null : `${toX(point, index, item.points.length)},${toY(point.y)}`)
             .filter(Boolean)
             .join(' ');
           return (
@@ -962,22 +1149,42 @@ function LineChart({ series, unit, emptyMessage }: { series: ChartSeries[]; unit
               points={points}
               fill="none"
               stroke={item.color}
-              strokeWidth="3"
+              strokeWidth="2.4"
               strokeDasharray={item.dashed ? '7 7' : undefined}
               strokeLinecap="round"
               strokeLinejoin="round"
             />
           );
         })}
-        {visibleSeries.map(item => item.points.map((point, index) => {
+        {showMarkers && visibleSeries.map(item => item.points.map((point, index) => {
           if (point.y === null) return null;
           return (
-            <circle key={`${item.key}-${index}`} cx={toX(index, item.points.length)} cy={toY(point.y)} r="3.5" fill={item.color}>
+            <circle key={`${item.key}-${index}`} cx={toX(point, index, item.points.length)} cy={toY(point.y)} r="3" fill={item.color}>
               <title>{`${item.label}\n${formatDateTime(point.x)}\n${point.y.toFixed(1)}${unit ?? ''}`}</title>
             </circle>
           );
         }))}
+        {xTicks.map((tick, index) => (
+          <text key={`x-${index}`} x={tick.x} y={height - padding.bottom + 22} textAnchor="middle" className="chart-axis-tick">
+            {tick.label}
+          </text>
+        ))}
+        <text x={padding.left + plotWidth / 2} y={height - 8} textAnchor="middle" className="chart-axis-label">
+          {xLabel}
+        </text>
+        <text
+          x={14}
+          y={padding.top + plotHeight / 2}
+          textAnchor="middle"
+          transform={`rotate(-90 14 ${padding.top + plotHeight / 2})`}
+          className="chart-axis-label"
+        >
+          {yLabel}
+        </text>
       </svg>
+      {granularity && (
+        <div className="chart-meta">Детализация: {GRANULARITY_LABELS[granularity]}</div>
+      )}
       <div className="chart-legend">
         {series.map(item => (
           <button
@@ -1000,35 +1207,91 @@ function LineChart({ series, unit, emptyMessage }: { series: ChartSeries[]; unit
   );
 }
 
-function BarChart({ points, emptyMessage }: { points: ChartPoint[]; emptyMessage: string }) {
-  const values = points.map(point => point.y).filter((value): value is number => typeof value === 'number');
+function BarChart({
+  points,
+  emptyMessage,
+  granularity,
+  xLabel = 'Время',
+  yLabel = 'Количество'
+}: {
+  points: ChartPoint[];
+  emptyMessage: string;
+  granularity?: AnalyticsGranularity;
+  xLabel?: string;
+  yLabel?: string;
+}) {
+  const chartPoints = compactBarPoints(points, MAX_CHART_POINTS, granularity);
+  const values = chartPoints.map(point => point.y).filter((value): value is number => typeof value === 'number');
   const maxValue = Math.max(1, ...values);
   const width = 720;
   const height = 260;
-  const padding = 34;
+  const padding = { top: 24, right: 20, bottom: 54, left: 58 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
 
   if (!points.length || !values.length) {
     return <div className="empty-state">{emptyMessage}</div>;
   }
 
-  const barWidth = Math.max(4, (width - padding * 2) / points.length - 4);
+  const barStep = plotWidth / chartPoints.length;
+  const barWidth = Math.max(3, Math.min(18, barStep * 0.72));
+  const yTicks = [0, maxValue / 2, maxValue];
+  const xTicks = [0, 0.5, 1].map(position => {
+    const index = chartPoints.length <= 1 ? 0 : Math.round(position * (chartPoints.length - 1));
+    return {
+      x: padding.left + position * plotWidth,
+      label: chartPoints[index]?.x ? formatAxisDateTime(chartPoints[index].x) : ''
+    };
+  }).filter(tick => tick.label);
 
   return (
     <div className="analytics-chart">
-      <svg viewBox={`0 0 ${width} ${height}`} role="img">
-        <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} className="chart-axis" />
-        {points.map((point, index) => {
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${yLabel} по оси ${xLabel}`}>
+        {yTicks.map((tick, index) => {
+          const y = height - padding.bottom - (tick / maxValue) * plotHeight;
+          return (
+            <g key={`bar-y-${index}`}>
+              <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} className="chart-grid-line" />
+              <text x={padding.left - 10} y={y + 4} textAnchor="end" className="chart-axis-tick">
+                {formatAxisNumber(tick)}
+              </text>
+            </g>
+          );
+        })}
+        <line x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} className="chart-axis" />
+        <line x1={padding.left} y1={padding.top} x2={padding.left} y2={height - padding.bottom} className="chart-axis" />
+        {chartPoints.map((point, index) => {
           const value = point.y ?? 0;
-          const barHeight = (value / maxValue) * (height - padding * 2);
-          const x = padding + index * ((width - padding * 2) / points.length);
-          const y = height - padding - barHeight;
+          const barHeight = (value / maxValue) * plotHeight;
+          const x = padding.left + index * barStep + (barStep - barWidth) / 2;
+          const y = height - padding.bottom - barHeight;
           return (
             <rect key={`${point.x}-${index}`} x={x} y={y} width={barWidth} height={barHeight} rx="4" fill="#128a45">
               <title>{`${formatDateTime(point.x)}\n${formatNumber(value)}`}</title>
             </rect>
           );
         })}
+        {xTicks.map((tick, index) => (
+          <text key={`bar-x-${index}`} x={tick.x} y={height - padding.bottom + 22} textAnchor="middle" className="chart-axis-tick">
+            {tick.label}
+          </text>
+        ))}
+        <text x={padding.left + plotWidth / 2} y={height - 8} textAnchor="middle" className="chart-axis-label">
+          {xLabel}
+        </text>
+        <text
+          x={14}
+          y={padding.top + plotHeight / 2}
+          textAnchor="middle"
+          transform={`rotate(-90 14 ${padding.top + plotHeight / 2})`}
+          className="chart-axis-label"
+        >
+          {yLabel}
+        </text>
       </svg>
+      {granularity && (
+        <div className="chart-meta">Детализация: {GRANULARITY_LABELS[granularity]}</div>
+      )}
     </div>
   );
 }
@@ -1368,16 +1631,16 @@ function ZoneAnalyticsPage({ zoneId }: { zoneId: string }) {
 
       <div className="analytics-chart-grid">
         <Block title="Занято / свободно" state={history}>
-          <LineChart series={occupiedFreeSeries} emptyMessage="Нет данных за выбранный период" />
+          <LineChart series={occupiedFreeSeries} yLabel="Мест" emptyMessage="Нет данных за выбранный период" />
         </Block>
         <Block title="Занятость, %" state={history}>
-          <LineChart series={occupancySeries} unit="%" emptyMessage="Нет данных за выбранный период" />
+          <LineChart series={occupancySeries} unit="%" yLabel="Занятость, %" emptyMessage="Нет данных за выбранный период" />
         </Block>
         <Block title="Прогноз занятости" state={forecast}>
-          <LineChart series={forecastToSeries(history.data, forecast.data, zonesForLabels)} unit="%" emptyMessage="Прогноз недоступен" />
+          <LineChart series={forecastToSeries(history.data, forecast.data, zonesForLabels)} unit="%" yLabel="Занятость, %" emptyMessage="Прогноз недоступен" />
         </Block>
         <Block title="Уверенность модели" state={confidence}>
-          <LineChart series={confidenceToSeries(confidence.data)} unit="%" emptyMessage="Нет данных по уверенности модели" />
+          <LineChart series={confidenceToSeries(confidence.data)} unit="%" yLabel="Уверенность, %" emptyMessage="Нет данных по уверенности модели" />
         </Block>
       </div>
     </section>
@@ -1486,10 +1749,10 @@ function CameraAnalyticsPage({ cameraId }: { cameraId: string }) {
 
       <div className="analytics-chart-grid">
         <Block title="Количество наблюдений" state={observations}>
-          <BarChart points={observationsToBars(observations.data)} emptyMessage="Нет наблюдений по камере" />
+          <BarChart points={observationsToBars(observations.data)} yLabel="Наблюдений" emptyMessage="Нет наблюдений по камере" />
         </Block>
         <Block title="Уверенность модели" state={confidence}>
-          <LineChart series={confidenceToSeries(confidence.data)} unit="%" emptyMessage="Нет данных по уверенности модели" />
+          <LineChart series={confidenceToSeries(confidence.data)} unit="%" yLabel="Уверенность, %" emptyMessage="Нет данных по уверенности модели" />
         </Block>
         <Block title="Интервалы обновлений" state={frequency}>
           <BarChart
@@ -1497,6 +1760,8 @@ function CameraAnalyticsPage({ cameraId }: { cameraId: string }) {
               { x: 'Средний', y: frequency.data?.average_interval_seconds ?? null },
               { x: 'Максимальный', y: frequency.data?.max_interval_seconds ?? null }
             ]}
+            xLabel="Метрика"
+            yLabel="Секунды"
             emptyMessage="Интервалы обновления недоступны"
           />
         </Block>
