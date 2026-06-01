@@ -17,7 +17,6 @@ import { useSessionStore } from '@/auth/sessionStore';
 
 type ZoneFilters = {
   cameraId: string;
-  partnerId: string;
   status: 'all' | 'active' | 'inactive';
   zoneType: 'all' | ParkingZone['zone_type'];
   locationType: 'all' | 'none' | NonNullable<ZoneLocationType>;
@@ -148,7 +147,6 @@ export default function ZonesAdminPage() {
   const [selectedZoneIds, setSelectedZoneIds] = useState<Set<string>>(() => new Set());
   const [filters, setFilters] = useState<ZoneFilters>({
     cameraId: '',
-    partnerId: '',
     status: 'all',
     zoneType: 'all',
     locationType: 'all',
@@ -188,7 +186,7 @@ export default function ZonesAdminPage() {
     try {
       const nextZones = await api.listZones({
         camera_id: filters.cameraId ? Number(filters.cameraId) : undefined,
-        partner_id: filters.partnerId ? Number(filters.partnerId) : currentPartnerId,
+        partner_id: currentPartnerId,
         is_active: filters.status === 'all' ? undefined : filters.status === 'active',
         max_pay: filters.maxPay ? Number(filters.maxPay) : undefined
       });
@@ -504,13 +502,6 @@ export default function ZonesAdminPage() {
             placeholder="Все камеры"
           />
         </Field>
-        <Field label="Партнёр ID">
-          <Input
-            value={filters.partnerId || (currentPartnerId !== undefined ? String(currentPartnerId) : '')}
-            onChange={e => setFilters(prev => ({ ...prev, partnerId: e.target.value }))}
-            placeholder={currentPartnerId !== undefined ? `Текущий: #${currentPartnerId}` : 'Все партнёры'}
-          />
-        </Field>
         <Field label="Статус">
           <Select
             value={filters.status}
@@ -589,7 +580,6 @@ export default function ZonesAdminPage() {
           variant="ghost"
           onClick={() => setFilters({
             cameraId: '',
-            partnerId: '',
             status: 'all',
             zoneType: 'all',
             locationType: 'all',
