@@ -1069,6 +1069,18 @@ function LineChart({
   yLabel?: string;
 }) {
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
+  const [tooltip, setTooltip] = useState<{
+    key: string;
+    x: number;
+    y: number;
+    boxX: number;
+    boxY: number;
+    width: number;
+    height: number;
+    lines: string[];
+    color: string;
+    pinned: boolean;
+  } | undefined>();
   const visibleSeries = series
     .filter(item => !hidden.has(item.key))
     .map(item => ({ ...item, points: compactLinePoints(item.points, MAX_CHART_POINTS, granularity) }));
@@ -1087,6 +1099,10 @@ function LineChart({
   );
   const totalPointCount = visibleSeries.reduce((sum, item) => sum + item.points.length, 0);
   const showMarkers = totalPointCount <= MAX_MARKER_POINTS;
+
+  useEffect(() => {
+    setTooltip(undefined);
+  }, [series, granularity, hidden]);
 
   if (!series.length || !series.some(item => item.points.length)) {
     return <div className="empty-state">{emptyMessage}</div>;
@@ -1121,10 +1137,44 @@ function LineChart({
         label: points[index]?.x ? formatAxisDateTime(points[index].x) : ''
       };
     }).filter(tick => tick.label);
+  const tooltipValue = (value: number) => {
+    const digits = unit === '%' ? 1 : Math.abs(value) >= 10 ? 0 : 1;
+    return `${value.toFixed(digits)}${unit ?? ''}`;
+  };
+  const pointTooltip = (item: ChartSeries, point: ChartPoint, index: number, pinned: boolean) => {
+    if (point.y === null) return undefined;
+    const pointX = toX(point, index, item.points.length);
+    const pointY = toY(point.y);
+    const lines = [item.label, formatAxisDateTime(point.x), tooltipValue(point.y)];
+    const tooltipWidth = Math.min(230, Math.max(128, Math.max(...lines.map(line => line.length)) * 6.4 + 18));
+    const tooltipHeight = 58;
+    let boxX = pointX + 12;
+    let boxY = pointY - tooltipHeight - 12;
+    if (boxX + tooltipWidth > width - padding.right) boxX = pointX - tooltipWidth - 12;
+    if (boxX < padding.left) boxX = padding.left;
+    if (boxY < padding.top) boxY = pointY + 12;
+    if (boxY + tooltipHeight > height - padding.bottom) boxY = height - padding.bottom - tooltipHeight;
+    return {
+      key: `${item.key}-${index}`,
+      x: pointX,
+      y: pointY,
+      boxX,
+      boxY,
+      width: tooltipWidth,
+      height: tooltipHeight,
+      lines,
+      color: item.color,
+      pinned
+    };
+  };
+  const showPointTooltip = (item: ChartSeries, point: ChartPoint, index: number, pinned = false) => {
+    const next = pointTooltip(item, point, index, pinned);
+    if (next) setTooltip(next);
+  };
 
   return (
     <div className="analytics-chart">
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${yLabel} по оси ${xLabel}`}>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${yLabel} по оси ${xLabel}`} onClick={() => setTooltip(undefined)}>
         {yTicks.map((tick, index) => {
           const y = toY(tick);
           return (
@@ -1159,9 +1209,36 @@ function LineChart({
         {showMarkers && visibleSeries.map(item => item.points.map((point, index) => {
           if (point.y === null) return null;
           return (
-            <circle key={`${item.key}-${index}`} cx={toX(point, index, item.points.length)} cy={toY(point.y)} r="3" fill={item.color}>
+            <circle key={`${item.key}-${index}`} cx={toX(point, index, item.points.length)} cy={toY(point.y)} r="3" fill={item.color} className="chart-point-marker">
               <title>{`${item.label}\n${formatDateTime(point.x)}\n${point.y.toFixed(1)}${unit ?? ''}`}</title>
             </circle>
+          );
+        }))}
+        {visibleSeries.map(item => item.points.map((point, index) => {
+          if (point.y === null) return null;
+          const pointX = toX(point, index, item.points.length);
+          const pointY = toY(point.y);
+          return (
+            <circle
+              key={`hit-${item.key}-${index}`}
+              cx={pointX}
+              cy={pointY}
+              r={showMarkers ? 9 : 7}
+              fill="transparent"
+              pointerEvents="all"
+              tabIndex={0}
+              role="button"
+              aria-label={`${item.label}: ${formatAxisDateTime(point.x)}, ${tooltipValue(point.y)}`}
+              className="chart-point-hit"
+              onMouseEnter={() => showPointTooltip(item, point, index)}
+              onFocus={() => showPointTooltip(item, point, index)}
+              onClick={(event) => {
+                event.stopPropagation();
+                showPointTooltip(item, point, index, true);
+              }}
+              onMouseLeave={() => setTooltip(current => current?.pinned ? current : undefined)}
+              onBlur={() => setTooltip(current => current?.pinned ? current : undefined)}
+            />
           );
         }))}
         {xTicks.map((tick, index) => (
@@ -1181,6 +1258,22 @@ function LineChart({
         >
           {yLabel}
         </text>
+        {tooltip && (
+          <g className="chart-tooltip" pointerEvents="none">
+            <line x1={tooltip.x} y1={padding.top} x2={tooltip.x} y2={height - padding.bottom} className="chart-tooltip-guide" />
+            <circle cx={tooltip.x} cy={tooltip.y} r="5" fill="#fff" stroke={tooltip.color} strokeWidth="3" />
+            <g transform={`translate(${tooltip.boxX} ${tooltip.boxY})`}>
+              <rect width={tooltip.width} height={tooltip.height} rx="4" />
+              <text x="10" y="18">
+                {tooltip.lines.map((line, index) => (
+                  <tspan key={`${tooltip.key}-${index}`} x="10" dy={index === 0 ? 0 : 16} fontWeight={index === 0 ? 700 : 500}>
+                    {line}
+                  </tspan>
+                ))}
+              </text>
+            </g>
+          </g>
+        )}
       </svg>
       {granularity && (
         <div className="chart-meta">Детализация: {GRANULARITY_LABELS[granularity]}</div>

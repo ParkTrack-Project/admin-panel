@@ -172,6 +172,31 @@ body { background: var(--bg); color: var(--text); font-family: Inter, system-ui,
   font-weight: 700;
 }
 
+.chart-point-marker {
+  transition: r 0.12s ease;
+}
+
+.chart-point-hit {
+  cursor: pointer;
+  outline: none;
+}
+
+.chart-tooltip-guide {
+  stroke: rgba(18, 138, 69, 0.28);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+
+.chart-tooltip rect {
+  fill: #111827;
+  filter: drop-shadow(0 8px 14px rgba(15, 23, 42, 0.25));
+}
+
+.chart-tooltip text {
+  fill: #fff;
+  font-size: 11px;
+}
+
 .chart-meta {
   margin-top: 8px;
   color: var(--muted);
