@@ -86,6 +86,12 @@ const MAX_CHART_POINTS = 120;
 const MAX_MARKER_POINTS = 90;
 const STALE_THRESHOLD_MINUTES = Number(import.meta.env.VITE_ANALYTICS_STALE_MINUTES ?? 10);
 const CHART_COLORS = ['#128a45', '#2563eb', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2', '#be123c', '#4d7c0f', '#9333ea', '#0f766e'];
+const GRANULARITY_LABELS: Record<AnalyticsGranularity, string> = {
+  '5m': '5 минут',
+  '15m': '15 минут',
+  '1h': '1 час',
+  '1d': '1 день'
+};
 
 function emptyState<T>(): LoadState<T> {
   return { loading: false };
@@ -232,14 +238,32 @@ function sortChartPoints(points: ChartPoint[]) {
   });
 }
 
-function compactLinePoints(points: ChartPoint[], maxPoints = MAX_CHART_POINTS): ChartPoint[] {
+function bucketPointTime(value: string, granularity?: AnalyticsGranularity) {
+  if (!granularity) return value;
+  const time = parsePointTime(value);
+  if (time === null) return value;
+
+  const date = new Date(time);
+  if (granularity === '1d') {
+    date.setHours(0, 0, 0, 0);
+  } else if (granularity === '1h') {
+    date.setMinutes(0, 0, 0);
+  } else {
+    const stepMinutes = granularity === '5m' ? 5 : 15;
+    date.setMinutes(Math.floor(date.getMinutes() / stepMinutes) * stepMinutes, 0, 0);
+  }
+  return date.toISOString();
+}
+
+function compactLinePoints(points: ChartPoint[], maxPoints = MAX_CHART_POINTS, granularity?: AnalyticsGranularity): ChartPoint[] {
   const grouped = new Map<string, { sum: number; count: number; meta?: Record<string, unknown> }>();
   points.forEach(point => {
     if (typeof point.y !== 'number' || !Number.isFinite(point.y)) return;
-    const bucket = grouped.get(point.x) ?? { sum: 0, count: 0, meta: point.meta };
+    const key = bucketPointTime(point.x, granularity);
+    const bucket = grouped.get(key) ?? { sum: 0, count: 0, meta: point.meta };
     bucket.sum += point.y;
     bucket.count += 1;
-    grouped.set(point.x, bucket);
+    grouped.set(key, bucket);
   });
 
   const averaged = sortChartPoints([...grouped.entries()].map(([x, value]) => ({
@@ -269,11 +293,12 @@ function compactLinePoints(points: ChartPoint[], maxPoints = MAX_CHART_POINTS): 
   return compacted;
 }
 
-function compactBarPoints(points: ChartPoint[], maxPoints = MAX_CHART_POINTS): ChartPoint[] {
+function compactBarPoints(points: ChartPoint[], maxPoints = MAX_CHART_POINTS, granularity?: AnalyticsGranularity): ChartPoint[] {
   const grouped = new Map<string, number>();
   points.forEach(point => {
     if (typeof point.y !== 'number' || !Number.isFinite(point.y)) return;
-    grouped.set(point.x, (grouped.get(point.x) ?? 0) + point.y);
+    const key = bucketPointTime(point.x, granularity);
+    grouped.set(key, (grouped.get(key) ?? 0) + point.y);
   });
 
   const summed = sortChartPoints([...grouped.entries()].map(([x, y]) => ({ x, y })));
@@ -627,6 +652,7 @@ function AnalyticsDashboard() {
       targets.map(target => api.analytics.legacyOccupancySeries({
         partner_id: currentPartnerId,
         ...range,
+        granularity: filters.granularity,
         ...target.query
       }))
     );
@@ -634,6 +660,7 @@ function AnalyticsDashboard() {
       targets.map(target => api.analytics.legacyForecastSeries({
         partner_id: currentPartnerId,
         ...range,
+        granularity: filters.granularity,
         ...target.query
       }))
     );
@@ -751,19 +778,19 @@ function AnalyticsDashboard() {
 
       <div className="analytics-chart-grid">
         <Block title="Занятость" state={legacyOccupancy}>
-          <LineChart series={occupancySeries} unit="%" yLabel="Занятость, %" emptyMessage="Нет данных за выбранный период" />
+          <LineChart series={occupancySeries} unit="%" granularity={filters.granularity} yLabel="Занятость, %" emptyMessage="Нет данных за выбранный период" />
         </Block>
 
         <Block title="Прогноз занятости" state={legacyForecast}>
-          <LineChart series={forecastSeries} unit="%" yLabel="Занятость, %" emptyMessage="Прогноз недоступен" />
+          <LineChart series={forecastSeries} unit="%" granularity={filters.granularity} yLabel="Занятость, %" emptyMessage="Прогноз недоступен" />
         </Block>
 
         <Block title="Количество наблюдений" state={legacyOccupancy}>
-          <BarChart points={observationBars} yLabel="Наблюдений" emptyMessage="Нет наблюдений за выбранный период" />
+          <BarChart points={observationBars} granularity={filters.granularity} yLabel="Наблюдений" emptyMessage="Нет наблюдений за выбранный период" />
         </Block>
 
         <Block title="Уверенность модели" state={legacyOccupancy}>
-          <LineChart series={confidenceSeries} unit="%" yLabel="Уверенность, %" emptyMessage="Нет данных по уверенности модели" />
+          <LineChart series={confidenceSeries} unit="%" granularity={filters.granularity} yLabel="Уверенность, %" emptyMessage="Нет данных по уверенности модели" />
         </Block>
       </div>
     </section>
@@ -1030,19 +1057,21 @@ function LineChart({
   series,
   unit,
   emptyMessage,
+  granularity,
   xLabel = 'Время',
   yLabel = unit ? `Значение, ${unit}` : 'Значение'
 }: {
   series: ChartSeries[];
   unit?: string;
   emptyMessage: string;
+  granularity?: AnalyticsGranularity;
   xLabel?: string;
   yLabel?: string;
 }) {
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
   const visibleSeries = series
     .filter(item => !hidden.has(item.key))
-    .map(item => ({ ...item, points: compactLinePoints(item.points) }));
+    .map(item => ({ ...item, points: compactLinePoints(item.points, MAX_CHART_POINTS, granularity) }));
   const values = visibleSeries.flatMap(item => item.points.map(point => point.y).filter((value): value is number => typeof value === 'number'));
   const maxValue = unit === '%' ? Math.max(100, ...values) : Math.max(1, ...values);
   const minValue = unit === '%' ? 0 : Math.min(0, ...values);
@@ -1153,6 +1182,9 @@ function LineChart({
           {yLabel}
         </text>
       </svg>
+      {granularity && (
+        <div className="chart-meta">Детализация: {GRANULARITY_LABELS[granularity]}</div>
+      )}
       <div className="chart-legend">
         {series.map(item => (
           <button
@@ -1178,15 +1210,17 @@ function LineChart({
 function BarChart({
   points,
   emptyMessage,
+  granularity,
   xLabel = 'Время',
   yLabel = 'Количество'
 }: {
   points: ChartPoint[];
   emptyMessage: string;
+  granularity?: AnalyticsGranularity;
   xLabel?: string;
   yLabel?: string;
 }) {
-  const chartPoints = compactBarPoints(points);
+  const chartPoints = compactBarPoints(points, MAX_CHART_POINTS, granularity);
   const values = chartPoints.map(point => point.y).filter((value): value is number => typeof value === 'number');
   const maxValue = Math.max(1, ...values);
   const width = 720;
@@ -1255,6 +1289,9 @@ function BarChart({
           {yLabel}
         </text>
       </svg>
+      {granularity && (
+        <div className="chart-meta">Детализация: {GRANULARITY_LABELS[granularity]}</div>
+      )}
     </div>
   );
 }

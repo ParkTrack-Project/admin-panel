@@ -172,6 +172,12 @@ body { background: var(--bg); color: var(--text); font-family: Inter, system-ui,
   font-weight: 700;
 }
 
+.chart-meta {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .chart-legend {
   display: flex;
   flex-wrap: wrap;
