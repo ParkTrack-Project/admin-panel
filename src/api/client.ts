@@ -54,7 +54,10 @@ export type {
   DetectionFeedbackRequest,
   DetectionRunDetail,
   DetectionRunList,
-  DetectionRunListItem
+  DetectionRunListItem,
+  LegacyForecastSeriesPoint,
+  LegacyOccupancySeriesPoint,
+  LegacySeriesQuery
 } from './analytics';
 
 export type HealthResponse = {

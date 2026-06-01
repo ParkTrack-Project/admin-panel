@@ -17,7 +17,9 @@ import type {
   DetectionFeedbackErrorType,
   DetectionFeedbackRating,
   DetectionRunDetail,
-  DetectionRunList
+  DetectionRunList,
+  LegacyForecastSeriesPoint,
+  LegacyOccupancySeriesPoint
 } from '@/api/client';
 import type { ParkingZone } from '@/types';
 import { Button, Field, Input, Select } from '@/components/UiKit';
@@ -58,6 +60,18 @@ type ChartSeries = {
   color: string;
   dashed?: boolean;
   points: ChartPoint[];
+};
+
+type LegacyOccupancyDataset = {
+  key: string;
+  label: string;
+  points: LegacyOccupancySeriesPoint[];
+};
+
+type LegacyForecastDataset = {
+  key: string;
+  label: string;
+  points: LegacyForecastSeriesPoint[];
 };
 
 type AnalyticsRouteState =
@@ -351,6 +365,90 @@ function makeAnalyticsQuery(filters: AnalyticsFilters, partnerId?: number): Anal
   };
 }
 
+function makeLegacySeriesTargets(filters: AnalyticsFilters, zones: ParkingZone[], cameras: Camera[]) {
+  if (filters.selectedZoneIds.length > 0) {
+    return filters.selectedZoneIds.slice(0, MAX_VISIBLE_SERIES).map(zoneId => ({
+      key: `zone-${zoneId}`,
+      label: getZoneLabel(zoneId, zones),
+      query: { zone_id: zoneId }
+    }));
+  }
+
+  if (filters.selectedCameraIds.length > 0) {
+    return filters.selectedCameraIds.slice(0, MAX_VISIBLE_SERIES).map(cameraId => ({
+      key: `camera-${cameraId}`,
+      label: getCameraLabel(Number(cameraId), cameras),
+      query: { camera_id: cameraId }
+    }));
+  }
+
+  return [{
+    key: 'all',
+    label: 'Все доступные зоны',
+    query: {}
+  }];
+}
+
+function legacyOccupancyToSeries(datasets?: LegacyOccupancyDataset[]): ChartSeries[] {
+  return (datasets ?? []).map((dataset, index) => ({
+    key: dataset.key,
+    label: dataset.label,
+    color: CHART_COLORS[index % CHART_COLORS.length],
+    points: [...dataset.points].reverse().map(point => ({
+      x: point.observed_at,
+      y: point.capacity > 0 ? (point.occupied / point.capacity) * 100 : null,
+      meta: point as unknown as Record<string, unknown>
+    }))
+  }));
+}
+
+function legacyForecastToSeries(occupancy?: LegacyOccupancyDataset[], forecast?: LegacyForecastDataset[]): ChartSeries[] {
+  const factSeries = legacyOccupancyToSeries(occupancy).slice(0, MAX_VISIBLE_SERIES).map(series => ({
+    ...series,
+    label: `${series.label} · факт`
+  }));
+
+  const forecastSeries = (forecast ?? []).slice(0, MAX_VISIBLE_SERIES).map((dataset, index) => ({
+    key: `forecast-${dataset.key}`,
+    label: `${dataset.label} · прогноз`,
+    color: CHART_COLORS[index % CHART_COLORS.length],
+    dashed: true,
+    points: [...dataset.points].map(point => ({
+      x: point.predicted_for,
+      y: point.capacity > 0 ? (point.predicted_occupied / point.capacity) * 100 : null,
+      meta: point as unknown as Record<string, unknown>
+    }))
+  }));
+
+  return [...factSeries, ...forecastSeries];
+}
+
+function legacyObservationsToBars(datasets?: LegacyOccupancyDataset[]): ChartPoint[] {
+  const grouped = new Map<string, number>();
+  (datasets ?? []).forEach(dataset => {
+    dataset.points.forEach(point => {
+      const bucket = point.observed_at;
+      grouped.set(bucket, (grouped.get(bucket) ?? 0) + 1);
+    });
+  });
+  return [...grouped.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([x, y]) => ({ x, y }));
+}
+
+function legacyConfidenceToSeries(datasets?: LegacyOccupancyDataset[]): ChartSeries[] {
+  return (datasets ?? []).map((dataset, index) => ({
+    key: `confidence-${dataset.key}`,
+    label: dataset.label,
+    color: CHART_COLORS[index % CHART_COLORS.length],
+    points: [...dataset.points].reverse().map(point => ({
+      x: point.observed_at,
+      y: normalizePercent(point.confidence),
+      meta: point as unknown as Record<string, unknown>
+    }))
+  }));
+}
+
 function blockError(error: unknown) {
   return String((error as any)?.message || error);
 }
@@ -389,13 +487,13 @@ export default function AnalyticsPage() {
   const route = useAnalyticsRoute();
 
   if (route.view === 'zone') {
-    return <ZoneAnalyticsPage zoneId={route.zoneId} />;
+    return <AnalyticsComingSoon title={`Аналитика зоны #${route.zoneId}`} />;
   }
   if (route.view === 'camera') {
-    return <CameraAnalyticsPage cameraId={route.cameraId} />;
+    return <AnalyticsComingSoon title={`Аналитика камеры #${route.cameraId}`} />;
   }
   if (route.view === 'detection') {
-    return <DetectionAnalyticsPage detectionRunId={route.detectionRunId} />;
+    return <AnalyticsComingSoon title={`Распознавание #${route.detectionRunId}`} />;
   }
 
   return <AnalyticsDashboard />;
@@ -408,48 +506,61 @@ function AnalyticsDashboard() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [cameras, setCameras] = useState<LoadState<Camera[]>>(emptyState);
   const [zones, setZones] = useState<LoadState<ParkingZone[]>>(emptyState);
-  const [summary, setSummary] = useState<LoadState<AnalyticsSummary>>(emptyState);
-  const [frequency, setFrequency] = useState<LoadState<AnalyticsUpdateFrequency>>(emptyState);
-  const [confidence, setConfidence] = useState<LoadState<AnalyticsConfidence>>(emptyState);
-  const [history, setHistory] = useState<LoadState<AnalyticsHistory>>(emptyState);
-  const [forecast, setForecast] = useState<LoadState<AnalyticsForecast>>(emptyState);
-  const [observations, setObservations] = useState<LoadState<AnalyticsObservationsRate>>(emptyState);
-  const [health, setHealth] = useState<LoadState<AnalyticsDetectorHealth>>(emptyState);
+  const [legacyOccupancy, setLegacyOccupancy] = useState<LoadState<LegacyOccupancyDataset[]>>(emptyState);
+  const [legacyForecast, setLegacyForecast] = useState<LoadState<LegacyForecastDataset[]>>(emptyState);
 
-  const query = useMemo(() => makeAnalyticsQuery(filters, currentPartnerId), [filters, currentPartnerId]);
-  const zoneItems = zones.data ?? [];
-  const cameraItems = cameras.data ?? [];
+  const zoneItems = useMemo(() => zones.data ?? [], [zones.data]);
+  const cameraItems = useMemo(() => cameras.data ?? [], [cameras.data]);
 
   const loadDashboard = useCallback(async (silent = false) => {
-    const nextQuery = makeAnalyticsQuery(filters, currentPartnerId);
+    const range = rangeForFilters(filters);
+    const targets = makeLegacySeriesTargets(filters, zoneItems, cameraItems);
     if (!silent) {
-      setSummary({ loading: true });
-      setFrequency({ loading: true });
-      setConfidence({ loading: true });
-      setHistory({ loading: true });
-      setForecast({ loading: true });
-      setObservations({ loading: true });
-      setHealth({ loading: true });
+      setLegacyOccupancy({ loading: true });
+      setLegacyForecast({ loading: true });
     }
 
-    const results = await Promise.allSettled([
-      api.analytics.summary(nextQuery),
-      api.analytics.updateFrequency(nextQuery),
-      api.analytics.confidence(nextQuery),
-      api.analytics.occupancyHistory(nextQuery),
-      api.analytics.occupancyForecast(nextQuery),
-      api.analytics.observationsRate(nextQuery),
-      api.analytics.detectorHealth(nextQuery)
-    ]);
+    const occupancyResults = await Promise.allSettled(
+      targets.map(target => api.analytics.legacyOccupancySeries({
+        partner_id: currentPartnerId,
+        ...range,
+        ...target.query
+      }))
+    );
+    const forecastResults = await Promise.allSettled(
+      targets.map(target => api.analytics.legacyForecastSeries({
+        partner_id: currentPartnerId,
+        ...range,
+        ...target.query
+      }))
+    );
 
-    const setters = [setSummary, setFrequency, setConfidence, setHistory, setForecast, setObservations, setHealth] as const;
-    results.forEach((result, index) => {
-      setters[index](result.status === 'fulfilled'
-        ? { loading: false, data: result.value as never }
-        : { loading: false, error: blockError(result.reason) }
-      );
-    });
-  }, [filters, currentPartnerId]);
+    const occupancyFailed = occupancyResults.find(result => result.status === 'rejected') as PromiseRejectedResult | undefined;
+    const forecastFailed = forecastResults.find(result => result.status === 'rejected') as PromiseRejectedResult | undefined;
+
+    setLegacyOccupancy(occupancyFailed
+      ? { loading: false, error: blockError(occupancyFailed.reason) }
+      : {
+        loading: false,
+        data: occupancyResults.map((result, index) => ({
+          key: targets[index].key,
+          label: targets[index].label,
+          points: result.status === 'fulfilled' ? result.value : []
+        }))
+      }
+    );
+    setLegacyForecast(forecastFailed
+      ? { loading: false, error: blockError(forecastFailed.reason) }
+      : {
+        loading: false,
+        data: forecastResults.map((result, index) => ({
+          key: targets[index].key,
+          label: targets[index].label,
+          points: result.status === 'fulfilled' ? result.value : []
+        }))
+      }
+    );
+  }, [filters, currentPartnerId, zoneItems, cameraItems]);
 
   useEffect(() => {
     let cancelled = false;
@@ -482,10 +593,10 @@ function AnalyticsDashboard() {
     return () => window.clearInterval(timer);
   }, [filters.autoRefresh, loadDashboard]);
 
-  const occupancySeries = useMemo(() => historyToOccupancySeries(history.data, zoneItems), [history.data, zoneItems]);
-  const forecastSeries = useMemo(() => forecastToSeries(history.data, forecast.data, zoneItems), [history.data, forecast.data, zoneItems]);
-  const confidenceSeries = useMemo(() => confidenceToSeries(confidence.data), [confidence.data]);
-  const observationBars = useMemo(() => observationsToBars(observations.data), [observations.data]);
+  const occupancySeries = useMemo(() => legacyOccupancyToSeries(legacyOccupancy.data), [legacyOccupancy.data]);
+  const forecastSeries = useMemo(() => legacyForecastToSeries(legacyOccupancy.data, legacyForecast.data), [legacyOccupancy.data, legacyForecast.data]);
+  const confidenceSeries = useMemo(() => legacyConfidenceToSeries(legacyOccupancy.data), [legacyOccupancy.data]);
+  const observationBars = useMemo(() => legacyObservationsToBars(legacyOccupancy.data), [legacyOccupancy.data]);
 
   function refresh() {
     setRefreshKey(key => key + 1);
@@ -518,40 +629,37 @@ function AnalyticsDashboard() {
         onRefresh={refresh}
       />
 
-      <KpiGrid
-        summary={summary}
-        frequency={frequency}
-        confidence={confidence}
+      <AnalyticsBackendStub
+        title="KPI и агрегаты"
+        description="Этот блок ждёт новые `/admin/analytics/summary`, `/update-frequency` и `/confidence`. Пока backend не готов, оставляем графики на существующих `/occupancy` и `/forecasts`."
       />
 
       <div className="analytics-dashboard-grid">
-        <Block title="Карта зон и камер" state={{ loading: zones.loading || cameras.loading, error: zones.error || cameras.error, data: true }}>
-          <AnalyticsMap
-            zones={zoneItems}
-            cameras={cameraItems}
-            summary={summary.data}
-          />
-        </Block>
+        <AnalyticsBackendStub
+          title="Карта зон и камер"
+          description="Цвета текущей занятости, stale-статусы и popup-метрики включим после готовности `/admin/analytics/summary`."
+        />
 
-        <Block title="Проблемные зоны" state={health}>
-          <DetectorHealthTable items={health.data?.items ?? []} />
-        </Block>
+        <AnalyticsBackendStub
+          title="Проблемные зоны"
+          description="Таблица detector health ждёт `/admin/analytics/detector-health`."
+        />
       </div>
 
       <div className="analytics-chart-grid">
-        <Block title="Занятость" state={history}>
+        <Block title="Занятость" state={legacyOccupancy}>
           <LineChart series={occupancySeries} unit="%" emptyMessage="Нет данных за выбранный период" />
         </Block>
 
-        <Block title="Прогноз занятости" state={forecast}>
+        <Block title="Прогноз занятости" state={legacyForecast}>
           <LineChart series={forecastSeries} unit="%" emptyMessage="Прогноз недоступен" />
         </Block>
 
-        <Block title="Количество наблюдений" state={observations}>
+        <Block title="Количество наблюдений" state={legacyOccupancy}>
           <BarChart points={observationBars} emptyMessage="Нет наблюдений за выбранный период" />
         </Block>
 
-        <Block title="Уверенность модели" state={confidence}>
+        <Block title="Уверенность модели" state={legacyOccupancy}>
           <LineChart series={confidenceSeries} unit="%" emptyMessage="Нет данных по уверенности модели" />
         </Block>
       </div>
@@ -793,6 +901,24 @@ function Block<T>({
       {state.error ? (
         <div className="notice error">Не удалось загрузить блок: {state.error}</div>
       ) : children}
+    </div>
+  );
+}
+
+function AnalyticsBackendStub({
+  title,
+  description
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="section-panel analytics-block analytics-backend-stub">
+      <div className="analytics-block-head">
+        <h2>{title}</h2>
+        <span className="status-pill paused">backend pending</span>
+      </div>
+      <div className="empty-state">{description}</div>
     </div>
   );
 }

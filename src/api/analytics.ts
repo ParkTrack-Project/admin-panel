@@ -232,6 +232,34 @@ export type DetectionFeedbackList = {
   total?: number;
 };
 
+export type LegacyOccupancySeriesPoint = {
+  observed_at: string;
+  occupied: number;
+  free_count: number;
+  capacity: number;
+  confidence: number;
+  confidence_level?: string | null;
+  source_type?: string | null;
+};
+
+export type LegacyForecastSeriesPoint = {
+  predicted_for: string;
+  predicted_occupied: number;
+  predicted_free_count: number;
+  capacity: number;
+  probability_free_space: number;
+  confidence: number;
+  confidence_level?: string | null;
+  model_type?: string | null;
+  generated_at?: string | null;
+};
+
+export type LegacySeriesQuery = AnalyticsRange & {
+  partner_id?: number;
+  zone_id?: number | string;
+  camera_id?: number | string;
+};
+
 function analyticsQuery(query: AnalyticsQuery = {}) {
   const search = new URLSearchParams();
   const scalarQuery = buildQuery({
@@ -256,7 +284,26 @@ function analyticsQuery(query: AnalyticsQuery = {}) {
   return result ? `?${result}` : '';
 }
 
+function legacySeriesQuery(query: LegacySeriesQuery = {}, view: 'series') {
+  return buildQuery({
+    partner_id: query.partner_id,
+    zone_id: query.zone_id,
+    camera_id: query.camera_id,
+    from: query.from,
+    to: query.to,
+    view
+  });
+}
+
 export const analyticsApi = {
+  async legacyOccupancySeries(query?: LegacySeriesQuery) {
+    return request<LegacyOccupancySeriesPoint[]>('GET', `/occupancy${legacySeriesQuery(query, 'series')}`);
+  },
+
+  async legacyForecastSeries(query?: LegacySeriesQuery) {
+    return request<LegacyForecastSeriesPoint[]>('GET', `/forecasts${legacySeriesQuery(query, 'series')}`);
+  },
+
   async summary(query?: AnalyticsQuery) {
     return request<AnalyticsSummary>('GET', `/admin/analytics/summary${analyticsQuery(query)}`);
   },
