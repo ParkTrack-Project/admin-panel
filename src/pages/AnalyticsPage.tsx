@@ -12,7 +12,12 @@ import type {
   AnalyticsQuery,
   AnalyticsSummary,
   AnalyticsUpdateFrequency,
-  Camera
+  Camera,
+  DetectionFeedback,
+  DetectionFeedbackErrorType,
+  DetectionFeedbackRating,
+  DetectionRunDetail,
+  DetectionRunList
 } from '@/api/client';
 import type { ParkingZone } from '@/types';
 import { Button, Field, Input, Select } from '@/components/UiKit';
@@ -384,13 +389,13 @@ export default function AnalyticsPage() {
   const route = useAnalyticsRoute();
 
   if (route.view === 'zone') {
-    return <AnalyticsComingSoon title={`Аналитика зоны #${route.zoneId}`} />;
+    return <ZoneAnalyticsPage zoneId={route.zoneId} />;
   }
   if (route.view === 'camera') {
-    return <AnalyticsComingSoon title={`Аналитика камеры #${route.cameraId}`} />;
+    return <CameraAnalyticsPage cameraId={route.cameraId} />;
   }
   if (route.view === 'detection') {
-    return <AnalyticsComingSoon title={`Распознавание #${route.detectionRunId}`} />;
+    return <DetectionAnalyticsPage detectionRunId={route.detectionRunId} />;
   }
 
   return <AnalyticsDashboard />;
@@ -1090,6 +1095,689 @@ function DetectorHealthTable({ items }: { items: AnalyticsDetectorHealthItem[] }
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+function formatMs(value?: number | null) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+  if (value < 1000) return `${Math.round(value)} мс`;
+  return `${(value / 1000).toFixed(2)} сек`;
+}
+
+function zoneCapacity(zone?: ParkingZone, summary?: AnalyticsSummary) {
+  if (!zone) return undefined;
+  const zoneSummary = summary?.zones?.find(item => String(item.zone_id) === String(zone.id));
+  return {
+    capacity: zoneSummary?.capacity ?? zone.capacity,
+    occupied: zoneSummary?.occupied ?? zone.occupied,
+    free: zoneSummary?.free ?? zone.free_count,
+    occupancy: zoneSummary?.occupancy_percent,
+    confidence: zoneSummary?.confidence ?? zone.confidence,
+    lastUpdate: zoneSummary?.last_update_at ?? zone.occupancy_updated_at,
+    status: zoneSummary?.status ?? (zone.is_active === false ? 'inactive' : 'active')
+  };
+}
+
+function zoneCoordinateRows(zone: ParkingZone) {
+  const geometryPoints = zoneMapPoints(zone);
+  if (geometryPoints.length) {
+    return geometryPoints.map((point, index) => `#${index + 1}: ${point[0].toFixed(6)}, ${point[1].toFixed(6)}`);
+  }
+  return zone.points.map((point, index) => `#${index + 1}: ${point.latitude ?? '—'}, ${point.longitude ?? '—'}`);
+}
+
+function ZoneAnalyticsPage({ zoneId }: { zoneId: string }) {
+  const currentPartnerId = useSessionStore(state => state.currentPartnerId);
+  const [zone, setZone] = useState<LoadState<ParkingZone>>(emptyState);
+  const [summary, setSummary] = useState<LoadState<AnalyticsSummary>>(emptyState);
+  const [history, setHistory] = useState<LoadState<AnalyticsHistory>>(emptyState);
+  const [forecast, setForecast] = useState<LoadState<AnalyticsForecast>>(emptyState);
+  const [confidence, setConfidence] = useState<LoadState<AnalyticsConfidence>>(emptyState);
+  const [frequency, setFrequency] = useState<LoadState<AnalyticsUpdateFrequency>>(emptyState);
+  const query = useMemo<AnalyticsQuery>(() => ({
+    partner_id: currentPartnerId,
+    zone_ids: [zoneId],
+    ...rangeForFilters({ ...defaultFilters(), period: '7d' }),
+    granularity: '1h'
+  }), [currentPartnerId, zoneId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setZone({ loading: true });
+    setSummary({ loading: true });
+    setHistory({ loading: true });
+    setForecast({ loading: true });
+    setConfidence({ loading: true });
+    setFrequency({ loading: true });
+
+    Promise.allSettled([
+      api.getZone(zoneId),
+      api.analytics.summary(query),
+      api.analytics.occupancyHistory(query),
+      api.analytics.occupancyForecast(query),
+      api.analytics.confidence(query),
+      api.analytics.updateFrequency(query)
+    ]).then(results => {
+      if (cancelled) return;
+      const [zoneResult, summaryResult, historyResult, forecastResult, confidenceResult, frequencyResult] = results;
+      setZone(zoneResult.status === 'fulfilled' ? { loading: false, data: zoneResult.value } : { loading: false, error: blockError(zoneResult.reason) });
+      setSummary(summaryResult.status === 'fulfilled' ? { loading: false, data: summaryResult.value } : { loading: false, error: blockError(summaryResult.reason) });
+      setHistory(historyResult.status === 'fulfilled' ? { loading: false, data: historyResult.value } : { loading: false, error: blockError(historyResult.reason) });
+      setForecast(forecastResult.status === 'fulfilled' ? { loading: false, data: forecastResult.value } : { loading: false, error: blockError(forecastResult.reason) });
+      setConfidence(confidenceResult.status === 'fulfilled' ? { loading: false, data: confidenceResult.value } : { loading: false, error: blockError(confidenceResult.reason) });
+      setFrequency(frequencyResult.status === 'fulfilled' ? { loading: false, data: frequencyResult.value } : { loading: false, error: blockError(frequencyResult.reason) });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [zoneId, query]);
+
+  const metrics = zoneCapacity(zone.data, summary.data);
+  const zonesForLabels = zone.data ? [zone.data] : [];
+  const occupancySeries = historyToOccupancySeries(history.data, zonesForLabels);
+  const occupiedFreeSeries = useMemo<ChartSeries[]>(() => {
+    const points = asItems(history.data).length
+      ? asItems(history.data)
+      : history.data?.series?.flatMap(series => series.points) ?? [];
+    return [
+      {
+        key: 'occupied',
+        label: 'Занято',
+        color: '#dc2626',
+        points: points.map(point => ({ x: getPointTime(point), y: point.occupied ?? null, meta: point as Record<string, unknown> }))
+      },
+      {
+        key: 'free',
+        label: 'Свободно',
+        color: '#128a45',
+        points: points.map(point => ({ x: getPointTime(point), y: point.free ?? null, meta: point as Record<string, unknown> }))
+      }
+    ];
+  }, [history.data]);
+
+  return (
+    <section className="page-stack analytics-page">
+      <div className="page-heading">
+        <div>
+          <h1>Аналитика зоны #{zoneId}</h1>
+          <p>Занятость, прогноз, геометрия и качество данных по одной парковочной зоне</p>
+        </div>
+        <div className="row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <Button variant="ghost" onClick={() => setAnalyticsRoute({ view: 'dashboard' })}>Назад к аналитике</Button>
+          {zone.data && <Button onClick={() => setAnalyticsRoute({ view: 'camera', cameraId: String(zone.data!.camera_id) })}>Открыть камеру</Button>}
+        </div>
+      </div>
+
+      <Block title="Сводка зоны" state={zone}>
+        {zone.data ? (
+          <div className="details-grid analytics-detail-grid">
+            <Detail label="ID зоны" value={`#${zone.data.id}`} />
+            <Detail label="Камера" value={`#${zone.data.camera_id}`} />
+            <Detail label="Всего мест" value={formatNumber(metrics?.capacity)} />
+            <Detail label="Занято сейчас" value={formatNumber(metrics?.occupied)} />
+            <Detail label="Свободно сейчас" value={formatNumber(metrics?.free)} />
+            <Detail label="Занятость" value={formatPercent(metrics?.occupancy)} />
+            <Detail label="Уверенность модели" value={formatPercent(metrics?.confidence)} />
+            <Detail label="Последнее обновление" value={formatDateTime(metrics?.lastUpdate)} />
+            <Detail label="Статус" value={metrics?.status ?? '—'} />
+          </div>
+        ) : <div className="empty-state">Зона не найдена.</div>}
+      </Block>
+
+      <div className="analytics-dashboard-grid">
+        <Block title="Карта зоны" state={zone}>
+          {zone.data ? <ZoneGeometryPreview zone={zone.data} /> : <div className="empty-state">У зоны не задана геометрия.</div>}
+        </Block>
+        <Block title="Интервалы обновления" state={frequency}>
+          <div className="details-grid analytics-detail-grid compact">
+            <Detail label="Средний интервал" value={formatDuration(frequency.data?.average_interval_seconds)} />
+            <Detail label="Максимальный интервал" value={formatDuration(frequency.data?.max_interval_seconds)} />
+            <Detail label="Самое свежее обновление" value={formatDateTime(frequency.data?.newest_update_at)} />
+            <Detail label="Самое старое обновление" value={formatDateTime(frequency.data?.oldest_update_at)} />
+          </div>
+        </Block>
+      </div>
+
+      <div className="analytics-chart-grid">
+        <Block title="Занято / свободно" state={history}>
+          <LineChart series={occupiedFreeSeries} emptyMessage="Нет данных за выбранный период" />
+        </Block>
+        <Block title="Занятость, %" state={history}>
+          <LineChart series={occupancySeries} unit="%" emptyMessage="Нет данных за выбранный период" />
+        </Block>
+        <Block title="Прогноз занятости" state={forecast}>
+          <LineChart series={forecastToSeries(history.data, forecast.data, zonesForLabels)} unit="%" emptyMessage="Прогноз недоступен" />
+        </Block>
+        <Block title="Уверенность модели" state={confidence}>
+          <LineChart series={confidenceToSeries(confidence.data)} unit="%" emptyMessage="Нет данных по уверенности модели" />
+        </Block>
+      </div>
+    </section>
+  );
+}
+
+function ZoneGeometryPreview({ zone }: { zone: ParkingZone }) {
+  const points = zoneMapPoints(zone);
+  return (
+    <div className="analytics-zone-geometry">
+      {points.length >= 3 ? (
+        <AnalyticsMap zones={[zone]} cameras={[]} summary={{ zones: [{ zone_id: zone.id, occupancy_percent: zone.occupied && zone.capacity ? zone.occupied / zone.capacity : null }] }} />
+      ) : (
+        <div className="empty-state">У зоны не задана геометрия.</div>
+      )}
+      <div className="analytics-coordinate-list">
+        {zoneCoordinateRows(zone).map(row => <span key={row}>{row}</span>)}
+      </div>
+    </div>
+  );
+}
+
+function CameraAnalyticsPage({ cameraId }: { cameraId: string }) {
+  const currentPartnerId = useSessionStore(state => state.currentPartnerId);
+  const numericCameraId = Number(cameraId);
+  const [camera, setCamera] = useState<LoadState<Camera>>(emptyState);
+  const [zones, setZones] = useState<LoadState<ParkingZone[]>>(emptyState);
+  const [health, setHealth] = useState<LoadState<AnalyticsDetectorHealth>>(emptyState);
+  const [frequency, setFrequency] = useState<LoadState<AnalyticsUpdateFrequency>>(emptyState);
+  const [confidence, setConfidence] = useState<LoadState<AnalyticsConfidence>>(emptyState);
+  const [observations, setObservations] = useState<LoadState<AnalyticsObservationsRate>>(emptyState);
+  const [detections, setDetections] = useState<LoadState<DetectionRunList>>(emptyState);
+  const query = useMemo<AnalyticsQuery>(() => ({
+    partner_id: currentPartnerId,
+    camera_ids: [cameraId],
+    ...rangeForFilters({ ...defaultFilters(), period: '7d' }),
+    granularity: '1h',
+    top: 20
+  }), [currentPartnerId, cameraId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCamera({ loading: true });
+    setZones({ loading: true });
+    setHealth({ loading: true });
+    setFrequency({ loading: true });
+    setConfidence({ loading: true });
+    setObservations({ loading: true });
+    setDetections({ loading: true });
+
+    Promise.allSettled([
+      api.getCamera(numericCameraId),
+      api.listZones({ camera_id: numericCameraId, partner_id: currentPartnerId }),
+      api.analytics.detectorHealth(query),
+      api.analytics.updateFrequency(query),
+      api.analytics.confidence(query),
+      api.analytics.observationsRate(query),
+      api.analytics.cameraDetections(numericCameraId, query)
+    ]).then(results => {
+      if (cancelled) return;
+      const [cameraResult, zonesResult, healthResult, frequencyResult, confidenceResult, observationsResult, detectionsResult] = results;
+      setCamera(cameraResult.status === 'fulfilled' ? { loading: false, data: cameraResult.value } : { loading: false, error: blockError(cameraResult.reason) });
+      setZones(zonesResult.status === 'fulfilled' ? { loading: false, data: zonesResult.value } : { loading: false, error: blockError(zonesResult.reason) });
+      setHealth(healthResult.status === 'fulfilled' ? { loading: false, data: healthResult.value } : { loading: false, error: blockError(healthResult.reason) });
+      setFrequency(frequencyResult.status === 'fulfilled' ? { loading: false, data: frequencyResult.value } : { loading: false, error: blockError(frequencyResult.reason) });
+      setConfidence(confidenceResult.status === 'fulfilled' ? { loading: false, data: confidenceResult.value } : { loading: false, error: blockError(confidenceResult.reason) });
+      setObservations(observationsResult.status === 'fulfilled' ? { loading: false, data: observationsResult.value } : { loading: false, error: blockError(observationsResult.reason) });
+      setDetections(detectionsResult.status === 'fulfilled' ? { loading: false, data: detectionsResult.value } : { loading: false, error: blockError(detectionsResult.reason) });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [numericCameraId, currentPartnerId, query]);
+
+  return (
+    <section className="page-stack analytics-page">
+      <div className="page-heading">
+        <div>
+          <h1>Аналитика камеры #{cameraId}</h1>
+          <p>Снимки, наблюдения, интервалы обновления и здоровье связанных зон</p>
+        </div>
+        <div className="row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <Button variant="ghost" onClick={() => setAnalyticsRoute({ view: 'dashboard' })}>Назад к аналитике</Button>
+        </div>
+      </div>
+
+      <Block title="Сводка камеры" state={camera}>
+        {camera.data ? (
+          <div className="details-grid analytics-detail-grid">
+            <Detail label="ID и название" value={`#${camera.data.camera_id} · ${camera.data.title}`} />
+            <Detail label="Источник" value={camera.data.source} />
+            <Detail label="Статус" value={camera.data.is_active === false ? 'Неактивна' : 'Активна'} />
+            <Detail label="Координаты" value={hasCoordinates(camera.data.latitude, camera.data.longitude) ? `${camera.data.latitude.toFixed(6)}, ${camera.data.longitude.toFixed(6)}` : '—'} />
+            <Detail label="Связанных зон" value={zones.data?.length ?? '—'} />
+            <Detail label="Последнее обновление" value={formatDateTime(frequency.data?.newest_update_at ?? camera.data.updated_at)} />
+            <Detail label="Средний интервал" value={formatDuration(frequency.data?.average_interval_seconds)} />
+            <Detail label="Уверенность модели" value={formatPercent(confidence.data?.average_confidence)} />
+          </div>
+        ) : <div className="empty-state">Камера не найдена.</div>}
+      </Block>
+
+      <Block title="Снимки камеры" state={camera}>
+        <CameraSnapshots cameraId={numericCameraId} />
+      </Block>
+
+      <div className="analytics-chart-grid">
+        <Block title="Количество наблюдений" state={observations}>
+          <BarChart points={observationsToBars(observations.data)} emptyMessage="Нет наблюдений по камере" />
+        </Block>
+        <Block title="Уверенность модели" state={confidence}>
+          <LineChart series={confidenceToSeries(confidence.data)} unit="%" emptyMessage="Нет данных по уверенности модели" />
+        </Block>
+        <Block title="Интервалы обновлений" state={frequency}>
+          <BarChart
+            points={[
+              { x: 'Средний', y: frequency.data?.average_interval_seconds ?? null },
+              { x: 'Максимальный', y: frequency.data?.max_interval_seconds ?? null }
+            ]}
+            emptyMessage="Интервалы обновления недоступны"
+          />
+        </Block>
+        <Block title="Здоровье зон камеры" state={health}>
+          <DetectorHealthTable items={health.data?.items ?? []} />
+        </Block>
+      </div>
+
+      <Block title="Последние распознавания" state={detections}>
+        <DetectionsTable detections={detections.data?.items ?? []} />
+      </Block>
+    </section>
+  );
+}
+
+function CameraSnapshots({ cameraId }: { cameraId: number }) {
+  const [tab, setTab] = useState<'snapshot' | 'raw' | 'annotated'>('snapshot');
+  const [snapshot, setSnapshot] = useState<LoadState<{ image_url: string; captured_at?: string }>>(emptyState);
+  const [fullscreenUrl, setFullscreenUrl] = useState<string | undefined>();
+  const options = tab === 'annotated' ? { annotated: true, fallback_to_raw: true } : { annotated: false, fallback_to_raw: true };
+
+  const load = useCallback(async () => {
+    setSnapshot({ loading: true });
+    try {
+      const result = await api.getSnapshot(cameraId, options);
+      setSnapshot({ loading: false, data: result });
+    } catch (error) {
+      setSnapshot({ loading: false, error: blockError(error) });
+    }
+  }, [cameraId, tab]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  return (
+    <div className="analytics-snapshot-block">
+      <div className="segmented">
+        <button type="button" className={tab === 'snapshot' ? 'active' : ''} onClick={() => setTab('snapshot')}>Последний снимок</button>
+        <button type="button" className={tab === 'raw' ? 'active' : ''} onClick={() => setTab('raw')}>Последнее распознавание</button>
+        <button type="button" className={tab === 'annotated' ? 'active' : ''} onClick={() => setTab('annotated')}>С разметкой</button>
+      </div>
+      <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <span className="small">Timestamp: {formatDateTime(snapshot.data?.captured_at)}</span>
+        <div className="row" style={{ flexWrap: 'wrap' }}>
+          <Button variant="ghost" onClick={load} disabled={snapshot.loading}>{snapshot.loading ? 'Загрузка...' : 'Обновить'}</Button>
+          <Button variant="ghost" onClick={() => snapshot.data?.image_url && setFullscreenUrl(snapshot.data.image_url)} disabled={!snapshot.data?.image_url}>Fullscreen</Button>
+        </div>
+      </div>
+      {snapshot.error && <div className="notice error">Снимок недоступен: {snapshot.error}</div>}
+      {snapshot.data?.image_url ? (
+        <img className="analytics-snapshot" src={snapshot.data.image_url} alt="Снимок камеры" />
+      ) : !snapshot.loading && !snapshot.error ? (
+        <div className="empty-state">Снимок недоступен</div>
+      ) : null}
+      {fullscreenUrl && (
+        <div className="fullscreen-preview" role="dialog">
+          <button type="button" className="fullscreen-close" onClick={() => setFullscreenUrl(undefined)}>×</button>
+          <img src={fullscreenUrl} alt="Снимок камеры" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DetectionsTable({ detections }: { detections: DetectionRunList['items'] }) {
+  if (!detections.length) {
+    return <div className="empty-state">Распознавания не найдены.</div>;
+  }
+
+  return (
+    <div className="table-scroll">
+      <div className="table-header analytics-detections-table">
+        <span>Время</span>
+        <span>Статус</span>
+        <span>Обработка</span>
+        <span>Машин</span>
+        <span>Занято</span>
+        <span>Свободно</span>
+        <span>Уверенность модели</span>
+        <span>Оценка</span>
+        <span></span>
+      </div>
+      <div className="table-list">
+        {detections.map(item => (
+          <button
+            type="button"
+            key={String(item.detection_run_id)}
+            className="table-row analytics-detections-table contract-row-button"
+            onClick={() => setAnalyticsRoute({ view: 'detection', detectionRunId: String(item.detection_run_id) })}
+          >
+            <span>{formatDateTime(item.started_at)}</span>
+            <span>{item.status ?? '—'}</span>
+            <span>{formatMs(item.processing_time_ms)}</span>
+            <span>{formatNumber(item.cars_detected)}</span>
+            <span>{formatNumber(item.occupied)}</span>
+            <span>{formatNumber(item.free)}</span>
+            <span>{formatPercent(item.confidence)}</span>
+            <span>{item.has_feedback ? 'Да' : 'Нет'}</span>
+            <span>Открыть</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DetectionAnalyticsPage({ detectionRunId }: { detectionRunId: string }) {
+  const isAdmin = useSessionStore(state => state.isAdmin());
+  const notifySuccess = useFeedbackStore(state => state.success);
+  const [detail, setDetail] = useState<LoadState<DetectionRunDetail>>(emptyState);
+  const [feedback, setFeedback] = useState<LoadState<{ items: DetectionFeedback[] }>>(emptyState);
+  const [selectedFeedback, setSelectedFeedback] = useState<LoadState<DetectionFeedback>>(emptyState);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setDetail({ loading: true });
+    setFeedback({ loading: isAdmin });
+    try {
+      const nextDetail = await api.analytics.detection(detectionRunId);
+      setDetail({ loading: false, data: nextDetail });
+    } catch (error) {
+      setDetail({ loading: false, error: blockError(error) });
+    }
+
+    if (isAdmin) {
+      try {
+        const nextFeedback = await api.analytics.detectionFeedback(detectionRunId);
+        setFeedback({ loading: false, data: nextFeedback });
+      } catch (error) {
+        setFeedback({ loading: false, error: blockError(error) });
+      }
+    }
+  }, [detectionRunId, isAdmin]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function saveFeedback(data: {
+    rating: DetectionFeedbackRating;
+    correct_occupied?: number | null;
+    correct_free?: number | null;
+    error_type?: DetectionFeedbackErrorType | null;
+    comment?: string | null;
+  }) {
+    setSaving(true);
+    try {
+      await api.analytics.createDetectionFeedback(detectionRunId, data);
+      notifySuccess('Оценка сохранена.');
+      await load();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function openFeedback(feedbackId?: number | string) {
+    if (!feedbackId) return;
+    setSelectedFeedback({ loading: true });
+    try {
+      const next = await api.analytics.detectionFeedbackDetail(detectionRunId, feedbackId);
+      setSelectedFeedback({ loading: false, data: next });
+    } catch (error) {
+      setSelectedFeedback({ loading: false, error: blockError(error) });
+    }
+  }
+
+  const item = detail.data;
+
+  return (
+    <section className="page-stack analytics-page">
+      <div className="page-heading">
+        <div>
+          <h1>Распознавание #{detectionRunId}</h1>
+          <p>Просмотр запуска detector-а и оценка качества распознавания</p>
+        </div>
+        <div className="row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <Button variant="ghost" onClick={() => setAnalyticsRoute({ view: 'dashboard' })}>Назад к аналитике</Button>
+          {item?.camera_id && <Button onClick={() => setAnalyticsRoute({ view: 'camera', cameraId: String(item.camera_id) })}>К камере</Button>}
+        </div>
+      </div>
+
+      <Block title="Информация о распознавании" state={detail}>
+        {item ? (
+          <div className="details-grid analytics-detail-grid">
+            <Detail label="ID распознавания" value={`#${item.detection_run_id}`} />
+            <Detail label="Камера" value={`#${item.camera_id}`} />
+            <Detail label="Зона" value={item.zone_id ? `#${item.zone_id}` : '—'} />
+            <Detail label="Начало" value={formatDateTime(item.started_at)} />
+            <Detail label="Завершение" value={formatDateTime(item.finished_at)} />
+            <Detail label="Статус" value={item.status ?? '—'} />
+            <Detail label="Время обработки" value={formatMs(item.processing_time_ms)} />
+            <Detail label="Версия модели" value={item.model_version ?? '—'} />
+            <Detail label="Машин найдено" value={formatNumber(item.cars_detected)} />
+            <Detail label="Занято" value={formatNumber(item.occupied)} />
+            <Detail label="Свободно" value={formatNumber(item.free)} />
+            <Detail label="Всего мест" value={formatNumber(item.total)} />
+            <Detail label="Уверенность модели" value={formatPercent(item.confidence)} />
+            <Detail label="Ошибка" value={item.error ?? '—'} />
+          </div>
+        ) : <div className="empty-state">Распознавание не найдено.</div>}
+      </Block>
+
+      {item && (
+        <Block title="Сравнение изображений" state={detail}>
+          <div className="analytics-image-compare">
+            <DetectionImage title="Raw-изображение" url={item.raw_image_url} />
+            <DetectionImage title="Annotated-изображение" url={item.annotated_image_url} />
+          </div>
+        </Block>
+      )}
+
+      {item && (
+        <Block title="Оценка качества распознавания" state={detail}>
+          {item.feedback && <FeedbackSummary feedback={item.feedback} />}
+          <DetectionFeedbackForm saving={saving} onSubmit={saveFeedback} />
+        </Block>
+      )}
+
+      {isAdmin && (
+        <Block title="История оценок качества" state={feedback}>
+          <FeedbackHistory
+            items={feedback.data?.items ?? []}
+            selected={selectedFeedback}
+            onOpen={openFeedback}
+          />
+        </Block>
+      )}
+    </section>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="detail-card">
+      <div className="metric-label">{label}</div>
+      <div className="detail-value">{value}</div>
+    </div>
+  );
+}
+
+function DetectionImage({ title, url }: { title: string; url?: string | null }) {
+  const [fullscreen, setFullscreen] = useState(false);
+  return (
+    <div className="analytics-detection-image">
+      <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <h3>{title}</h3>
+        <div className="row" style={{ flexWrap: 'wrap' }}>
+          <Button variant="ghost" disabled={!url} onClick={() => setFullscreen(true)}>Fullscreen</Button>
+          <Button variant="ghost" disabled={!url} onClick={() => url && window.open(url, '_blank', 'noopener,noreferrer')}>В новой вкладке</Button>
+        </div>
+      </div>
+      {url ? <img src={url} alt={title} /> : <div className="empty-state">Изображение недоступно</div>}
+      {fullscreen && url && (
+        <div className="fullscreen-preview" role="dialog">
+          <button type="button" className="fullscreen-close" onClick={() => setFullscreen(false)}>×</button>
+          <img src={url} alt={title} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DetectionFeedbackForm({
+  saving,
+  onSubmit
+}: {
+  saving: boolean;
+  onSubmit: (data: {
+    rating: DetectionFeedbackRating;
+    correct_occupied?: number | null;
+    correct_free?: number | null;
+    error_type?: DetectionFeedbackErrorType | null;
+    comment?: string | null;
+  }) => Promise<void>;
+}) {
+  const [rating, setRating] = useState<DetectionFeedbackRating>('correct');
+  const [correctOccupied, setCorrectOccupied] = useState('');
+  const [correctFree, setCorrectFree] = useState('');
+  const [errorType, setErrorType] = useState<DetectionFeedbackErrorType | ''>('');
+  const [comment, setComment] = useState('');
+  const [error, setError] = useState<string | undefined>();
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    setError(undefined);
+    try {
+      await onSubmit({
+        rating,
+        correct_occupied: correctOccupied ? Number(correctOccupied) : null,
+        correct_free: correctFree ? Number(correctFree) : null,
+        error_type: errorType || null,
+        comment: comment.trim() || null
+      });
+      setComment('');
+    } catch (submitError) {
+      setError(blockError(submitError));
+    }
+  }
+
+  return (
+    <form className="analytics-feedback-form" onSubmit={submit}>
+      <Field label="Оценка">
+        <Select value={rating} onChange={event => setRating(event.target.value as DetectionFeedbackRating)}>
+          <option value="correct">Корректно</option>
+          <option value="partially_correct">Частично корректно</option>
+          <option value="incorrect">Некорректно</option>
+        </Select>
+      </Field>
+      <Field label="Правильно занято">
+        <Input type="number" min={0} value={correctOccupied} onChange={event => setCorrectOccupied(event.target.value)} />
+      </Field>
+      <Field label="Правильно свободно">
+        <Input type="number" min={0} value={correctFree} onChange={event => setCorrectFree(event.target.value)} />
+      </Field>
+      <Field label="Тип ошибки">
+        <Select value={errorType} onChange={event => setErrorType(event.target.value as DetectionFeedbackErrorType | '')}>
+          <option value="">Не задан</option>
+          <option value="extra_car">Лишняя машина</option>
+          <option value="missing_car">Машина не найдена</option>
+          <option value="wrong_zone">Машина не в той зоне</option>
+          <option value="bad_lighting">Плохое освещение</option>
+          <option value="bad_angle">Плохой ракурс</option>
+          <option value="calibration_issue">Проблема калибровки</option>
+          <option value="other">Другое</option>
+        </Select>
+      </Field>
+      <Field label="Комментарий">
+        <textarea className="input" value={comment} onChange={event => setComment(event.target.value)} rows={4} />
+      </Field>
+      {error && <div className="notice error">{error}</div>}
+      <Button type="submit" disabled={saving}>{saving ? 'Сохранение...' : 'Сохранить оценку'}</Button>
+    </form>
+  );
+}
+
+function FeedbackSummary({ feedback }: { feedback: DetectionFeedback }) {
+  return (
+    <div className="notice">
+      Уже есть оценка: {feedback.rating ?? '—'}
+      {feedback.error_type ? ` · ${feedback.error_type}` : ''}
+      {feedback.comment ? ` · ${feedback.comment}` : ''}
+    </div>
+  );
+}
+
+function FeedbackHistory({
+  items,
+  selected,
+  onOpen
+}: {
+  items: DetectionFeedback[];
+  selected: LoadState<DetectionFeedback>;
+  onOpen: (feedbackId?: number | string) => void;
+}) {
+  if (!items.length) {
+    return <div className="empty-state">Для данного распознавания ещё нет оценок качества.</div>;
+  }
+
+  return (
+    <div className="analytics-feedback-history">
+      <div className="table-scroll">
+        <div className="table-header analytics-feedback-table">
+          <span>Дата</span>
+          <span>Пользователь</span>
+          <span>Оценка</span>
+          <span>Занято</span>
+          <span>Свободно</span>
+          <span>Ошибка</span>
+          <span>Комментарий</span>
+        </div>
+        <div className="table-list">
+          {items.map(item => (
+            <button
+              type="button"
+              key={String(item.feedback_id)}
+              className="table-row analytics-feedback-table contract-row-button"
+              onClick={() => onOpen(item.feedback_id)}
+            >
+              <span>{formatDateTime(item.created_at)}</span>
+              <span>{item.user_email ?? item.user_id ?? '—'}</span>
+              <span>{item.rating ?? '—'}</span>
+              <span>{formatNumber(item.correct_occupied)}</span>
+              <span>{formatNumber(item.correct_free)}</span>
+              <span>{item.error_type ?? '—'}</span>
+              <span>{item.comment ?? '—'}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      {selected.loading && <div className="small">Загрузка оценки...</div>}
+      {selected.error && <div className="notice error">{selected.error}</div>}
+      {selected.data && (
+        <div className="analytics-feedback-detail">
+          <h3>Подробная оценка</h3>
+          <div className="details-grid analytics-detail-grid compact">
+            <Detail label="Автор" value={selected.data.user_email ?? selected.data.user_id ?? '—'} />
+            <Detail label="Создано" value={formatDateTime(selected.data.created_at)} />
+            <Detail label="Обновлено" value={formatDateTime(selected.data.updated_at)} />
+            <Detail label="Оценка" value={selected.data.rating ?? '—'} />
+            <Detail label="Правильно занято" value={formatNumber(selected.data.correct_occupied)} />
+            <Detail label="Правильно свободно" value={formatNumber(selected.data.correct_free)} />
+            <Detail label="Тип ошибки" value={selected.data.error_type ?? '—'} />
+            <Detail label="Комментарий" value={selected.data.comment ?? '—'} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
