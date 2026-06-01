@@ -220,35 +220,37 @@ export default function SourcesPage() {
 
       <div className="contract-grid">
         <div className="section-panel">
-          <div className="table-header sources">
-            <span>ID</span>
-            <span>Партнёр</span>
-            <span>Тип</span>
-            <span>Название</span>
-            <span>Статус</span>
-            <span>Entity</span>
-          </div>
-          <div className="table-list">
-            {filteredSources.map(source => (
-              <button
-                key={source.source_id}
-                type="button"
-                className={`table-row sources contract-row-button ${selectedSource?.source_id === source.source_id ? 'active' : ''}`}
-                onClick={() => setSelectedSourceId(source.source_id)}
-              >
-                <span>{source.source_id}</span>
-                <span>{source.partner_id ?? '—'}</span>
-                <span>{source.source_type}</span>
-                <span>{source.title}</span>
-                <span>
-                  <span className={`status-pill ${normalizeStatus(source) === 'inactive' ? 'paused' : 'active'}`}>
-                    {normalizeStatus(source)}
+          <div className="table-scroll">
+            <div className="table-header sources">
+              <span>ID</span>
+              <span>Партнёр</span>
+              <span>Тип</span>
+              <span>Название</span>
+              <span>Статус</span>
+              <span>Entity</span>
+            </div>
+            <div className="table-list">
+              {filteredSources.map(source => (
+                <button
+                  key={source.source_id}
+                  type="button"
+                  className={`table-row sources contract-row-button ${selectedSource?.source_id === source.source_id ? 'active' : ''}`}
+                  onClick={() => setSelectedSourceId(source.source_id)}
+                >
+                  <span>{source.source_id}</span>
+                  <span>{source.partner_id ?? '—'}</span>
+                  <span>{source.source_type}</span>
+                  <span>{source.title}</span>
+                  <span>
+                    <span className={`status-pill ${normalizeStatus(source) === 'inactive' ? 'paused' : 'active'}`}>
+                      {normalizeStatus(source)}
+                    </span>
                   </span>
-                </span>
-                <span>{source.entity_type} #{source.entity_id}</span>
-              </button>
-            ))}
-            {!loading && !filteredSources.length && <div className="empty-state">Источники не найдены.</div>}
+                  <span>{source.entity_type} #{source.entity_id}</span>
+                </button>
+              ))}
+              {!loading && !filteredSources.length && <div className="empty-state">Источники не найдены.</div>}
+            </div>
           </div>
         </div>
 

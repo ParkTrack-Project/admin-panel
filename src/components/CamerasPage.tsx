@@ -684,7 +684,14 @@ export default function CamerasPage() {
           <Button onClick={() => setShowAddCamera(true)}>+ Добавить</Button>
         </div>
 
-        <div className="filter-bar" style={{ marginBottom: 12 }}>
+        <form
+          className="filter-bar"
+          style={{ marginBottom: 12 }}
+          onSubmit={e => {
+            e.preventDefault();
+            loadCameras();
+          }}
+        >
           <Field label="Поиск">
             <Input
               value={filters.q}
@@ -702,10 +709,10 @@ export default function CamerasPage() {
               <option value="inactive">Неактивные</option>
             </Select>
           </Field>
-          <Button variant="ghost" onClick={loadCameras} disabled={loading}>
+          <Button type="submit" variant="ghost" disabled={loading}>
             {loading ? 'Загрузка...' : 'Применить'}
           </Button>
-        </div>
+        </form>
 
         <BulkActionBar
           selectedCount={selectedCameraIds.size}

@@ -9,6 +9,11 @@ export default function ZoneLayer() {
 
   const W = image?.naturalWidth ?? 0;
   const H = image?.naturalHeight ?? 0;
+  const activeZone = zones.find(z => String(z.id) === String(activeZoneId));
+  const orderedZones = [
+    ...zones.filter(z => String(z.id) !== String(activeZoneId)),
+    ...zones.filter(z => String(z.id) === String(activeZoneId))
+  ];
 
   function onCanvasClick(e: any) {
     if (tool !== 'drawZone') return;
@@ -24,17 +29,28 @@ export default function ZoneLayer() {
 
   return (
     <Group>
-      {zones.map(z => {
+      {orderedZones.map(z => {
         const active = String(z.id) === String(activeZoneId);
         const pts = z.image_quad.flatMap(p => [p.x, p.y]);
+        const canSelect = tool === 'select';
 
         return (
           <Group
             key={String(z.id)}
-            listening={tool !== 'drawZone'}
-            onClick={() => selectZone(z.id)}
+            listening={canSelect}
+            onClick={(e) => {
+              if (!canSelect) return;
+              e.cancelBubble = true;
+              selectZone(z.id);
+            }}
+            onTap={(e) => {
+              if (!canSelect) return;
+              e.cancelBubble = true;
+              selectZone(z.id);
+            }}
           >
             <Line
+              listening={canSelect}
               points={pts}
               closed
               stroke={active ? '#ff7a45' : '#6aa0ff'}
@@ -44,30 +60,43 @@ export default function ZoneLayer() {
               shadowOpacity={active ? 0.5 : 0}
               fill={active ? 'rgba(255,122,69,0.12)' : 'rgba(106,160,255,0.10)'}
             />
-            {active && tool === 'editZone' && z.image_quad.map((p,i)=>(
-              <Circle
-                key={i}
-                x={p.x}
-                y={p.y}
-                radius={6}
-                stroke="#ff7a45"
-                fill="#0b1020"
-                strokeWidth={2}
-                draggable
-                onMouseDown={(e:any)=>{ e.cancelBubble = true; }}
-                onDragMove={(e)=>{
-                  const {x,y} = e.target.position();
-                  // Update both image_quad (for display) and points.x/y (for API)
-                  const next = z.image_quad.map((pp,ii)=> ii===i ? {x,y} : pp) as any;
-                  const nextPoints = z.points.map((pt,ii)=> ii===i ? { ...pt, x, y } : pt) as any;
-                  updateZone(z.id, { image_quad: next, points: nextPoints });
-                }}
-                onDragEnd={()=>{}}
-              />
-            ))}
           </Group>
         );
       })}
+
+      {activeZone && tool === 'editZone' && (
+        <Group listening>
+          {activeZone.image_quad.map((p,i)=>(
+            <Circle
+              key={i}
+              x={p.x}
+              y={p.y}
+              radius={7}
+              stroke="#ff7a45"
+              fill="#0b1020"
+              strokeWidth={3}
+              hitStrokeWidth={18}
+              draggable
+              onMouseDown={(e:any)=>{ e.cancelBubble = true; }}
+              onTouchStart={(e:any)=>{ e.cancelBubble = true; }}
+              onDragStart={(e:any)=>{
+                e.cancelBubble = true;
+                e.target.moveToTop();
+                e.target.getLayer()?.batchDraw();
+              }}
+              onDragMove={(e)=>{
+                e.cancelBubble = true;
+                const {x,y} = e.target.position();
+                // Update both image_quad (for display) and points.x/y (for API)
+                const next = activeZone.image_quad.map((pp,ii)=> ii===i ? {x,y} : pp) as any;
+                const nextPoints = activeZone.points.map((pt,ii)=> ii===i ? { ...pt, x, y } : pt) as any;
+                updateZone(activeZone.id, { image_quad: next, points: nextPoints });
+              }}
+              onDragEnd={(e:any)=>{ e.cancelBubble = true; }}
+            />
+          ))}
+        </Group>
+      )}
 
       {/* Keep this above existing zones so new points can be placed inside them. */}
       {tool === 'drawZone' && W>0 && H>0 && (

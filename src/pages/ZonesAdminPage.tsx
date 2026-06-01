@@ -17,7 +17,6 @@ import { useSessionStore } from '@/auth/sessionStore';
 
 type ZoneFilters = {
   cameraId: string;
-  partnerId: string;
   status: 'all' | 'active' | 'inactive';
   zoneType: 'all' | ParkingZone['zone_type'];
   locationType: 'all' | 'none' | NonNullable<ZoneLocationType>;
@@ -31,7 +30,6 @@ type ZoneEditorState = {
   zoneType: ParkingZone['zone_type'];
   capacity: string;
   pay: string;
-  partnerId: string;
   locationType: string;
   isActive: boolean;
   isPrivate: boolean;
@@ -41,10 +39,6 @@ type ZoneEditorState = {
 type ZoneSaveState = {
   loading: boolean;
   error?: string;
-};
-
-type ZoneCreateState = {
-  cameraId: string;
 };
 
 function formatDate(dateStr?: string) {
@@ -73,7 +67,6 @@ function zoneToEditor(zone: ParkingZone): ZoneEditorState {
     zoneType: zone.zone_type,
     capacity: String(zone.capacity),
     pay: String(zone.pay),
-    partnerId: zone.partner_id === null || zone.partner_id === undefined ? '' : String(zone.partner_id),
     locationType: zone.location_type ?? '',
     isActive: zone.is_active !== false,
     isPrivate: zone.is_private === true,
@@ -86,7 +79,6 @@ function normalizeEditor(editor: ZoneEditorState) {
     zoneType: editor.zoneType,
     capacity: editor.capacity.trim(),
     pay: editor.pay.trim(),
-    partnerId: editor.partnerId.trim(),
     locationType: editor.locationType.trim(),
     isActive: editor.isActive,
     isPrivate: editor.isPrivate,
@@ -143,15 +135,10 @@ export default function ZonesAdminPage() {
   const [selectedZoneId, setSelectedZoneId] = useState<string | undefined>();
   const [editor, setEditor] = useState<ZoneEditorState | null>(null);
   const [saveState, setSaveState] = useState<ZoneSaveState>({ loading: false });
-  const [createState, setCreateState] = useState<ZoneCreateState>({
-    cameraId: ''
-  });
-  const [createLoading, setCreateLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [selectedZoneIds, setSelectedZoneIds] = useState<Set<string>>(() => new Set());
   const [filters, setFilters] = useState<ZoneFilters>({
     cameraId: '',
-    partnerId: '',
     status: 'all',
     zoneType: 'all',
     locationType: 'all',
@@ -191,7 +178,7 @@ export default function ZonesAdminPage() {
     try {
       const nextZones = await api.listZones({
         camera_id: filters.cameraId ? Number(filters.cameraId) : undefined,
-        partner_id: filters.partnerId ? Number(filters.partnerId) : currentPartnerId,
+        partner_id: currentPartnerId,
         is_active: filters.status === 'all' ? undefined : filters.status === 'active',
         max_pay: filters.maxPay ? Number(filters.maxPay) : undefined
       });
@@ -250,16 +237,6 @@ export default function ZonesAdminPage() {
     }
   }, [activeZoneId, selectedZoneId, selectZone]);
 
-  useEffect(() => {
-    if (selectedZone) {
-      setCreateState(prev => ({ ...prev, cameraId: String(selectedZone.camera_id) }));
-      return;
-    }
-    if (filters.cameraId.trim()) {
-      setCreateState(prev => ({ ...prev, cameraId: filters.cameraId.trim() }));
-    }
-  }, [selectedZone?.id, filters.cameraId]);
-
   async function prepareZoneWorkspace(zone: ParkingZone) {
     store.setLabelerReturnRoute('zones');
     store.setCamera(String(zone.camera_id));
@@ -296,41 +273,11 @@ export default function ZonesAdminPage() {
     }
   }
 
-  async function startCreateZone() {
-    const cameraId = parseInt(createState.cameraId, 10);
-    if (!Number.isFinite(cameraId) || cameraId < 1) {
-      setError('Для создания зоны укажите корректный Camera ID.');
-      return;
-    }
-
-    setCreateLoading(true);
-    setError(undefined);
-    try {
-      await api.getCamera(cameraId);
-      store.setLabelerReturnRoute('zones');
-      store.setCamera(String(cameraId));
-      await Promise.all([
-        store.loadCameraMeta(cameraId),
-        store.loadZones()
-      ]);
-      store.selectZone(undefined);
-      store.zoneDraftClear();
-      store.addZone();
-      store.setViewMode('labeler');
-      navigate('labeler');
-    } catch (err: any) {
-      setError(`Не удалось открыть создание зоны: ${String(err?.message || err)}`);
-    } finally {
-      setCreateLoading(false);
-    }
-  }
-
   async function onSaveZone() {
     if (!selectedZone || !editor) return;
 
     const capacity = parseInt(editor.capacity, 10);
     const pay = parseInt(editor.pay, 10);
-    const partnerId = editor.partnerId.trim() ? parseInt(editor.partnerId, 10) : null;
 
     if (!Number.isFinite(capacity) || capacity < 1) {
       setSaveState({ loading: false, error: 'Вместимость зоны должна быть не меньше 1.' });
@@ -342,11 +289,6 @@ export default function ZonesAdminPage() {
       return;
     }
 
-    if (editor.partnerId.trim() && (!Number.isFinite(partnerId) || partnerId === null || partnerId < 1)) {
-      setSaveState({ loading: false, error: 'ID партнёра должен быть положительным числом.' });
-      return;
-    }
-
     setSaveState({ loading: true });
     try {
       const updated = await api.updateZone(selectedZone.id, {
@@ -354,7 +296,7 @@ export default function ZonesAdminPage() {
         zone_type: editor.zoneType,
         capacity,
         pay,
-        partner_id: partnerId,
+        partner_id: selectedZone.partner_id ?? null,
         location_type: parseZoneLocationType(editor.locationType),
         is_active: editor.isActive,
         is_private: editor.isPrivate,
@@ -472,12 +414,7 @@ export default function ZonesAdminPage() {
             {currentPartnerId !== undefined ? ` · партнёр #${currentPartnerId}` : ''}
           </p>
         </div>
-        <div className="row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <Button onClick={startCreateZone} disabled={createLoading}>
-            {createLoading ? 'Открытие...' : '+ Новая зона'}
-          </Button>
-          <Button onClick={load} disabled={loading}>{loading ? 'Загрузка...' : 'Обновить'}</Button>
-        </div>
+        <Button onClick={load} disabled={loading}>{loading ? 'Загрузка...' : 'Обновить'}</Button>
       </div>
 
       <div className="metric-grid">
@@ -511,13 +448,6 @@ export default function ZonesAdminPage() {
             value={filters.cameraId}
             onChange={e => setFilters(prev => ({ ...prev, cameraId: e.target.value }))}
             placeholder="Все камеры"
-          />
-        </Field>
-        <Field label="Партнёр ID">
-          <Input
-            value={filters.partnerId || (currentPartnerId !== undefined ? String(currentPartnerId) : '')}
-            onChange={e => setFilters(prev => ({ ...prev, partnerId: e.target.value }))}
-            placeholder={currentPartnerId !== undefined ? `Текущий: #${currentPartnerId}` : 'Все партнёры'}
           />
         </Field>
         <Field label="Статус">
@@ -573,7 +503,7 @@ export default function ZonesAdminPage() {
             <option value="regular">Обычные</option>
           </Select>
         </Field>
-        <Field label="Видимость">
+        <Field label="Тип доступа">
           <Select
             value={filters.privacy}
             onChange={e => setFilters(prev => ({ ...prev, privacy: e.target.value as ZoneFilters['privacy'] }))}
@@ -598,7 +528,6 @@ export default function ZonesAdminPage() {
           variant="ghost"
           onClick={() => setFilters({
             cameraId: '',
-            partnerId: '',
             status: 'all',
             zoneType: 'all',
             locationType: 'all',
@@ -611,29 +540,6 @@ export default function ZonesAdminPage() {
           Сбросить
         </Button>
       </form>
-
-      <div className="section-panel zone-create-panel">
-        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-          <div>
-            <h2 style={{ marginBottom: 4 }}>Создание зоны</h2>
-            <div className="small">Новая зона создаётся через разметчик, потому что геометрию нужно отрисовать на изображении камеры.</div>
-          </div>
-        </div>
-        <div className="zone-create-grid">
-          <Field label="Camera ID">
-            <Input
-              value={createState.cameraId}
-              onChange={e => setCreateState(prev => ({ ...prev, cameraId: e.target.value }))}
-              placeholder="ID камеры"
-            />
-          </Field>
-          <div className="zone-create-actions">
-            <Button onClick={startCreateZone} disabled={createLoading}>
-              {createLoading ? 'Открытие...' : 'Открыть создание в разметке'}
-            </Button>
-          </div>
-        </div>
-      </div>
 
       {error && <div className="notice error">{error}</div>}
 
@@ -758,10 +664,6 @@ export default function ZonesAdminPage() {
 
               <div className="details-grid zone-meta-grid">
                 <div className="detail-card">
-                  <div className="metric-label">Партнёр ID</div>
-                  <div className="detail-value">{selectedZone.partner_id ?? '—'}</div>
-                </div>
-                <div className="detail-card">
                   <div className="metric-label">Confidence</div>
                   <div className="detail-value">
                     {typeof selectedZone.confidence === 'number'
@@ -833,16 +735,6 @@ export default function ZonesAdminPage() {
                         setSaveState(prev => ({ loading: false, error: undefined }));
                         setEditor(prev => prev ? ({ ...prev, pay: e.target.value }) : prev);
                       }}
-                    />
-                  </Field>
-                  <Field label="Партнёр ID">
-                    <Input
-                      value={editor.partnerId}
-                      onChange={e => {
-                        setSaveState(prev => ({ loading: false, error: undefined }));
-                        setEditor(prev => prev ? ({ ...prev, partnerId: e.target.value }) : prev);
-                      }}
-                      placeholder="Не задан"
                     />
                   </Field>
                   <Field label="Тип расположения">

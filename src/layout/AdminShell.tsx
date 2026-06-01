@@ -8,6 +8,7 @@ type NavItem = {
   route: AppRoute;
   label: string;
   permissions?: string[];
+  analyticsAccess?: boolean;
 };
 
 const navItems: NavItem[] = [
@@ -17,8 +18,17 @@ const navItems: NavItem[] = [
   { route: 'sources', label: 'Источники', permissions: ['sources.view'] },
   { route: 'users', label: 'Пользователи', permissions: ['admin.users.view', 'partner_members.view'] },
   { route: 'partners', label: 'Партнёры', permissions: ['admin.partners.view'] },
+  { route: 'analytics', label: 'Аналитика', analyticsAccess: true },
   { route: 'profile', label: 'Профиль' }
 ];
+
+export function canViewAnalyticsSection(session: ReturnType<typeof useSessionStore.getState>) {
+  const activeMemberships = (session.user?.partner_memberships ?? []).filter(m => m.is_active !== false);
+  return session.isAdmin()
+    || session.hasPermission('admin.analytics.view')
+    || session.hasPermission('analytics.view')
+    || activeMemberships.length > 0;
+}
 
 export default function AdminShell({ route, children }: { route: AppRoute; children: React.ReactNode }) {
   const session = useSessionStore();
@@ -74,7 +84,10 @@ export default function AdminShell({ route, children }: { route: AppRoute; child
 
         <nav className="admin-nav">
           {navItems
-            .filter(item => !item.permissions || item.permissions.some(permission => session.hasPermission(permission)))
+            .filter(item => {
+              if (item.analyticsAccess) return canViewAnalyticsSection(session);
+              return !item.permissions || item.permissions.some(permission => session.hasPermission(permission));
+            })
             .map(item => (
               <button
                 key={item.route}

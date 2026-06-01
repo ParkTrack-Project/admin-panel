@@ -1,0 +1,1926 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { api } from '@/api/client';
+import type {
+  AnalyticsConfidence,
+  AnalyticsDetectorHealth,
+  AnalyticsDetectorHealthItem,
+  AnalyticsForecast,
+  AnalyticsGranularity,
+  AnalyticsHistory,
+  AnalyticsObservationPoint,
+  AnalyticsObservationsRate,
+  AnalyticsQuery,
+  AnalyticsSummary,
+  AnalyticsUpdateFrequency,
+  Camera,
+  DetectionFeedback,
+  DetectionFeedbackErrorType,
+  DetectionFeedbackRating,
+  DetectionRunDetail,
+  DetectionRunList,
+  LegacyForecastSeriesPoint,
+  LegacyOccupancySeriesPoint
+} from '@/api/client';
+import type { ParkingZone } from '@/types';
+import { Button, Field, Input, Select } from '@/components/UiKit';
+import { useSessionStore } from '@/auth/sessionStore';
+import { useFeedbackStore } from '@/feedback/feedbackStore';
+import { useYandexMap } from '@/maps/useYandexMap';
+import { fitYandexMap, yandexPoint, type YandexPoint } from '@/maps/yandex';
+
+type PeriodPreset = 'today' | 'yesterday' | '7d' | '30d' | 'custom';
+
+type AnalyticsFilters = {
+  period: PeriodPreset;
+  from: string;
+  to: string;
+  granularity: AnalyticsGranularity;
+  selectedZoneIds: string[];
+  selectedCameraIds: string[];
+  zoneSearch: string;
+  cameraSearch: string;
+  autoRefresh: boolean;
+};
+
+type LoadState<T> = {
+  loading: boolean;
+  data?: T;
+  error?: string;
+};
+
+type ChartPoint = {
+  x: string;
+  y: number | null;
+  meta?: Record<string, unknown>;
+};
+
+type ChartSeries = {
+  key: string;
+  label: string;
+  color: string;
+  dashed?: boolean;
+  points: ChartPoint[];
+};
+
+type LegacyOccupancyDataset = {
+  key: string;
+  label: string;
+  points: LegacyOccupancySeriesPoint[];
+};
+
+type LegacyForecastDataset = {
+  key: string;
+  label: string;
+  points: LegacyForecastSeriesPoint[];
+};
+
+type AnalyticsRouteState =
+  | { view: 'dashboard' }
+  | { view: 'zone'; zoneId: string }
+  | { view: 'camera'; cameraId: string }
+  | { view: 'detection'; detectionRunId: string };
+
+const AUTO_REFRESH_MS = 60_000;
+const MAX_VISIBLE_SERIES = 10;
+const STALE_THRESHOLD_MINUTES = Number(import.meta.env.VITE_ANALYTICS_STALE_MINUTES ?? 10);
+const CHART_COLORS = ['#128a45', '#2563eb', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2', '#be123c', '#4d7c0f', '#9333ea', '#0f766e'];
+
+function emptyState<T>(): LoadState<T> {
+  return { loading: false };
+}
+
+function parseAnalyticsRoute(): AnalyticsRouteState {
+  const query = window.location.hash.split('?')[1] ?? '';
+  const params = new URLSearchParams(query);
+  const view = params.get('view');
+  if (view === 'zone' && params.get('zoneId')) return { view, zoneId: params.get('zoneId')! };
+  if (view === 'camera' && params.get('cameraId')) return { view, cameraId: params.get('cameraId')! };
+  if (view === 'detection' && params.get('detectionRunId')) return { view, detectionRunId: params.get('detectionRunId')! };
+  return { view: 'dashboard' };
+}
+
+function setAnalyticsRoute(route: AnalyticsRouteState) {
+  const params = new URLSearchParams();
+  if (route.view !== 'dashboard') params.set('view', route.view);
+  if (route.view === 'zone') params.set('zoneId', route.zoneId);
+  if (route.view === 'camera') params.set('cameraId', route.cameraId);
+  if (route.view === 'detection') params.set('detectionRunId', route.detectionRunId);
+  const suffix = params.toString();
+  window.location.hash = suffix ? `#/analytics?${suffix}` : '#/analytics';
+}
+
+function useAnalyticsRoute() {
+  const [route, setRoute] = useState<AnalyticsRouteState>(() => parseAnalyticsRoute());
+
+  useEffect(() => {
+    const onHashChange = () => setRoute(parseAnalyticsRoute());
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
+  return route;
+}
+
+function toDateInputValue(date: Date) {
+  const offset = date.getTimezoneOffset();
+  const local = new Date(date.getTime() - offset * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+function startOfDay(date: Date) {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function endOfDay(date: Date) {
+  const next = new Date(date);
+  next.setHours(23, 59, 59, 999);
+  return next;
+}
+
+function defaultFilters(): AnalyticsFilters {
+  const now = new Date();
+  return {
+    period: 'today',
+    from: toDateInputValue(startOfDay(now)),
+    to: toDateInputValue(endOfDay(now)),
+    granularity: '15m',
+    selectedZoneIds: [],
+    selectedCameraIds: [],
+    zoneSearch: '',
+    cameraSearch: '',
+    autoRefresh: true
+  };
+}
+
+function rangeForFilters(filters: AnalyticsFilters) {
+  const now = new Date();
+  if (filters.period === 'today') {
+    return { from: startOfDay(now).toISOString(), to: endOfDay(now).toISOString() };
+  }
+  if (filters.period === 'yesterday') {
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    return { from: startOfDay(yesterday).toISOString(), to: endOfDay(yesterday).toISOString() };
+  }
+  if (filters.period === '7d') {
+    const from = new Date(now);
+    from.setDate(from.getDate() - 7);
+    return { from: from.toISOString(), to: now.toISOString() };
+  }
+  if (filters.period === '30d') {
+    const from = new Date(now);
+    from.setDate(from.getDate() - 30);
+    return { from: from.toISOString(), to: now.toISOString() };
+  }
+  return {
+    from: filters.from ? new Date(filters.from).toISOString() : undefined,
+    to: filters.to ? new Date(filters.to).toISOString() : undefined
+  };
+}
+
+function normalizePercent(value?: number | null) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return value > 1 ? value : value * 100;
+}
+
+function formatPercent(value?: number | null) {
+  const percent = normalizePercent(value);
+  return percent === null ? '—' : `${percent.toFixed(percent >= 10 ? 0 : 1)}%`;
+}
+
+function formatNumber(value?: number | null) {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('ru-RU') : '—';
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU');
+}
+
+function formatDuration(seconds?: number | null) {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return '—';
+  if (seconds < 60) return `${Math.round(seconds)} сек`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)} мин`;
+  return `${(seconds / 3600).toFixed(1)} ч`;
+}
+
+function getPointTime(point: { ts?: string; timestamp?: string }) {
+  return point.ts ?? point.timestamp ?? '';
+}
+
+function getZoneLabel(zoneId: number | string | undefined, zones: ParkingZone[]) {
+  if (zoneId === undefined) return 'Среднее';
+  const zone = zones.find(item => String(item.id) === String(zoneId));
+  return zone ? `Зона #${zone.id} · камера #${zone.camera_id}` : `Зона #${String(zoneId)}`;
+}
+
+function getCameraLabel(cameraId: number | undefined | null, cameras: Camera[]) {
+  if (!cameraId) return 'Камера';
+  const camera = cameras.find(item => item.camera_id === cameraId);
+  return camera ? `#${camera.camera_id} · ${camera.title}` : `Камера #${cameraId}`;
+}
+
+function asItems<T>(input?: { items?: T[]; points?: T[] }) {
+  return input?.items ?? input?.points ?? [];
+}
+
+function averageSeries(points: ChartPoint[], label = 'Среднее по выбранным зонам'): ChartSeries[] {
+  const grouped = new Map<string, number[]>();
+  points.forEach(point => {
+    if (point.y === null) return;
+    const values = grouped.get(point.x) ?? [];
+    values.push(point.y);
+    grouped.set(point.x, values);
+  });
+  return [{
+    key: 'average',
+    label,
+    color: CHART_COLORS[0],
+    points: [...grouped.entries()].map(([x, values]) => ({
+      x,
+      y: values.reduce((sum, value) => sum + value, 0) / values.length
+    }))
+  }];
+}
+
+function historyToOccupancySeries(history: AnalyticsHistory | undefined, zones: ParkingZone[]): ChartSeries[] {
+  const rawSeries = history?.series?.length
+    ? history.series.map((series, index) => ({
+      key: String(series.id ?? series.zone_id ?? index),
+      label: series.label ?? getZoneLabel(series.zone_id ?? series.id, zones),
+      color: CHART_COLORS[index % CHART_COLORS.length],
+      points: series.points.map(point => ({
+        x: getPointTime(point),
+        y: normalizePercent(point.occupancy_percent) ?? (
+          typeof point.occupied === 'number' && typeof (point.total ?? point.capacity) === 'number' && (point.total ?? point.capacity)! > 0
+            ? (point.occupied / (point.total ?? point.capacity)!) * 100
+            : null
+        ),
+        meta: point as Record<string, unknown>
+      }))
+    }))
+    : groupHistoryPoints(asItems(history), zones);
+
+  if (rawSeries.length <= MAX_VISIBLE_SERIES) return rawSeries;
+  return averageSeries(rawSeries.flatMap(series => series.points));
+}
+
+function groupHistoryPoints(points: NonNullable<AnalyticsHistory['points']>, zones: ParkingZone[]): ChartSeries[] {
+  const grouped = new Map<string, ChartPoint[]>();
+  points.forEach(point => {
+    const key = String(point.zone_id ?? 'average');
+    const total = point.total ?? point.capacity;
+    const occupancy = normalizePercent(point.occupancy_percent) ?? (
+      typeof point.occupied === 'number' && typeof total === 'number' && total > 0
+        ? (point.occupied / total) * 100
+        : null
+    );
+    grouped.set(key, [
+      ...(grouped.get(key) ?? []),
+      { x: getPointTime(point), y: occupancy, meta: point as Record<string, unknown> }
+    ]);
+  });
+  return [...grouped.entries()].map(([key, seriesPoints], index) => ({
+    key,
+    label: key === 'average' ? 'Среднее' : getZoneLabel(key, zones),
+    color: CHART_COLORS[index % CHART_COLORS.length],
+    points: seriesPoints
+  }));
+}
+
+function forecastToSeries(history: AnalyticsHistory | undefined, forecast: AnalyticsForecast | undefined, zones: ParkingZone[]): ChartSeries[] {
+  const fact = historyToOccupancySeries(history, zones).slice(0, 3).map(series => ({
+    ...series,
+    label: `${series.label} · факт`
+  }));
+  const forecastPoints = forecast?.series?.length
+    ? forecast.series.map((series, index) => ({
+      key: `forecast-${String(series.id ?? series.zone_id ?? index)}`,
+      label: `${series.label ?? getZoneLabel(series.zone_id ?? series.id, zones)} · прогноз`,
+      color: fact[index]?.color ?? CHART_COLORS[index % CHART_COLORS.length],
+      dashed: true,
+      points: series.points.map(point => ({
+        x: getPointTime(point),
+        y: normalizePercent((point as any).predicted_occupancy_percent ?? point.occupancy_percent),
+        meta: point as Record<string, unknown>
+      }))
+    }))
+    : groupForecastPoints(asItems(forecast), zones);
+  return [...fact, ...forecastPoints];
+}
+
+function groupForecastPoints(points: NonNullable<AnalyticsForecast['points']>, zones: ParkingZone[]): ChartSeries[] {
+  const grouped = new Map<string, ChartPoint[]>();
+  points.forEach(point => {
+    const key = String(point.zone_id ?? 'average');
+    grouped.set(key, [
+      ...(grouped.get(key) ?? []),
+      {
+        x: getPointTime(point),
+        y: normalizePercent(point.predicted_occupancy_percent ?? point.occupancy_percent),
+        meta: point as Record<string, unknown>
+      }
+    ]);
+  });
+  return [...grouped.entries()].map(([key, seriesPoints], index) => ({
+    key: `forecast-${key}`,
+    label: `${key === 'average' ? 'Среднее' : getZoneLabel(key, zones)} · прогноз`,
+    color: CHART_COLORS[index % CHART_COLORS.length],
+    dashed: true,
+    points: seriesPoints
+  }));
+}
+
+function observationsToBars(data?: AnalyticsObservationsRate): ChartPoint[] {
+  return asItems<AnalyticsObservationPoint>(data).map(point => ({
+    x: getPointTime(point),
+    y: point.observations ?? point.count ?? null,
+    meta: point as Record<string, unknown>
+  }));
+}
+
+function confidenceToSeries(data?: AnalyticsConfidence): ChartSeries[] {
+  return [{
+    key: 'confidence',
+    label: 'Уверенность модели',
+    color: CHART_COLORS[0],
+    points: asItems(data).map(point => ({
+      x: getPointTime(point),
+      y: normalizePercent(point.average_confidence ?? point.confidence),
+      meta: point as Record<string, unknown>
+    }))
+  }];
+}
+
+function makeAnalyticsQuery(filters: AnalyticsFilters, partnerId?: number): AnalyticsQuery {
+  return {
+    partner_id: partnerId,
+    ...rangeForFilters(filters),
+    granularity: filters.granularity,
+    zone_ids: filters.selectedZoneIds,
+    camera_ids: filters.selectedCameraIds
+  };
+}
+
+function makeLegacySeriesTargets(filters: AnalyticsFilters, zones: ParkingZone[], cameras: Camera[]) {
+  if (filters.selectedZoneIds.length > 0) {
+    return filters.selectedZoneIds.slice(0, MAX_VISIBLE_SERIES).map(zoneId => ({
+      key: `zone-${zoneId}`,
+      label: getZoneLabel(zoneId, zones),
+      query: { zone_id: zoneId }
+    }));
+  }
+
+  if (filters.selectedCameraIds.length > 0) {
+    return filters.selectedCameraIds.slice(0, MAX_VISIBLE_SERIES).map(cameraId => ({
+      key: `camera-${cameraId}`,
+      label: getCameraLabel(Number(cameraId), cameras),
+      query: { camera_id: cameraId }
+    }));
+  }
+
+  return [{
+    key: 'all',
+    label: 'Все доступные зоны',
+    query: {}
+  }];
+}
+
+function legacyOccupancyToSeries(datasets?: LegacyOccupancyDataset[]): ChartSeries[] {
+  return (datasets ?? []).map((dataset, index) => ({
+    key: dataset.key,
+    label: dataset.label,
+    color: CHART_COLORS[index % CHART_COLORS.length],
+    points: [...dataset.points].reverse().map(point => ({
+      x: point.observed_at,
+      y: point.capacity > 0 ? (point.occupied / point.capacity) * 100 : null,
+      meta: point as unknown as Record<string, unknown>
+    }))
+  }));
+}
+
+function legacyForecastToSeries(occupancy?: LegacyOccupancyDataset[], forecast?: LegacyForecastDataset[]): ChartSeries[] {
+  const factSeries = legacyOccupancyToSeries(occupancy).slice(0, MAX_VISIBLE_SERIES).map(series => ({
+    ...series,
+    label: `${series.label} · факт`
+  }));
+
+  const forecastSeries = (forecast ?? []).slice(0, MAX_VISIBLE_SERIES).map((dataset, index) => ({
+    key: `forecast-${dataset.key}`,
+    label: `${dataset.label} · прогноз`,
+    color: CHART_COLORS[index % CHART_COLORS.length],
+    dashed: true,
+    points: [...dataset.points].map(point => ({
+      x: point.predicted_for,
+      y: point.capacity > 0 ? (point.predicted_occupied / point.capacity) * 100 : null,
+      meta: point as unknown as Record<string, unknown>
+    }))
+  }));
+
+  return [...factSeries, ...forecastSeries];
+}
+
+function legacyObservationsToBars(datasets?: LegacyOccupancyDataset[]): ChartPoint[] {
+  const grouped = new Map<string, number>();
+  (datasets ?? []).forEach(dataset => {
+    dataset.points.forEach(point => {
+      const bucket = point.observed_at;
+      grouped.set(bucket, (grouped.get(bucket) ?? 0) + 1);
+    });
+  });
+  return [...grouped.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([x, y]) => ({ x, y }));
+}
+
+function legacyConfidenceToSeries(datasets?: LegacyOccupancyDataset[]): ChartSeries[] {
+  return (datasets ?? []).map((dataset, index) => ({
+    key: `confidence-${dataset.key}`,
+    label: dataset.label,
+    color: CHART_COLORS[index % CHART_COLORS.length],
+    points: [...dataset.points].reverse().map(point => ({
+      x: point.observed_at,
+      y: normalizePercent(point.confidence),
+      meta: point as unknown as Record<string, unknown>
+    }))
+  }));
+}
+
+function blockError(error: unknown) {
+  return String((error as any)?.message || error);
+}
+
+function hasCoordinates(latitude?: number | null, longitude?: number | null): latitude is number {
+  return typeof latitude === 'number'
+    && Number.isFinite(latitude)
+    && typeof longitude === 'number'
+    && Number.isFinite(longitude);
+}
+
+function zoneMapPoints(zone: ParkingZone): YandexPoint[] {
+  if (zone.geometry?.coordinates?.[0]?.length) {
+    return zone.geometry.coordinates[0]
+      .slice(0, -1)
+      .map(([longitude, latitude]) => yandexPoint(latitude, longitude));
+  }
+  return zone.points
+    .filter(point => hasCoordinates(point.latitude, point.longitude))
+    .map(point => yandexPoint(point.latitude!, point.longitude!));
+}
+
+function occupancyColor(value?: number | null, updatedAt?: string | null) {
+  if (updatedAt) {
+    const ageMinutes = (Date.now() - new Date(updatedAt).getTime()) / 60_000;
+    if (Number.isFinite(ageMinutes) && ageMinutes > STALE_THRESHOLD_MINUTES) return '#f97316';
+  }
+  const percent = normalizePercent(value);
+  if (percent === null) return '#9ca3af';
+  if (percent < 60) return '#15803d';
+  if (percent <= 85) return '#d97706';
+  return '#dc2626';
+}
+
+export default function AnalyticsPage() {
+  const route = useAnalyticsRoute();
+
+  if (route.view === 'zone') {
+    return <AnalyticsComingSoon title={`Аналитика зоны #${route.zoneId}`} />;
+  }
+  if (route.view === 'camera') {
+    return <AnalyticsComingSoon title={`Аналитика камеры #${route.cameraId}`} />;
+  }
+  if (route.view === 'detection') {
+    return <AnalyticsComingSoon title={`Распознавание #${route.detectionRunId}`} />;
+  }
+
+  return <AnalyticsDashboard />;
+}
+
+function AnalyticsDashboard() {
+  const currentPartnerId = useSessionStore(state => state.currentPartnerId);
+  const notifySuccess = useFeedbackStore(state => state.success);
+  const [filters, setFilters] = useState<AnalyticsFilters>(() => defaultFilters());
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [cameras, setCameras] = useState<LoadState<Camera[]>>(emptyState);
+  const [zones, setZones] = useState<LoadState<ParkingZone[]>>(emptyState);
+  const [legacyOccupancy, setLegacyOccupancy] = useState<LoadState<LegacyOccupancyDataset[]>>(emptyState);
+  const [legacyForecast, setLegacyForecast] = useState<LoadState<LegacyForecastDataset[]>>(emptyState);
+
+  const zoneItems = useMemo(() => zones.data ?? [], [zones.data]);
+  const cameraItems = useMemo(() => cameras.data ?? [], [cameras.data]);
+
+  const loadDashboard = useCallback(async (silent = false) => {
+    const range = rangeForFilters(filters);
+    const targets = makeLegacySeriesTargets(filters, zoneItems, cameraItems);
+    if (!silent) {
+      setLegacyOccupancy({ loading: true });
+      setLegacyForecast({ loading: true });
+    }
+
+    const occupancyResults = await Promise.allSettled(
+      targets.map(target => api.analytics.legacyOccupancySeries({
+        partner_id: currentPartnerId,
+        ...range,
+        ...target.query
+      }))
+    );
+    const forecastResults = await Promise.allSettled(
+      targets.map(target => api.analytics.legacyForecastSeries({
+        partner_id: currentPartnerId,
+        ...range,
+        ...target.query
+      }))
+    );
+
+    const occupancyFailed = occupancyResults.find(result => result.status === 'rejected') as PromiseRejectedResult | undefined;
+    const forecastFailed = forecastResults.find(result => result.status === 'rejected') as PromiseRejectedResult | undefined;
+
+    setLegacyOccupancy(occupancyFailed
+      ? { loading: false, error: blockError(occupancyFailed.reason) }
+      : {
+        loading: false,
+        data: occupancyResults.map((result, index) => ({
+          key: targets[index].key,
+          label: targets[index].label,
+          points: result.status === 'fulfilled' ? result.value : []
+        }))
+      }
+    );
+    setLegacyForecast(forecastFailed
+      ? { loading: false, error: blockError(forecastFailed.reason) }
+      : {
+        loading: false,
+        data: forecastResults.map((result, index) => ({
+          key: targets[index].key,
+          label: targets[index].label,
+          points: result.status === 'fulfilled' ? result.value : []
+        }))
+      }
+    );
+  }, [filters, currentPartnerId, zoneItems, cameraItems]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCameras({ loading: true });
+    setZones({ loading: true });
+
+    Promise.allSettled([
+      api.listCameras({ partner_id: currentPartnerId }),
+      api.listZones({ partner_id: currentPartnerId })
+    ]).then(([cameraResult, zoneResult]) => {
+      if (cancelled) return;
+      setCameras(cameraResult.status === 'fulfilled' ? { loading: false, data: cameraResult.value } : { loading: false, error: blockError(cameraResult.reason) });
+      setZones(zoneResult.status === 'fulfilled' ? { loading: false, data: zoneResult.value } : { loading: false, error: blockError(zoneResult.reason) });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentPartnerId]);
+
+  useEffect(() => {
+    loadDashboard();
+  }, [loadDashboard, refreshKey]);
+
+  useEffect(() => {
+    if (!filters.autoRefresh) return;
+    const timer = window.setInterval(() => {
+      loadDashboard(true);
+    }, AUTO_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [filters.autoRefresh, loadDashboard]);
+
+  const occupancySeries = useMemo(() => legacyOccupancyToSeries(legacyOccupancy.data), [legacyOccupancy.data]);
+  const forecastSeries = useMemo(() => legacyForecastToSeries(legacyOccupancy.data, legacyForecast.data), [legacyOccupancy.data, legacyForecast.data]);
+  const confidenceSeries = useMemo(() => legacyConfidenceToSeries(legacyOccupancy.data), [legacyOccupancy.data]);
+  const observationBars = useMemo(() => legacyObservationsToBars(legacyOccupancy.data), [legacyOccupancy.data]);
+
+  function refresh() {
+    setRefreshKey(key => key + 1);
+    notifySuccess('Аналитика обновляется.');
+  }
+
+  return (
+    <section className="page-stack analytics-page">
+      <div className="page-heading">
+        <div>
+          <h1>Аналитика</h1>
+          <p>
+            Текущая занятость, история, прогнозы и состояние detector-а
+            {currentPartnerId !== undefined ? ` · партнёр #${currentPartnerId}` : ''}
+          </p>
+        </div>
+        <div className="row" style={{ justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+          <Button variant="ghost" onClick={refresh}>Обновить</Button>
+        </div>
+      </div>
+
+      <AnalyticsFiltersPanel
+        filters={filters}
+        cameras={cameraItems}
+        zones={zoneItems}
+        loading={cameras.loading || zones.loading}
+        cameraError={cameras.error}
+        zoneError={zones.error}
+        onChange={setFilters}
+        onRefresh={refresh}
+      />
+
+      <AnalyticsBackendStub
+        title="KPI и агрегаты"
+        description="Этот блок ждёт новые `/admin/analytics/summary`, `/update-frequency` и `/confidence`. Пока backend не готов, оставляем графики на существующих `/occupancy` и `/forecasts`."
+      />
+
+      <div className="analytics-dashboard-grid">
+        <AnalyticsBackendStub
+          title="Карта зон и камер"
+          description="Цвета текущей занятости, stale-статусы и popup-метрики включим после готовности `/admin/analytics/summary`."
+        />
+
+        <AnalyticsBackendStub
+          title="Проблемные зоны"
+          description="Таблица detector health ждёт `/admin/analytics/detector-health`."
+        />
+      </div>
+
+      <div className="analytics-chart-grid">
+        <Block title="Занятость" state={legacyOccupancy}>
+          <LineChart series={occupancySeries} unit="%" emptyMessage="Нет данных за выбранный период" />
+        </Block>
+
+        <Block title="Прогноз занятости" state={legacyForecast}>
+          <LineChart series={forecastSeries} unit="%" emptyMessage="Прогноз недоступен" />
+        </Block>
+
+        <Block title="Количество наблюдений" state={legacyOccupancy}>
+          <BarChart points={observationBars} emptyMessage="Нет наблюдений за выбранный период" />
+        </Block>
+
+        <Block title="Уверенность модели" state={legacyOccupancy}>
+          <LineChart series={confidenceSeries} unit="%" emptyMessage="Нет данных по уверенности модели" />
+        </Block>
+      </div>
+    </section>
+  );
+}
+
+function AnalyticsFiltersPanel({
+  filters,
+  cameras,
+  zones,
+  loading,
+  cameraError,
+  zoneError,
+  onChange,
+  onRefresh
+}: {
+  filters: AnalyticsFilters;
+  cameras: Camera[];
+  zones: ParkingZone[];
+  loading: boolean;
+  cameraError?: string;
+  zoneError?: string;
+  onChange: React.Dispatch<React.SetStateAction<AnalyticsFilters>>;
+  onRefresh: () => void;
+}) {
+  return (
+    <div className="section-panel analytics-filters">
+      <div className="analytics-filter-row">
+        <Field label="Период">
+          <Select
+            value={filters.period}
+            onChange={event => onChange(prev => ({ ...prev, period: event.target.value as PeriodPreset }))}
+          >
+            <option value="today">Сегодня</option>
+            <option value="yesterday">Вчера</option>
+            <option value="7d">7 дней</option>
+            <option value="30d">30 дней</option>
+            <option value="custom">Произвольный</option>
+          </Select>
+        </Field>
+
+        {filters.period === 'custom' && (
+          <>
+            <Field label="С">
+              <Input type="datetime-local" value={filters.from} onChange={event => onChange(prev => ({ ...prev, from: event.target.value }))} />
+            </Field>
+            <Field label="По">
+              <Input type="datetime-local" value={filters.to} onChange={event => onChange(prev => ({ ...prev, to: event.target.value }))} />
+            </Field>
+          </>
+        )}
+
+        <Field label="Детализация">
+          <Select
+            value={filters.granularity}
+            onChange={event => onChange(prev => ({ ...prev, granularity: event.target.value as AnalyticsGranularity }))}
+          >
+            <option value="5m">5 минут</option>
+            <option value="15m">15 минут</option>
+            <option value="1h">1 час</option>
+            <option value="1d">1 день</option>
+          </Select>
+        </Field>
+
+        <label className="analytics-toggle">
+          <input
+            type="checkbox"
+            checked={filters.autoRefresh}
+            onChange={event => onChange(prev => ({ ...prev, autoRefresh: event.target.checked }))}
+          />
+          <span>Автообновление</span>
+        </label>
+
+        <Button type="button" onClick={onRefresh} disabled={loading}>Обновить данные</Button>
+      </div>
+
+      <div className="analytics-picker-grid">
+        <MultiEntityPicker
+          title="Парковочные зоны"
+          search={filters.zoneSearch}
+          onSearch={value => onChange(prev => ({ ...prev, zoneSearch: value }))}
+          selectedIds={filters.selectedZoneIds}
+          onSelectedIds={ids => onChange(prev => ({ ...prev, selectedZoneIds: ids }))}
+          items={zones.map(zone => ({
+            id: String(zone.id),
+            label: `Зона #${zone.id}`,
+            meta: `камера #${zone.camera_id}`
+          }))}
+          emptyMessage={zoneError ?? 'Зоны не найдены'}
+        />
+        <MultiEntityPicker
+          title="Камеры"
+          search={filters.cameraSearch}
+          onSearch={value => onChange(prev => ({ ...prev, cameraSearch: value }))}
+          selectedIds={filters.selectedCameraIds}
+          onSelectedIds={ids => onChange(prev => ({ ...prev, selectedCameraIds: ids }))}
+          items={cameras.map(camera => ({
+            id: String(camera.camera_id),
+            label: `#${camera.camera_id} · ${camera.title}`,
+            meta: camera.source
+          }))}
+          emptyMessage={cameraError ?? 'Камеры не найдены'}
+        />
+      </div>
+    </div>
+  );
+}
+
+function MultiEntityPicker({
+  title,
+  search,
+  selectedIds,
+  items,
+  emptyMessage,
+  onSearch,
+  onSelectedIds
+}: {
+  title: string;
+  search: string;
+  selectedIds: string[];
+  items: Array<{ id: string; label: string; meta?: string }>;
+  emptyMessage: string;
+  onSearch: (value: string) => void;
+  onSelectedIds: (ids: string[]) => void;
+}) {
+  const normalizedSearch = search.trim().toLowerCase();
+  const visibleItems = items.filter(item => {
+    if (!normalizedSearch) return true;
+    return `${item.id} ${item.label} ${item.meta ?? ''}`.toLowerCase().includes(normalizedSearch);
+  });
+  const visibleIds = visibleItems.map(item => item.id);
+  const visibleSelected = visibleIds.filter(id => selectedIds.includes(id));
+  const allVisibleSelected = visibleIds.length > 0 && visibleSelected.length === visibleIds.length;
+
+  function toggle(id: string, checked: boolean) {
+    const next = new Set(selectedIds);
+    if (checked) next.add(id);
+    else next.delete(id);
+    onSelectedIds([...next]);
+  }
+
+  function toggleVisible(checked: boolean) {
+    const next = new Set(selectedIds);
+    visibleIds.forEach(id => {
+      if (checked) next.add(id);
+      else next.delete(id);
+    });
+    onSelectedIds([...next]);
+  }
+
+  return (
+    <div className="analytics-picker">
+      <div className="analytics-picker-head">
+        <strong>{title}</strong>
+        <span className="small">выбрано: {selectedIds.length}</span>
+      </div>
+      <Input value={search} onChange={event => onSearch(event.target.value)} placeholder="Поиск по id или названию" />
+      <label className="analytics-check-row">
+        <input
+          type="checkbox"
+          checked={allVisibleSelected}
+          ref={input => {
+            if (input) input.indeterminate = visibleSelected.length > 0 && !allVisibleSelected;
+          }}
+          onChange={event => toggleVisible(event.target.checked)}
+        />
+        <span>Все отфильтрованные</span>
+      </label>
+      <div className="analytics-picker-list">
+        {visibleItems.map(item => (
+          <label key={item.id} className="analytics-check-row">
+            <input
+              type="checkbox"
+              checked={selectedIds.includes(item.id)}
+              onChange={event => toggle(item.id, event.target.checked)}
+            />
+            <span>
+              <strong>{item.label}</strong>
+              {item.meta && <span className="small">{item.meta}</span>}
+            </span>
+          </label>
+        ))}
+        {!visibleItems.length && <div className="empty-state">{emptyMessage}</div>}
+      </div>
+    </div>
+  );
+}
+
+function KpiGrid({
+  summary,
+  frequency,
+  confidence
+}: {
+  summary: LoadState<AnalyticsSummary>;
+  frequency: LoadState<AnalyticsUpdateFrequency>;
+  confidence: LoadState<AnalyticsConfidence>;
+}) {
+  const cards = [
+    { label: 'Активных зон', value: formatNumber(summary.data?.active_zones) },
+    { label: 'Всего мест', value: formatNumber(summary.data?.total_capacity) },
+    { label: 'Занято сейчас', value: formatNumber(summary.data?.occupied_now) },
+    { label: 'Свободно сейчас', value: formatNumber(summary.data?.free_now) },
+    { label: 'Средняя занятость', value: formatPercent(summary.data?.average_occupancy_percent) },
+    { label: 'Самое свежее обновление', value: formatDateTime(summary.data?.newest_update_at ?? frequency.data?.newest_update_at) },
+    { label: 'Самое старое обновление', value: formatDateTime(summary.data?.oldest_update_at ?? frequency.data?.oldest_update_at) },
+    { label: 'Средняя частота', value: formatDuration(frequency.data?.average_interval_seconds) },
+    { label: 'Макс. интервал', value: formatDuration(frequency.data?.max_interval_seconds) },
+    { label: 'Уверенность модели', value: formatPercent(confidence.data?.average_confidence ?? summary.data?.average_confidence) }
+  ];
+
+  return (
+    <div className="metric-grid analytics-kpi-grid">
+      {cards.map(card => (
+        <div className="metric-card" key={card.label}>
+          <div className="metric-label">{card.label}</div>
+          <div className="metric-value">{summary.loading || frequency.loading || confidence.loading ? '...' : card.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Block<T>({
+  title,
+  state,
+  children
+}: {
+  title: string;
+  state: LoadState<T>;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="section-panel analytics-block">
+      <div className="analytics-block-head">
+        <h2>{title}</h2>
+        {state.loading && <span className="small">Загрузка...</span>}
+      </div>
+      {state.error ? (
+        <div className="notice error">Не удалось загрузить блок: {state.error}</div>
+      ) : children}
+    </div>
+  );
+}
+
+function AnalyticsBackendStub({
+  title,
+  description
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="section-panel analytics-block analytics-backend-stub">
+      <div className="analytics-block-head">
+        <h2>{title}</h2>
+        <span className="status-pill paused">backend pending</span>
+      </div>
+      <div className="empty-state">{description}</div>
+    </div>
+  );
+}
+
+function LineChart({ series, unit, emptyMessage }: { series: ChartSeries[]; unit?: string; emptyMessage: string }) {
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set());
+  const visibleSeries = series.filter(item => !hidden.has(item.key));
+  const values = visibleSeries.flatMap(item => item.points.map(point => point.y).filter((value): value is number => typeof value === 'number'));
+  const maxValue = Math.max(1, ...values);
+  const minValue = Math.min(0, ...values);
+  const width = 720;
+  const height = 260;
+  const padding = 34;
+
+  if (!series.length || !series.some(item => item.points.length)) {
+    return <div className="empty-state">{emptyMessage}</div>;
+  }
+
+  const toX = (pointIndex: number, total: number) => {
+    if (total <= 1) return padding;
+    return padding + (pointIndex / (total - 1)) * (width - padding * 2);
+  };
+  const toY = (value: number | null) => {
+    const safeValue = value ?? minValue;
+    return height - padding - ((safeValue - minValue) / (maxValue - minValue || 1)) * (height - padding * 2);
+  };
+
+  return (
+    <div className="analytics-chart">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img">
+        <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} className="chart-axis" />
+        <line x1={padding} y1={padding} x2={padding} y2={height - padding} className="chart-axis" />
+        {visibleSeries.map(item => {
+          const points = item.points
+            .map((point, index) => point.y === null ? null : `${toX(index, item.points.length)},${toY(point.y)}`)
+            .filter(Boolean)
+            .join(' ');
+          return (
+            <polyline
+              key={item.key}
+              points={points}
+              fill="none"
+              stroke={item.color}
+              strokeWidth="3"
+              strokeDasharray={item.dashed ? '7 7' : undefined}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          );
+        })}
+        {visibleSeries.map(item => item.points.map((point, index) => {
+          if (point.y === null) return null;
+          return (
+            <circle key={`${item.key}-${index}`} cx={toX(index, item.points.length)} cy={toY(point.y)} r="3.5" fill={item.color}>
+              <title>{`${item.label}\n${formatDateTime(point.x)}\n${point.y.toFixed(1)}${unit ?? ''}`}</title>
+            </circle>
+          );
+        }))}
+      </svg>
+      <div className="chart-legend">
+        {series.map(item => (
+          <button
+            key={item.key}
+            type="button"
+            className={hidden.has(item.key) ? 'muted' : ''}
+            onClick={() => setHidden(prev => {
+              const next = new Set(prev);
+              if (next.has(item.key)) next.delete(item.key);
+              else next.add(item.key);
+              return next;
+            })}
+          >
+            <span style={{ background: item.color }} />
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BarChart({ points, emptyMessage }: { points: ChartPoint[]; emptyMessage: string }) {
+  const values = points.map(point => point.y).filter((value): value is number => typeof value === 'number');
+  const maxValue = Math.max(1, ...values);
+  const width = 720;
+  const height = 260;
+  const padding = 34;
+
+  if (!points.length || !values.length) {
+    return <div className="empty-state">{emptyMessage}</div>;
+  }
+
+  const barWidth = Math.max(4, (width - padding * 2) / points.length - 4);
+
+  return (
+    <div className="analytics-chart">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img">
+        <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} className="chart-axis" />
+        {points.map((point, index) => {
+          const value = point.y ?? 0;
+          const barHeight = (value / maxValue) * (height - padding * 2);
+          const x = padding + index * ((width - padding * 2) / points.length);
+          const y = height - padding - barHeight;
+          return (
+            <rect key={`${point.x}-${index}`} x={x} y={y} width={barWidth} height={barHeight} rx="4" fill="#128a45">
+              <title>{`${formatDateTime(point.x)}\n${formatNumber(value)}`}</title>
+            </rect>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+function AnalyticsMap({
+  zones,
+  cameras,
+  summary
+}: {
+  zones: ParkingZone[];
+  cameras: Camera[];
+  summary?: AnalyticsSummary;
+}) {
+  const mapRef = useRef<HTMLDivElement | null>(null);
+  const [selected, setSelected] = useState<React.ReactNode>(null);
+  const center = useMemo<YandexPoint>(() => {
+    const camera = cameras.find(item => hasCoordinates(item.latitude, item.longitude));
+    if (camera) return yandexPoint(camera.latitude, camera.longitude);
+    const zone = zones.map(zoneMapPoints).find(points => points.length > 0);
+    if (zone?.[0]) return zone[0];
+    return yandexPoint(59.9386, 30.3141);
+  }, [cameras, zones]);
+  const { ymaps, map, loading, error } = useYandexMap(mapRef, { center, zoom: 12, syncView: false });
+
+  useEffect(() => {
+    if (!ymaps || !map) return;
+    const collection = new ymaps.GeoObjectCollection();
+    const boundsPoints: YandexPoint[] = [];
+    const summaryByZone = new Map((summary?.zones ?? []).map(item => [String(item.zone_id), item]));
+
+    zones.forEach(zone => {
+      const points = zoneMapPoints(zone);
+      if (points.length < 3) return;
+      boundsPoints.push(...points);
+      const zoneSummary = summaryByZone.get(String(zone.id));
+      const color = occupancyColor(zoneSummary?.occupancy_percent, zoneSummary?.last_update_at ?? zone.occupancy_updated_at);
+      const polygon = new ymaps.Polygon(
+        [points],
+        { hintContent: `Зона #${String(zone.id)}` },
+        {
+          strokeColor: color,
+          strokeOpacity: 0.95,
+          strokeWidth: 2,
+          fillColor: color,
+          fillOpacity: 0.2,
+          zIndex: 150
+        }
+      );
+      polygon.events.add('click', () => {
+        setSelected(
+          <MapDetails
+            title={`Зона #${String(zone.id)}`}
+            rows={[
+              ['Всего мест', formatNumber(zoneSummary?.capacity ?? zone.capacity)],
+              ['Занято', formatNumber(zoneSummary?.occupied ?? zone.occupied)],
+              ['Свободно', formatNumber(zoneSummary?.free ?? zone.free_count)],
+              ['Занятость', formatPercent(zoneSummary?.occupancy_percent)],
+              ['Последнее обновление', formatDateTime(zoneSummary?.last_update_at ?? zone.occupancy_updated_at)]
+            ]}
+            actions={[
+              ['Редактировать камеру', () => setAnalyticsRoute({ view: 'camera', cameraId: String(zone.camera_id) })],
+              ['Аналитика зоны', () => setAnalyticsRoute({ view: 'zone', zoneId: String(zone.id) })]
+            ]}
+          />
+        );
+      });
+      collection.add(polygon);
+    });
+
+    cameras.forEach(camera => {
+      if (!hasCoordinates(camera.latitude, camera.longitude)) return;
+      const point = yandexPoint(camera.latitude, camera.longitude);
+      boundsPoints.push(point);
+      const placemark = new ymaps.Placemark(
+        point,
+        { hintContent: `Камера #${camera.camera_id}` },
+        {
+          preset: 'islands#circleDotIcon',
+          iconColor: camera.is_active === false ? '#9ca3af' : '#128a45'
+        }
+      );
+      placemark.events.add('click', () => {
+        setSelected(
+          <MapDetails
+            title={`Камера #${camera.camera_id}`}
+            rows={[
+              ['Название', camera.title],
+              ['Статус', camera.is_active === false ? 'Неактивна' : 'Активна'],
+              ['Последнее обновление', formatDateTime(camera.updated_at)]
+            ]}
+            actions={[
+              ['Аналитика камеры', () => setAnalyticsRoute({ view: 'camera', cameraId: String(camera.camera_id) })]
+            ]}
+          />
+        );
+      });
+      collection.add(placemark);
+    });
+
+    map.geoObjects.add(collection);
+    if (boundsPoints.length) fitYandexMap(map, boundsPoints, 12);
+    return () => {
+      map.geoObjects.remove(collection);
+    };
+  }, [ymaps, map, zones, cameras, summary]);
+
+  return (
+    <div className="analytics-map-layout">
+      <div className="analytics-map-host" ref={mapRef}>
+        {loading && <div className="map-status-overlay">Загрузка Яндекс.Карт...</div>}
+        {error && <div className="map-status-overlay error">{error}</div>}
+      </div>
+      <div className="analytics-map-details">
+        {selected ?? <div className="empty-state">Выберите зону или камеру на карте.</div>}
+      </div>
+    </div>
+  );
+}
+
+function MapDetails({
+  title,
+  rows,
+  actions
+}: {
+  title: string;
+  rows: Array<[string, React.ReactNode]>;
+  actions: Array<[string, () => void]>;
+}) {
+  return (
+    <div className="analytics-map-card">
+      <h3>{title}</h3>
+      <div className="analytics-detail-list">
+        {rows.map(([label, value]) => (
+          <div key={label}>
+            <span className="metric-label">{label}</span>
+            <strong>{value}</strong>
+          </div>
+        ))}
+      </div>
+      <div className="row" style={{ flexWrap: 'wrap', marginTop: 12 }}>
+        {actions.map(([label, action]) => (
+          <Button key={label} variant="ghost" onClick={action}>{label}</Button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DetectorHealthTable({ items }: { items: AnalyticsDetectorHealthItem[] }) {
+  if (!items.length) {
+    return <div className="empty-state">У зоны нет свежих наблюдений.</div>;
+  }
+
+  return (
+    <div className="table-scroll analytics-health-table-wrap">
+      <div className="table-header analytics-health-table">
+        <span>Зона</span>
+        <span>Камера</span>
+        <span>Всего</span>
+        <span>Занято</span>
+        <span>Свободно</span>
+        <span>Занятость</span>
+        <span>Уверенность модели</span>
+        <span>Последнее обновление</span>
+        <span>Возраст</span>
+        <span>Средний интервал</span>
+        <span>Макс. интервал</span>
+        <span>Статус</span>
+      </div>
+      <div className="table-list">
+        {items.map(item => (
+          <button
+            type="button"
+            key={String(item.zone_id)}
+            className="table-row analytics-health-table contract-row-button"
+            onClick={() => setAnalyticsRoute({ view: 'zone', zoneId: String(item.zone_id) })}
+          >
+            <span>#{String(item.zone_id)}</span>
+            <span>{item.camera_id ? `#${item.camera_id}` : '—'}</span>
+            <span>{formatNumber(item.capacity)}</span>
+            <span>{formatNumber(item.occupied)}</span>
+            <span>{formatNumber(item.free)}</span>
+            <span>{formatPercent(item.occupancy_percent)}</span>
+            <span>{formatPercent(item.confidence)}</span>
+            <span>{formatDateTime(item.last_update_at)}</span>
+            <span>{formatDuration(item.stale_seconds)}</span>
+            <span>{formatDuration(item.average_interval_seconds)}</span>
+            <span>{formatDuration(item.max_interval_seconds)}</span>
+            <span className={`status-pill analytics-status-${item.status ?? 'no_data'}`}>{item.status ?? 'no_data'}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function formatMs(value?: number | null) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+  if (value < 1000) return `${Math.round(value)} мс`;
+  return `${(value / 1000).toFixed(2)} сек`;
+}
+
+function zoneCapacity(zone?: ParkingZone, summary?: AnalyticsSummary) {
+  if (!zone) return undefined;
+  const zoneSummary = summary?.zones?.find(item => String(item.zone_id) === String(zone.id));
+  return {
+    capacity: zoneSummary?.capacity ?? zone.capacity,
+    occupied: zoneSummary?.occupied ?? zone.occupied,
+    free: zoneSummary?.free ?? zone.free_count,
+    occupancy: zoneSummary?.occupancy_percent,
+    confidence: zoneSummary?.confidence ?? zone.confidence,
+    lastUpdate: zoneSummary?.last_update_at ?? zone.occupancy_updated_at,
+    status: zoneSummary?.status ?? (zone.is_active === false ? 'inactive' : 'active')
+  };
+}
+
+function zoneCoordinateRows(zone: ParkingZone) {
+  const geometryPoints = zoneMapPoints(zone);
+  if (geometryPoints.length) {
+    return geometryPoints.map((point, index) => `#${index + 1}: ${point[0].toFixed(6)}, ${point[1].toFixed(6)}`);
+  }
+  return zone.points.map((point, index) => `#${index + 1}: ${point.latitude ?? '—'}, ${point.longitude ?? '—'}`);
+}
+
+function ZoneAnalyticsPage({ zoneId }: { zoneId: string }) {
+  const currentPartnerId = useSessionStore(state => state.currentPartnerId);
+  const [zone, setZone] = useState<LoadState<ParkingZone>>(emptyState);
+  const [summary, setSummary] = useState<LoadState<AnalyticsSummary>>(emptyState);
+  const [history, setHistory] = useState<LoadState<AnalyticsHistory>>(emptyState);
+  const [forecast, setForecast] = useState<LoadState<AnalyticsForecast>>(emptyState);
+  const [confidence, setConfidence] = useState<LoadState<AnalyticsConfidence>>(emptyState);
+  const [frequency, setFrequency] = useState<LoadState<AnalyticsUpdateFrequency>>(emptyState);
+  const query = useMemo<AnalyticsQuery>(() => ({
+    partner_id: currentPartnerId,
+    zone_ids: [zoneId],
+    ...rangeForFilters({ ...defaultFilters(), period: '7d' }),
+    granularity: '1h'
+  }), [currentPartnerId, zoneId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setZone({ loading: true });
+    setSummary({ loading: true });
+    setHistory({ loading: true });
+    setForecast({ loading: true });
+    setConfidence({ loading: true });
+    setFrequency({ loading: true });
+
+    Promise.allSettled([
+      api.getZone(zoneId),
+      api.analytics.summary(query),
+      api.analytics.occupancyHistory(query),
+      api.analytics.occupancyForecast(query),
+      api.analytics.confidence(query),
+      api.analytics.updateFrequency(query)
+    ]).then(results => {
+      if (cancelled) return;
+      const [zoneResult, summaryResult, historyResult, forecastResult, confidenceResult, frequencyResult] = results;
+      setZone(zoneResult.status === 'fulfilled' ? { loading: false, data: zoneResult.value } : { loading: false, error: blockError(zoneResult.reason) });
+      setSummary(summaryResult.status === 'fulfilled' ? { loading: false, data: summaryResult.value } : { loading: false, error: blockError(summaryResult.reason) });
+      setHistory(historyResult.status === 'fulfilled' ? { loading: false, data: historyResult.value } : { loading: false, error: blockError(historyResult.reason) });
+      setForecast(forecastResult.status === 'fulfilled' ? { loading: false, data: forecastResult.value } : { loading: false, error: blockError(forecastResult.reason) });
+      setConfidence(confidenceResult.status === 'fulfilled' ? { loading: false, data: confidenceResult.value } : { loading: false, error: blockError(confidenceResult.reason) });
+      setFrequency(frequencyResult.status === 'fulfilled' ? { loading: false, data: frequencyResult.value } : { loading: false, error: blockError(frequencyResult.reason) });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [zoneId, query]);
+
+  const metrics = zoneCapacity(zone.data, summary.data);
+  const zonesForLabels = zone.data ? [zone.data] : [];
+  const occupancySeries = historyToOccupancySeries(history.data, zonesForLabels);
+  const occupiedFreeSeries = useMemo<ChartSeries[]>(() => {
+    const points = asItems(history.data).length
+      ? asItems(history.data)
+      : history.data?.series?.flatMap(series => series.points) ?? [];
+    return [
+      {
+        key: 'occupied',
+        label: 'Занято',
+        color: '#dc2626',
+        points: points.map(point => ({ x: getPointTime(point), y: point.occupied ?? null, meta: point as Record<string, unknown> }))
+      },
+      {
+        key: 'free',
+        label: 'Свободно',
+        color: '#128a45',
+        points: points.map(point => ({ x: getPointTime(point), y: point.free ?? null, meta: point as Record<string, unknown> }))
+      }
+    ];
+  }, [history.data]);
+
+  return (
+    <section className="page-stack analytics-page">
+      <div className="page-heading">
+        <div>
+          <h1>Аналитика зоны #{zoneId}</h1>
+          <p>Занятость, прогноз, геометрия и качество данных по одной парковочной зоне</p>
+        </div>
+        <div className="row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <Button variant="ghost" onClick={() => setAnalyticsRoute({ view: 'dashboard' })}>Назад к аналитике</Button>
+          {zone.data && <Button onClick={() => setAnalyticsRoute({ view: 'camera', cameraId: String(zone.data!.camera_id) })}>Открыть камеру</Button>}
+        </div>
+      </div>
+
+      <Block title="Сводка зоны" state={zone}>
+        {zone.data ? (
+          <div className="details-grid analytics-detail-grid">
+            <Detail label="ID зоны" value={`#${zone.data.id}`} />
+            <Detail label="Камера" value={`#${zone.data.camera_id}`} />
+            <Detail label="Всего мест" value={formatNumber(metrics?.capacity)} />
+            <Detail label="Занято сейчас" value={formatNumber(metrics?.occupied)} />
+            <Detail label="Свободно сейчас" value={formatNumber(metrics?.free)} />
+            <Detail label="Занятость" value={formatPercent(metrics?.occupancy)} />
+            <Detail label="Уверенность модели" value={formatPercent(metrics?.confidence)} />
+            <Detail label="Последнее обновление" value={formatDateTime(metrics?.lastUpdate)} />
+            <Detail label="Статус" value={metrics?.status ?? '—'} />
+          </div>
+        ) : <div className="empty-state">Зона не найдена.</div>}
+      </Block>
+
+      <div className="analytics-dashboard-grid">
+        <Block title="Карта зоны" state={zone}>
+          {zone.data ? <ZoneGeometryPreview zone={zone.data} /> : <div className="empty-state">У зоны не задана геометрия.</div>}
+        </Block>
+        <Block title="Интервалы обновления" state={frequency}>
+          <div className="details-grid analytics-detail-grid compact">
+            <Detail label="Средний интервал" value={formatDuration(frequency.data?.average_interval_seconds)} />
+            <Detail label="Максимальный интервал" value={formatDuration(frequency.data?.max_interval_seconds)} />
+            <Detail label="Самое свежее обновление" value={formatDateTime(frequency.data?.newest_update_at)} />
+            <Detail label="Самое старое обновление" value={formatDateTime(frequency.data?.oldest_update_at)} />
+          </div>
+        </Block>
+      </div>
+
+      <div className="analytics-chart-grid">
+        <Block title="Занято / свободно" state={history}>
+          <LineChart series={occupiedFreeSeries} emptyMessage="Нет данных за выбранный период" />
+        </Block>
+        <Block title="Занятость, %" state={history}>
+          <LineChart series={occupancySeries} unit="%" emptyMessage="Нет данных за выбранный период" />
+        </Block>
+        <Block title="Прогноз занятости" state={forecast}>
+          <LineChart series={forecastToSeries(history.data, forecast.data, zonesForLabels)} unit="%" emptyMessage="Прогноз недоступен" />
+        </Block>
+        <Block title="Уверенность модели" state={confidence}>
+          <LineChart series={confidenceToSeries(confidence.data)} unit="%" emptyMessage="Нет данных по уверенности модели" />
+        </Block>
+      </div>
+    </section>
+  );
+}
+
+function ZoneGeometryPreview({ zone }: { zone: ParkingZone }) {
+  const points = zoneMapPoints(zone);
+  return (
+    <div className="analytics-zone-geometry">
+      {points.length >= 3 ? (
+        <AnalyticsMap zones={[zone]} cameras={[]} summary={{ zones: [{ zone_id: zone.id, occupancy_percent: zone.occupied && zone.capacity ? zone.occupied / zone.capacity : null }] }} />
+      ) : (
+        <div className="empty-state">У зоны не задана геометрия.</div>
+      )}
+      <div className="analytics-coordinate-list">
+        {zoneCoordinateRows(zone).map(row => <span key={row}>{row}</span>)}
+      </div>
+    </div>
+  );
+}
+
+function CameraAnalyticsPage({ cameraId }: { cameraId: string }) {
+  const currentPartnerId = useSessionStore(state => state.currentPartnerId);
+  const numericCameraId = Number(cameraId);
+  const [camera, setCamera] = useState<LoadState<Camera>>(emptyState);
+  const [zones, setZones] = useState<LoadState<ParkingZone[]>>(emptyState);
+  const [health, setHealth] = useState<LoadState<AnalyticsDetectorHealth>>(emptyState);
+  const [frequency, setFrequency] = useState<LoadState<AnalyticsUpdateFrequency>>(emptyState);
+  const [confidence, setConfidence] = useState<LoadState<AnalyticsConfidence>>(emptyState);
+  const [observations, setObservations] = useState<LoadState<AnalyticsObservationsRate>>(emptyState);
+  const [detections, setDetections] = useState<LoadState<DetectionRunList>>(emptyState);
+  const query = useMemo<AnalyticsQuery>(() => ({
+    partner_id: currentPartnerId,
+    camera_ids: [cameraId],
+    ...rangeForFilters({ ...defaultFilters(), period: '7d' }),
+    granularity: '1h',
+    top: 20
+  }), [currentPartnerId, cameraId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCamera({ loading: true });
+    setZones({ loading: true });
+    setHealth({ loading: true });
+    setFrequency({ loading: true });
+    setConfidence({ loading: true });
+    setObservations({ loading: true });
+    setDetections({ loading: true });
+
+    Promise.allSettled([
+      api.getCamera(numericCameraId),
+      api.listZones({ camera_id: numericCameraId, partner_id: currentPartnerId }),
+      api.analytics.detectorHealth(query),
+      api.analytics.updateFrequency(query),
+      api.analytics.confidence(query),
+      api.analytics.observationsRate(query),
+      api.analytics.cameraDetections(numericCameraId, query)
+    ]).then(results => {
+      if (cancelled) return;
+      const [cameraResult, zonesResult, healthResult, frequencyResult, confidenceResult, observationsResult, detectionsResult] = results;
+      setCamera(cameraResult.status === 'fulfilled' ? { loading: false, data: cameraResult.value } : { loading: false, error: blockError(cameraResult.reason) });
+      setZones(zonesResult.status === 'fulfilled' ? { loading: false, data: zonesResult.value } : { loading: false, error: blockError(zonesResult.reason) });
+      setHealth(healthResult.status === 'fulfilled' ? { loading: false, data: healthResult.value } : { loading: false, error: blockError(healthResult.reason) });
+      setFrequency(frequencyResult.status === 'fulfilled' ? { loading: false, data: frequencyResult.value } : { loading: false, error: blockError(frequencyResult.reason) });
+      setConfidence(confidenceResult.status === 'fulfilled' ? { loading: false, data: confidenceResult.value } : { loading: false, error: blockError(confidenceResult.reason) });
+      setObservations(observationsResult.status === 'fulfilled' ? { loading: false, data: observationsResult.value } : { loading: false, error: blockError(observationsResult.reason) });
+      setDetections(detectionsResult.status === 'fulfilled' ? { loading: false, data: detectionsResult.value } : { loading: false, error: blockError(detectionsResult.reason) });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [numericCameraId, currentPartnerId, query]);
+
+  return (
+    <section className="page-stack analytics-page">
+      <div className="page-heading">
+        <div>
+          <h1>Аналитика камеры #{cameraId}</h1>
+          <p>Снимки, наблюдения, интервалы обновления и здоровье связанных зон</p>
+        </div>
+        <div className="row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <Button variant="ghost" onClick={() => setAnalyticsRoute({ view: 'dashboard' })}>Назад к аналитике</Button>
+        </div>
+      </div>
+
+      <Block title="Сводка камеры" state={camera}>
+        {camera.data ? (
+          <div className="details-grid analytics-detail-grid">
+            <Detail label="ID и название" value={`#${camera.data.camera_id} · ${camera.data.title}`} />
+            <Detail label="Источник" value={camera.data.source} />
+            <Detail label="Статус" value={camera.data.is_active === false ? 'Неактивна' : 'Активна'} />
+            <Detail label="Координаты" value={hasCoordinates(camera.data.latitude, camera.data.longitude) ? `${camera.data.latitude.toFixed(6)}, ${camera.data.longitude.toFixed(6)}` : '—'} />
+            <Detail label="Связанных зон" value={zones.data?.length ?? '—'} />
+            <Detail label="Последнее обновление" value={formatDateTime(frequency.data?.newest_update_at ?? camera.data.updated_at)} />
+            <Detail label="Средний интервал" value={formatDuration(frequency.data?.average_interval_seconds)} />
+            <Detail label="Уверенность модели" value={formatPercent(confidence.data?.average_confidence)} />
+          </div>
+        ) : <div className="empty-state">Камера не найдена.</div>}
+      </Block>
+
+      <Block title="Снимки камеры" state={camera}>
+        <CameraSnapshots cameraId={numericCameraId} />
+      </Block>
+
+      <div className="analytics-chart-grid">
+        <Block title="Количество наблюдений" state={observations}>
+          <BarChart points={observationsToBars(observations.data)} emptyMessage="Нет наблюдений по камере" />
+        </Block>
+        <Block title="Уверенность модели" state={confidence}>
+          <LineChart series={confidenceToSeries(confidence.data)} unit="%" emptyMessage="Нет данных по уверенности модели" />
+        </Block>
+        <Block title="Интервалы обновлений" state={frequency}>
+          <BarChart
+            points={[
+              { x: 'Средний', y: frequency.data?.average_interval_seconds ?? null },
+              { x: 'Максимальный', y: frequency.data?.max_interval_seconds ?? null }
+            ]}
+            emptyMessage="Интервалы обновления недоступны"
+          />
+        </Block>
+        <Block title="Здоровье зон камеры" state={health}>
+          <DetectorHealthTable items={health.data?.items ?? []} />
+        </Block>
+      </div>
+
+      <Block title="Последние распознавания" state={detections}>
+        <DetectionsTable detections={detections.data?.items ?? []} />
+      </Block>
+    </section>
+  );
+}
+
+function CameraSnapshots({ cameraId }: { cameraId: number }) {
+  const [tab, setTab] = useState<'snapshot' | 'raw' | 'annotated'>('snapshot');
+  const [snapshot, setSnapshot] = useState<LoadState<{ image_url: string; captured_at?: string }>>(emptyState);
+  const [fullscreenUrl, setFullscreenUrl] = useState<string | undefined>();
+  const options = tab === 'annotated' ? { annotated: true, fallback_to_raw: true } : { annotated: false, fallback_to_raw: true };
+
+  const load = useCallback(async () => {
+    setSnapshot({ loading: true });
+    try {
+      const result = await api.getSnapshot(cameraId, options);
+      setSnapshot({ loading: false, data: result });
+    } catch (error) {
+      setSnapshot({ loading: false, error: blockError(error) });
+    }
+  }, [cameraId, tab]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  return (
+    <div className="analytics-snapshot-block">
+      <div className="segmented">
+        <button type="button" className={tab === 'snapshot' ? 'active' : ''} onClick={() => setTab('snapshot')}>Последний снимок</button>
+        <button type="button" className={tab === 'raw' ? 'active' : ''} onClick={() => setTab('raw')}>Последнее распознавание</button>
+        <button type="button" className={tab === 'annotated' ? 'active' : ''} onClick={() => setTab('annotated')}>С разметкой</button>
+      </div>
+      <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <span className="small">Timestamp: {formatDateTime(snapshot.data?.captured_at)}</span>
+        <div className="row" style={{ flexWrap: 'wrap' }}>
+          <Button variant="ghost" onClick={load} disabled={snapshot.loading}>{snapshot.loading ? 'Загрузка...' : 'Обновить'}</Button>
+          <Button variant="ghost" onClick={() => snapshot.data?.image_url && setFullscreenUrl(snapshot.data.image_url)} disabled={!snapshot.data?.image_url}>Fullscreen</Button>
+        </div>
+      </div>
+      {snapshot.error && <div className="notice error">Снимок недоступен: {snapshot.error}</div>}
+      {snapshot.data?.image_url ? (
+        <img className="analytics-snapshot" src={snapshot.data.image_url} alt="Снимок камеры" />
+      ) : !snapshot.loading && !snapshot.error ? (
+        <div className="empty-state">Снимок недоступен</div>
+      ) : null}
+      {fullscreenUrl && (
+        <div className="fullscreen-preview" role="dialog">
+          <button type="button" className="fullscreen-close" onClick={() => setFullscreenUrl(undefined)}>×</button>
+          <img src={fullscreenUrl} alt="Снимок камеры" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DetectionsTable({ detections }: { detections: DetectionRunList['items'] }) {
+  if (!detections.length) {
+    return <div className="empty-state">Распознавания не найдены.</div>;
+  }
+
+  return (
+    <div className="table-scroll">
+      <div className="table-header analytics-detections-table">
+        <span>Время</span>
+        <span>Статус</span>
+        <span>Обработка</span>
+        <span>Машин</span>
+        <span>Занято</span>
+        <span>Свободно</span>
+        <span>Уверенность модели</span>
+        <span>Оценка</span>
+        <span></span>
+      </div>
+      <div className="table-list">
+        {detections.map(item => (
+          <button
+            type="button"
+            key={String(item.detection_run_id)}
+            className="table-row analytics-detections-table contract-row-button"
+            onClick={() => setAnalyticsRoute({ view: 'detection', detectionRunId: String(item.detection_run_id) })}
+          >
+            <span>{formatDateTime(item.started_at)}</span>
+            <span>{item.status ?? '—'}</span>
+            <span>{formatMs(item.processing_time_ms)}</span>
+            <span>{formatNumber(item.cars_detected)}</span>
+            <span>{formatNumber(item.occupied)}</span>
+            <span>{formatNumber(item.free)}</span>
+            <span>{formatPercent(item.confidence)}</span>
+            <span>{item.has_feedback ? 'Да' : 'Нет'}</span>
+            <span>Открыть</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DetectionAnalyticsPage({ detectionRunId }: { detectionRunId: string }) {
+  const isAdmin = useSessionStore(state => state.isAdmin());
+  const notifySuccess = useFeedbackStore(state => state.success);
+  const [detail, setDetail] = useState<LoadState<DetectionRunDetail>>(emptyState);
+  const [feedback, setFeedback] = useState<LoadState<{ items: DetectionFeedback[] }>>(emptyState);
+  const [selectedFeedback, setSelectedFeedback] = useState<LoadState<DetectionFeedback>>(emptyState);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setDetail({ loading: true });
+    setFeedback({ loading: isAdmin });
+    try {
+      const nextDetail = await api.analytics.detection(detectionRunId);
+      setDetail({ loading: false, data: nextDetail });
+    } catch (error) {
+      setDetail({ loading: false, error: blockError(error) });
+    }
+
+    if (isAdmin) {
+      try {
+        const nextFeedback = await api.analytics.detectionFeedback(detectionRunId);
+        setFeedback({ loading: false, data: nextFeedback });
+      } catch (error) {
+        setFeedback({ loading: false, error: blockError(error) });
+      }
+    }
+  }, [detectionRunId, isAdmin]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function saveFeedback(data: {
+    rating: DetectionFeedbackRating;
+    correct_occupied?: number | null;
+    correct_free?: number | null;
+    error_type?: DetectionFeedbackErrorType | null;
+    comment?: string | null;
+  }) {
+    setSaving(true);
+    try {
+      await api.analytics.createDetectionFeedback(detectionRunId, data);
+      notifySuccess('Оценка сохранена.');
+      await load();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function openFeedback(feedbackId?: number | string) {
+    if (!feedbackId) return;
+    setSelectedFeedback({ loading: true });
+    try {
+      const next = await api.analytics.detectionFeedbackDetail(detectionRunId, feedbackId);
+      setSelectedFeedback({ loading: false, data: next });
+    } catch (error) {
+      setSelectedFeedback({ loading: false, error: blockError(error) });
+    }
+  }
+
+  const item = detail.data;
+
+  return (
+    <section className="page-stack analytics-page">
+      <div className="page-heading">
+        <div>
+          <h1>Распознавание #{detectionRunId}</h1>
+          <p>Просмотр запуска detector-а и оценка качества распознавания</p>
+        </div>
+        <div className="row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <Button variant="ghost" onClick={() => setAnalyticsRoute({ view: 'dashboard' })}>Назад к аналитике</Button>
+          {item?.camera_id && <Button onClick={() => setAnalyticsRoute({ view: 'camera', cameraId: String(item.camera_id) })}>К камере</Button>}
+        </div>
+      </div>
+
+      <Block title="Информация о распознавании" state={detail}>
+        {item ? (
+          <div className="details-grid analytics-detail-grid">
+            <Detail label="ID распознавания" value={`#${item.detection_run_id}`} />
+            <Detail label="Камера" value={`#${item.camera_id}`} />
+            <Detail label="Зона" value={item.zone_id ? `#${item.zone_id}` : '—'} />
+            <Detail label="Начало" value={formatDateTime(item.started_at)} />
+            <Detail label="Завершение" value={formatDateTime(item.finished_at)} />
+            <Detail label="Статус" value={item.status ?? '—'} />
+            <Detail label="Время обработки" value={formatMs(item.processing_time_ms)} />
+            <Detail label="Версия модели" value={item.model_version ?? '—'} />
+            <Detail label="Машин найдено" value={formatNumber(item.cars_detected)} />
+            <Detail label="Занято" value={formatNumber(item.occupied)} />
+            <Detail label="Свободно" value={formatNumber(item.free)} />
+            <Detail label="Всего мест" value={formatNumber(item.total)} />
+            <Detail label="Уверенность модели" value={formatPercent(item.confidence)} />
+            <Detail label="Ошибка" value={item.error ?? '—'} />
+          </div>
+        ) : <div className="empty-state">Распознавание не найдено.</div>}
+      </Block>
+
+      {item && (
+        <Block title="Сравнение изображений" state={detail}>
+          <div className="analytics-image-compare">
+            <DetectionImage title="Raw-изображение" url={item.raw_image_url} />
+            <DetectionImage title="Annotated-изображение" url={item.annotated_image_url} />
+          </div>
+        </Block>
+      )}
+
+      {item && (
+        <Block title="Оценка качества распознавания" state={detail}>
+          {item.feedback && <FeedbackSummary feedback={item.feedback} />}
+          <DetectionFeedbackForm saving={saving} onSubmit={saveFeedback} />
+        </Block>
+      )}
+
+      {isAdmin && (
+        <Block title="История оценок качества" state={feedback}>
+          <FeedbackHistory
+            items={feedback.data?.items ?? []}
+            selected={selectedFeedback}
+            onOpen={openFeedback}
+          />
+        </Block>
+      )}
+    </section>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="detail-card">
+      <div className="metric-label">{label}</div>
+      <div className="detail-value">{value}</div>
+    </div>
+  );
+}
+
+function DetectionImage({ title, url }: { title: string; url?: string | null }) {
+  const [fullscreen, setFullscreen] = useState(false);
+  return (
+    <div className="analytics-detection-image">
+      <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <h3>{title}</h3>
+        <div className="row" style={{ flexWrap: 'wrap' }}>
+          <Button variant="ghost" disabled={!url} onClick={() => setFullscreen(true)}>Fullscreen</Button>
+          <Button variant="ghost" disabled={!url} onClick={() => url && window.open(url, '_blank', 'noopener,noreferrer')}>В новой вкладке</Button>
+        </div>
+      </div>
+      {url ? <img src={url} alt={title} /> : <div className="empty-state">Изображение недоступно</div>}
+      {fullscreen && url && (
+        <div className="fullscreen-preview" role="dialog">
+          <button type="button" className="fullscreen-close" onClick={() => setFullscreen(false)}>×</button>
+          <img src={url} alt={title} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DetectionFeedbackForm({
+  saving,
+  onSubmit
+}: {
+  saving: boolean;
+  onSubmit: (data: {
+    rating: DetectionFeedbackRating;
+    correct_occupied?: number | null;
+    correct_free?: number | null;
+    error_type?: DetectionFeedbackErrorType | null;
+    comment?: string | null;
+  }) => Promise<void>;
+}) {
+  const [rating, setRating] = useState<DetectionFeedbackRating>('correct');
+  const [correctOccupied, setCorrectOccupied] = useState('');
+  const [correctFree, setCorrectFree] = useState('');
+  const [errorType, setErrorType] = useState<DetectionFeedbackErrorType | ''>('');
+  const [comment, setComment] = useState('');
+  const [error, setError] = useState<string | undefined>();
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    setError(undefined);
+    try {
+      await onSubmit({
+        rating,
+        correct_occupied: correctOccupied ? Number(correctOccupied) : null,
+        correct_free: correctFree ? Number(correctFree) : null,
+        error_type: errorType || null,
+        comment: comment.trim() || null
+      });
+      setComment('');
+    } catch (submitError) {
+      setError(blockError(submitError));
+    }
+  }
+
+  return (
+    <form className="analytics-feedback-form" onSubmit={submit}>
+      <Field label="Оценка">
+        <Select value={rating} onChange={event => setRating(event.target.value as DetectionFeedbackRating)}>
+          <option value="correct">Корректно</option>
+          <option value="partially_correct">Частично корректно</option>
+          <option value="incorrect">Некорректно</option>
+        </Select>
+      </Field>
+      <Field label="Правильно занято">
+        <Input type="number" min={0} value={correctOccupied} onChange={event => setCorrectOccupied(event.target.value)} />
+      </Field>
+      <Field label="Правильно свободно">
+        <Input type="number" min={0} value={correctFree} onChange={event => setCorrectFree(event.target.value)} />
+      </Field>
+      <Field label="Тип ошибки">
+        <Select value={errorType} onChange={event => setErrorType(event.target.value as DetectionFeedbackErrorType | '')}>
+          <option value="">Не задан</option>
+          <option value="extra_car">Лишняя машина</option>
+          <option value="missing_car">Машина не найдена</option>
+          <option value="wrong_zone">Машина не в той зоне</option>
+          <option value="bad_lighting">Плохое освещение</option>
+          <option value="bad_angle">Плохой ракурс</option>
+          <option value="calibration_issue">Проблема калибровки</option>
+          <option value="other">Другое</option>
+        </Select>
+      </Field>
+      <Field label="Комментарий">
+        <textarea className="input" value={comment} onChange={event => setComment(event.target.value)} rows={4} />
+      </Field>
+      {error && <div className="notice error">{error}</div>}
+      <Button type="submit" disabled={saving}>{saving ? 'Сохранение...' : 'Сохранить оценку'}</Button>
+    </form>
+  );
+}
+
+function FeedbackSummary({ feedback }: { feedback: DetectionFeedback }) {
+  return (
+    <div className="notice">
+      Уже есть оценка: {feedback.rating ?? '—'}
+      {feedback.error_type ? ` · ${feedback.error_type}` : ''}
+      {feedback.comment ? ` · ${feedback.comment}` : ''}
+    </div>
+  );
+}
+
+function FeedbackHistory({
+  items,
+  selected,
+  onOpen
+}: {
+  items: DetectionFeedback[];
+  selected: LoadState<DetectionFeedback>;
+  onOpen: (feedbackId?: number | string) => void;
+}) {
+  if (!items.length) {
+    return <div className="empty-state">Для данного распознавания ещё нет оценок качества.</div>;
+  }
+
+  return (
+    <div className="analytics-feedback-history">
+      <div className="table-scroll">
+        <div className="table-header analytics-feedback-table">
+          <span>Дата</span>
+          <span>Пользователь</span>
+          <span>Оценка</span>
+          <span>Занято</span>
+          <span>Свободно</span>
+          <span>Ошибка</span>
+          <span>Комментарий</span>
+        </div>
+        <div className="table-list">
+          {items.map(item => (
+            <button
+              type="button"
+              key={String(item.feedback_id)}
+              className="table-row analytics-feedback-table contract-row-button"
+              onClick={() => onOpen(item.feedback_id)}
+            >
+              <span>{formatDateTime(item.created_at)}</span>
+              <span>{item.user_email ?? item.user_id ?? '—'}</span>
+              <span>{item.rating ?? '—'}</span>
+              <span>{formatNumber(item.correct_occupied)}</span>
+              <span>{formatNumber(item.correct_free)}</span>
+              <span>{item.error_type ?? '—'}</span>
+              <span>{item.comment ?? '—'}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      {selected.loading && <div className="small">Загрузка оценки...</div>}
+      {selected.error && <div className="notice error">{selected.error}</div>}
+      {selected.data && (
+        <div className="analytics-feedback-detail">
+          <h3>Подробная оценка</h3>
+          <div className="details-grid analytics-detail-grid compact">
+            <Detail label="Автор" value={selected.data.user_email ?? selected.data.user_id ?? '—'} />
+            <Detail label="Создано" value={formatDateTime(selected.data.created_at)} />
+            <Detail label="Обновлено" value={formatDateTime(selected.data.updated_at)} />
+            <Detail label="Оценка" value={selected.data.rating ?? '—'} />
+            <Detail label="Правильно занято" value={formatNumber(selected.data.correct_occupied)} />
+            <Detail label="Правильно свободно" value={formatNumber(selected.data.correct_free)} />
+            <Detail label="Тип ошибки" value={selected.data.error_type ?? '—'} />
+            <Detail label="Комментарий" value={selected.data.comment ?? '—'} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AnalyticsComingSoon({ title }: { title: string }) {
+  return (
+    <section className="page-stack analytics-page">
+      <div className="page-heading">
+        <div>
+          <h1>{title}</h1>
+          <p>Детальная страница будет добавлена следующим коммитом.</p>
+        </div>
+        <Button variant="ghost" onClick={() => setAnalyticsRoute({ view: 'dashboard' })}>Назад к аналитике</Button>
+      </div>
+      <div className="section-panel">
+        <div className="empty-state">Контейнер детализации подключён.</div>
+      </div>
+    </section>
+  );
+}

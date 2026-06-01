@@ -5,6 +5,7 @@ export const appRoutes = [
   'profile',
   'users',
   'partners',
+  'analytics',
   'cameras',
   'zones',
   'sources',

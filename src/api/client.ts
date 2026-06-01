@@ -2,6 +2,7 @@ import { ParkingZone, Id, SessionUser } from '@/types';
 import { apiConfig, request } from './http';
 import { camerasApi, CameraListFilters } from './cameras';
 import { zonesApi, ZoneListFilters } from './zones';
+import { analyticsApi } from './analytics';
 
 // --- types (according to Swagger schema) ---
 
@@ -33,6 +34,31 @@ export type {
   ZonePoint,
   ZoneView
 } from './zones';
+export type {
+  AnalyticsConfidence,
+  AnalyticsDetectorHealth,
+  AnalyticsDetectorHealthItem,
+  AnalyticsForecast,
+  AnalyticsGranularity,
+  AnalyticsHistory,
+  AnalyticsObservationPoint,
+  AnalyticsObservationsRate,
+  AnalyticsQuery,
+  AnalyticsSummary,
+  AnalyticsUpdateFrequency,
+  AnalyticsZoneSummary,
+  DetectionFeedback,
+  DetectionFeedbackErrorType,
+  DetectionFeedbackList,
+  DetectionFeedbackRating,
+  DetectionFeedbackRequest,
+  DetectionRunDetail,
+  DetectionRunList,
+  DetectionRunListItem,
+  LegacyForecastSeriesPoint,
+  LegacyOccupancySeriesPoint,
+  LegacySeriesQuery
+} from './analytics';
 
 export type HealthResponse = {
   status?: string;
@@ -443,6 +469,8 @@ export const api = {
       return request<DataSource>('GET', `/sources/${encodeURIComponent(sourceId)}`);
     }
   },
+
+  analytics: analyticsApi,
 
   // --- Parking Zones ---
   async listZones(cameraIdOrFilters?: number | ZoneListFilters) {
