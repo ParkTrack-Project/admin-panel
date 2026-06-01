@@ -31,7 +31,6 @@ type ZoneEditorState = {
   zoneType: ParkingZone['zone_type'];
   capacity: string;
   pay: string;
-  partnerId: string;
   locationType: string;
   isActive: boolean;
   isPrivate: boolean;
@@ -73,7 +72,6 @@ function zoneToEditor(zone: ParkingZone): ZoneEditorState {
     zoneType: zone.zone_type,
     capacity: String(zone.capacity),
     pay: String(zone.pay),
-    partnerId: zone.partner_id === null || zone.partner_id === undefined ? '' : String(zone.partner_id),
     locationType: zone.location_type ?? '',
     isActive: zone.is_active !== false,
     isPrivate: zone.is_private === true,
@@ -86,7 +84,6 @@ function normalizeEditor(editor: ZoneEditorState) {
     zoneType: editor.zoneType,
     capacity: editor.capacity.trim(),
     pay: editor.pay.trim(),
-    partnerId: editor.partnerId.trim(),
     locationType: editor.locationType.trim(),
     isActive: editor.isActive,
     isPrivate: editor.isPrivate,
@@ -330,7 +327,6 @@ export default function ZonesAdminPage() {
 
     const capacity = parseInt(editor.capacity, 10);
     const pay = parseInt(editor.pay, 10);
-    const partnerId = editor.partnerId.trim() ? parseInt(editor.partnerId, 10) : null;
 
     if (!Number.isFinite(capacity) || capacity < 1) {
       setSaveState({ loading: false, error: 'Вместимость зоны должна быть не меньше 1.' });
@@ -342,11 +338,6 @@ export default function ZonesAdminPage() {
       return;
     }
 
-    if (editor.partnerId.trim() && (!Number.isFinite(partnerId) || partnerId === null || partnerId < 1)) {
-      setSaveState({ loading: false, error: 'ID партнёра должен быть положительным числом.' });
-      return;
-    }
-
     setSaveState({ loading: true });
     try {
       const updated = await api.updateZone(selectedZone.id, {
@@ -354,7 +345,7 @@ export default function ZonesAdminPage() {
         zone_type: editor.zoneType,
         capacity,
         pay,
-        partner_id: partnerId,
+        partner_id: selectedZone.partner_id ?? null,
         location_type: parseZoneLocationType(editor.locationType),
         is_active: editor.isActive,
         is_private: editor.isPrivate,
@@ -758,10 +749,6 @@ export default function ZonesAdminPage() {
 
               <div className="details-grid zone-meta-grid">
                 <div className="detail-card">
-                  <div className="metric-label">Партнёр ID</div>
-                  <div className="detail-value">{selectedZone.partner_id ?? '—'}</div>
-                </div>
-                <div className="detail-card">
                   <div className="metric-label">Confidence</div>
                   <div className="detail-value">
                     {typeof selectedZone.confidence === 'number'
@@ -833,16 +820,6 @@ export default function ZonesAdminPage() {
                         setSaveState(prev => ({ loading: false, error: undefined }));
                         setEditor(prev => prev ? ({ ...prev, pay: e.target.value }) : prev);
                       }}
-                    />
-                  </Field>
-                  <Field label="Партнёр ID">
-                    <Input
-                      value={editor.partnerId}
-                      onChange={e => {
-                        setSaveState(prev => ({ loading: false, error: undefined }));
-                        setEditor(prev => prev ? ({ ...prev, partnerId: e.target.value }) : prev);
-                      }}
-                      placeholder="Не задан"
                     />
                   </Field>
                   <Field label="Тип расположения">

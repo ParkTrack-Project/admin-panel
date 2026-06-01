@@ -21,13 +21,6 @@ function formatDate(dateStr?: string): string {
   }
 }
 
-function parseOptionalPositiveInt(value: string): number | null {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const parsed = parseInt(trimmed, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
 function isEditableTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
   const tagName = target.tagName.toLowerCase();
@@ -290,7 +283,7 @@ export default function Sidebar() {
               мест: {z.capacity} • цена: {z.pay}
             </div>
             <div className="small">
-              партнёр: {z.partner_id ?? '—'} • {formatZoneLocationType(z.location_type)} • {z.is_active === false ? 'inactive' : 'active'}
+              {formatZoneLocationType(z.location_type)} • {z.is_active === false ? 'inactive' : 'active'}
             </div>
           </div>
         ))}
@@ -317,13 +310,6 @@ export default function Sidebar() {
           <Field label="Цена">
             <Input type="number" min={0} value={zone.pay}
               onChange={e=>s.updateZone(zone.id,{pay: parseInt(e.target.value||'0',10)})}/>
-          </Field>
-          <Field label="Партнёр ID">
-            <Input
-              value={zone.partner_id ?? ''}
-              onChange={e=>s.updateZone(zone.id,{partner_id: parseOptionalPositiveInt(e.target.value)})}
-              placeholder={camera?.partner_id ? `Камера: #${camera.partner_id}` : 'Не задан'}
-            />
           </Field>
           <Field label="Тип расположения">
             <Select
