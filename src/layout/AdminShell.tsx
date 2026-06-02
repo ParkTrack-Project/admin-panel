@@ -75,7 +75,7 @@ export default function AdminShell({ route, children }: { route: AppRoute; child
     <div className="admin-app">
       <aside className="admin-sidebar">
         <div className="brand-block">
-          <div className="brand-mark">P</div>
+          <div className="brand-mark"></div>
           <div>
             <div className="brand-name">ParkTrack</div>
             <div className="brand-subtitle">Admin</div>

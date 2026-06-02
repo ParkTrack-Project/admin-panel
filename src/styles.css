@@ -609,7 +609,10 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   border-radius: 8px;
   display: grid;
   place-items: center;
-  background: #d8f5dd;
+  background-image: url("/parktrack.png");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
   color: #0f5f2d;
   font-weight: 800;
 }
