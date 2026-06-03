@@ -339,6 +339,26 @@ function getPointTime(point: { ts?: string; timestamp?: string }) {
   return point.ts ?? point.timestamp ?? '';
 }
 
+function pointOccupied(point: { occupied_count?: number | null; occupied?: number | null }) {
+  return point.occupied_count ?? point.occupied ?? null;
+}
+
+function pointFree(point: { free_count?: number | null; free?: number | null }) {
+  return point.free_count ?? point.free ?? null;
+}
+
+function pointCapacity(point: { capacity?: number | null; total?: number | null }) {
+  return point.capacity ?? point.total ?? null;
+}
+
+function pointConfidence(point: { confidence_avg?: number | null; average_confidence?: number | null; confidence?: number | null }) {
+  return point.confidence_avg ?? point.average_confidence ?? point.confidence ?? null;
+}
+
+function pointObservationCount(point: { observations_count?: number | null; observations?: number | null; count?: number | null }) {
+  return point.observations_count ?? point.observations ?? point.count ?? null;
+}
+
 function getZoneLabel(zoneId: number | string | undefined, zones: ParkingZone[]) {
   if (zoneId === undefined) return 'Среднее';
   const zone = zones.find(item => String(item.id) === String(zoneId));
@@ -383,8 +403,8 @@ function historyToOccupancySeries(history: AnalyticsHistory | undefined, zones: 
       points: series.points.map(point => ({
         x: getPointTime(point),
         y: normalizePercent(point.occupancy_percent) ?? (
-          typeof point.occupied === 'number' && typeof (point.total ?? point.capacity) === 'number' && (point.total ?? point.capacity)! > 0
-            ? (point.occupied / (point.total ?? point.capacity)!) * 100
+          typeof pointOccupied(point) === 'number' && typeof pointCapacity(point) === 'number' && pointCapacity(point)! > 0
+            ? (pointOccupied(point)! / pointCapacity(point)!) * 100
             : null
         ),
         meta: point as Record<string, unknown>
@@ -400,10 +420,10 @@ function groupHistoryPoints(points: NonNullable<AnalyticsHistory['points']>, zon
   const grouped = new Map<string, ChartPoint[]>();
   points.forEach(point => {
     const key = String(point.zone_id ?? 'average');
-    const total = point.total ?? point.capacity;
+    const total = pointCapacity(point);
     const occupancy = normalizePercent(point.occupancy_percent) ?? (
-      typeof point.occupied === 'number' && typeof total === 'number' && total > 0
-        ? (point.occupied / total) * 100
+      typeof pointOccupied(point) === 'number' && typeof total === 'number' && total > 0
+        ? (pointOccupied(point)! / total) * 100
         : null
     );
     grouped.set(key, [
@@ -465,7 +485,7 @@ function groupForecastPoints(points: NonNullable<AnalyticsForecast['points']>, z
 function observationsToBars(data?: AnalyticsObservationsRate): ChartPoint[] {
   return asItems<AnalyticsObservationPoint>(data).map(point => ({
     x: getPointTime(point),
-    y: point.observations ?? point.count ?? null,
+    y: pointObservationCount(point),
     meta: point as Record<string, unknown>
   }));
 }
@@ -477,7 +497,7 @@ function confidenceToSeries(data?: AnalyticsConfidence): ChartSeries[] {
     color: CHART_COLORS[0],
     points: asItems(data).map(point => ({
       x: getPointTime(point),
-      y: normalizePercent(point.average_confidence ?? point.confidence),
+      y: normalizePercent(pointConfidence(point)),
       meta: point as Record<string, unknown>
     }))
   }];
@@ -488,8 +508,8 @@ function makeAnalyticsQuery(filters: AnalyticsFilters, partnerId?: number): Anal
     partner_id: partnerId,
     ...rangeForFilters(filters),
     granularity: filters.granularity,
-    zone_ids: filters.selectedZoneIds,
-    camera_ids: filters.selectedCameraIds
+    zone_id: filters.selectedZoneIds[0],
+    camera_id: filters.selectedZoneIds.length ? undefined : filters.selectedCameraIds[0]
   };
 }
 
@@ -988,17 +1008,20 @@ function KpiGrid({
   frequency: LoadState<AnalyticsUpdateFrequency>;
   confidence: LoadState<AnalyticsConfidence>;
 }) {
+  const summaryData = summary.data;
+  const frequencyData = frequency.data;
+  const confidenceData = confidence.data;
   const cards = [
-    { label: 'Активных зон', value: formatNumber(summary.data?.active_zones) },
-    { label: 'Всего мест', value: formatNumber(summary.data?.total_capacity) },
-    { label: 'Занято сейчас', value: formatNumber(summary.data?.occupied_now) },
-    { label: 'Свободно сейчас', value: formatNumber(summary.data?.free_now) },
-    { label: 'Средняя занятость', value: formatPercent(summary.data?.average_occupancy_percent) },
-    { label: 'Самое свежее обновление', value: formatDateTime(summary.data?.newest_update_at ?? frequency.data?.newest_update_at) },
-    { label: 'Самое старое обновление', value: formatDateTime(summary.data?.oldest_update_at ?? frequency.data?.oldest_update_at) },
-    { label: 'Средняя частота', value: formatDuration(frequency.data?.average_interval_seconds) },
-    { label: 'Макс. интервал', value: formatDuration(frequency.data?.max_interval_seconds) },
-    { label: 'Уверенность модели', value: formatPercent(confidence.data?.average_confidence ?? summary.data?.average_confidence) }
+    { label: 'Активных зон', value: formatNumber(summaryData?.active_zones_count ?? summaryData?.active_zones) },
+    { label: 'Всего мест', value: formatNumber(summaryData?.total_capacity) },
+    { label: 'Занято сейчас', value: formatNumber(summaryData?.current_occupied_count ?? summaryData?.occupied_now) },
+    { label: 'Свободно сейчас', value: formatNumber(summaryData?.current_free_count ?? summaryData?.free_now) },
+    { label: 'Средняя занятость', value: formatPercent(summaryData?.avg_occupancy_percent ?? summaryData?.average_occupancy_percent) },
+    { label: 'Самое свежее обновление', value: formatDateTime(summaryData?.freshest_update_at ?? summaryData?.newest_update_at ?? frequencyData?.freshest_update_at ?? frequencyData?.newest_update_at) },
+    { label: 'Самое старое обновление', value: formatDateTime(summaryData?.oldest_update_at ?? frequencyData?.oldest_update_at) },
+    { label: 'Средняя частота', value: formatDuration(summaryData?.avg_update_interval_sec ?? frequencyData?.avg_update_interval_sec ?? frequencyData?.average_interval_seconds) },
+    { label: 'Макс. интервал', value: formatDuration(summaryData?.max_update_interval_sec ?? frequencyData?.max_update_interval_sec ?? frequencyData?.max_interval_seconds) },
+    { label: 'Уверенность модели', value: formatPercent(confidenceData?.avg_confidence ?? confidenceData?.average_confidence ?? summaryData?.avg_confidence ?? summaryData?.average_confidence) }
   ];
 
   return (
@@ -1439,8 +1462,8 @@ function AnalyticsMap({
             title={`Зона #${String(zone.id)}`}
             rows={[
               ['Всего мест', formatNumber(zoneSummary?.capacity ?? zone.capacity)],
-              ['Занято', formatNumber(zoneSummary?.occupied ?? zone.occupied)],
-              ['Свободно', formatNumber(zoneSummary?.free ?? zone.free_count)],
+              ['Занято', formatNumber(zoneSummary?.occupied_count ?? zoneSummary?.occupied ?? zone.occupied)],
+              ['Свободно', formatNumber(zoneSummary?.free_count ?? zoneSummary?.free ?? zone.free_count)],
               ['Занятость', formatPercent(zoneSummary?.occupancy_percent)],
               ['Последнее обновление', formatDateTime(zoneSummary?.last_update_at ?? zone.occupancy_updated_at)]
             ]}
@@ -1565,14 +1588,14 @@ function DetectorHealthTable({ items }: { items: AnalyticsDetectorHealthItem[] }
             <span>#{String(item.zone_id)}</span>
             <span>{item.camera_id ? `#${item.camera_id}` : '—'}</span>
             <span>{formatNumber(item.capacity)}</span>
-            <span>{formatNumber(item.occupied)}</span>
-            <span>{formatNumber(item.free)}</span>
+            <span>{formatNumber(item.occupied_count ?? item.occupied)}</span>
+            <span>{formatNumber(item.free_count ?? item.free)}</span>
             <span>{formatPercent(item.occupancy_percent)}</span>
-            <span>{formatPercent(item.confidence)}</span>
+            <span>{formatPercent(item.confidence_avg ?? item.confidence)}</span>
             <span>{formatDateTime(item.last_update_at)}</span>
-            <span>{formatDuration(item.stale_seconds)}</span>
-            <span>{formatDuration(item.average_interval_seconds)}</span>
-            <span>{formatDuration(item.max_interval_seconds)}</span>
+            <span>{formatDuration(item.sec_ago ?? item.stale_seconds)}</span>
+            <span>{formatDuration(item.avg_update_interval_sec ?? item.average_interval_seconds)}</span>
+            <span>{formatDuration(item.max_update_interval_sec ?? item.max_interval_seconds)}</span>
             <span className={`status-pill analytics-status-${item.status ?? 'no_data'}`}>{item.status ?? 'no_data'}</span>
           </button>
         ))}
@@ -1591,12 +1614,12 @@ function zoneCapacity(zone?: ParkingZone, summary?: AnalyticsSummary) {
   if (!zone) return undefined;
   const zoneSummary = summary?.zones?.find(item => String(item.zone_id) === String(zone.id));
   return {
-    capacity: zoneSummary?.capacity ?? zone.capacity,
-    occupied: zoneSummary?.occupied ?? zone.occupied,
-    free: zoneSummary?.free ?? zone.free_count,
-    occupancy: zoneSummary?.occupancy_percent,
-    confidence: zoneSummary?.confidence ?? zone.confidence,
-    lastUpdate: zoneSummary?.last_update_at ?? zone.occupancy_updated_at,
+    capacity: zoneSummary?.capacity ?? summary?.total_capacity ?? zone.capacity,
+    occupied: zoneSummary?.occupied_count ?? zoneSummary?.occupied ?? summary?.current_occupied_count ?? zone.occupied,
+    free: zoneSummary?.free_count ?? zoneSummary?.free ?? summary?.current_free_count ?? zone.free_count,
+    occupancy: zoneSummary?.occupancy_percent ?? summary?.avg_occupancy_percent ?? summary?.average_occupancy_percent,
+    confidence: zoneSummary?.confidence_avg ?? zoneSummary?.confidence ?? summary?.avg_confidence ?? summary?.average_confidence ?? zone.confidence,
+    lastUpdate: zoneSummary?.last_update_at ?? summary?.freshest_update_at ?? summary?.newest_update_at ?? zone.occupancy_updated_at,
     status: zoneSummary?.status ?? (zone.is_active === false ? 'inactive' : 'active')
   };
 }
@@ -1619,7 +1642,7 @@ function ZoneAnalyticsPage({ zoneId }: { zoneId: string }) {
   const [frequency, setFrequency] = useState<LoadState<AnalyticsUpdateFrequency>>(emptyState);
   const query = useMemo<AnalyticsQuery>(() => ({
     partner_id: currentPartnerId,
-    zone_ids: [zoneId],
+    zone_id: zoneId,
     ...rangeForFilters({ ...defaultFilters(), period: '7d' }),
     granularity: '1h'
   }), [currentPartnerId, zoneId]);
@@ -1668,13 +1691,13 @@ function ZoneAnalyticsPage({ zoneId }: { zoneId: string }) {
         key: 'occupied',
         label: 'Занято',
         color: '#dc2626',
-        points: points.map(point => ({ x: getPointTime(point), y: point.occupied ?? null, meta: point as Record<string, unknown> }))
+        points: points.map(point => ({ x: getPointTime(point), y: pointOccupied(point), meta: point as Record<string, unknown> }))
       },
       {
         key: 'free',
         label: 'Свободно',
         color: '#128a45',
-        points: points.map(point => ({ x: getPointTime(point), y: point.free ?? null, meta: point as Record<string, unknown> }))
+        points: points.map(point => ({ x: getPointTime(point), y: pointFree(point), meta: point as Record<string, unknown> }))
       }
     ];
   }, [history.data]);
@@ -1714,9 +1737,9 @@ function ZoneAnalyticsPage({ zoneId }: { zoneId: string }) {
         </Block>
         <Block title="Интервалы обновления" state={frequency}>
           <div className="details-grid analytics-detail-grid compact">
-            <Detail label="Средний интервал" value={formatDuration(frequency.data?.average_interval_seconds)} />
-            <Detail label="Максимальный интервал" value={formatDuration(frequency.data?.max_interval_seconds)} />
-            <Detail label="Самое свежее обновление" value={formatDateTime(frequency.data?.newest_update_at)} />
+            <Detail label="Средний интервал" value={formatDuration(frequency.data?.avg_update_interval_sec ?? frequency.data?.average_interval_seconds)} />
+            <Detail label="Максимальный интервал" value={formatDuration(frequency.data?.max_update_interval_sec ?? frequency.data?.max_interval_seconds)} />
+            <Detail label="Самое свежее обновление" value={formatDateTime(frequency.data?.freshest_update_at ?? frequency.data?.newest_update_at)} />
             <Detail label="Самое старое обновление" value={formatDateTime(frequency.data?.oldest_update_at)} />
           </div>
         </Block>
@@ -1768,10 +1791,10 @@ function CameraAnalyticsPage({ cameraId }: { cameraId: string }) {
   const [detections, setDetections] = useState<LoadState<DetectionRunList>>(emptyState);
   const query = useMemo<AnalyticsQuery>(() => ({
     partner_id: currentPartnerId,
-    camera_ids: [cameraId],
+    camera_id: cameraId,
     ...rangeForFilters({ ...defaultFilters(), period: '7d' }),
     granularity: '1h',
-    top: 20
+    limit: 20
   }), [currentPartnerId, cameraId]);
 
   useEffect(() => {
@@ -1829,9 +1852,9 @@ function CameraAnalyticsPage({ cameraId }: { cameraId: string }) {
             <Detail label="Статус" value={camera.data.is_active === false ? 'Неактивна' : 'Активна'} />
             <Detail label="Координаты" value={hasCoordinates(camera.data.latitude, camera.data.longitude) ? `${camera.data.latitude.toFixed(6)}, ${camera.data.longitude.toFixed(6)}` : '—'} />
             <Detail label="Связанных зон" value={zones.data?.length ?? '—'} />
-            <Detail label="Последнее обновление" value={formatDateTime(frequency.data?.newest_update_at ?? camera.data.updated_at)} />
-            <Detail label="Средний интервал" value={formatDuration(frequency.data?.average_interval_seconds)} />
-            <Detail label="Уверенность модели" value={formatPercent(confidence.data?.average_confidence)} />
+            <Detail label="Последнее обновление" value={formatDateTime(frequency.data?.freshest_update_at ?? frequency.data?.newest_update_at ?? camera.data.updated_at)} />
+            <Detail label="Средний интервал" value={formatDuration(frequency.data?.avg_update_interval_sec ?? frequency.data?.average_interval_seconds)} />
+            <Detail label="Уверенность модели" value={formatPercent(confidence.data?.avg_confidence ?? confidence.data?.average_confidence)} />
           </div>
         ) : <div className="empty-state">Камера не найдена.</div>}
       </Block>
@@ -1850,8 +1873,8 @@ function CameraAnalyticsPage({ cameraId }: { cameraId: string }) {
         <Block title="Интервалы обновлений" state={frequency}>
           <BarChart
             points={[
-              { x: 'Средний', y: frequency.data?.average_interval_seconds ?? null },
-              { x: 'Максимальный', y: frequency.data?.max_interval_seconds ?? null }
+              { x: 'Средний', y: frequency.data?.avg_update_interval_sec ?? frequency.data?.average_interval_seconds ?? null },
+              { x: 'Максимальный', y: frequency.data?.max_update_interval_sec ?? frequency.data?.max_interval_seconds ?? null }
             ]}
             xLabel="Метрика"
             yLabel="Секунды"
@@ -1949,10 +1972,10 @@ function DetectionsTable({ detections }: { detections: DetectionRunList['items']
             <span>{formatDateTime(item.started_at)}</span>
             <span>{item.status ?? '—'}</span>
             <span>{formatMs(item.processing_time_ms)}</span>
-            <span>{formatNumber(item.cars_detected)}</span>
-            <span>{formatNumber(item.occupied)}</span>
-            <span>{formatNumber(item.free)}</span>
-            <span>{formatPercent(item.confidence)}</span>
+            <span>{formatNumber(item.detected_cars_count ?? item.cars_detected)}</span>
+            <span>{formatNumber(item.occupied_count ?? item.occupied)}</span>
+            <span>{formatNumber(item.free_count ?? item.free)}</span>
+            <span>{formatPercent(item.confidence_avg ?? item.confidence)}</span>
             <span>{item.has_feedback ? 'Да' : 'Нет'}</span>
             <span>Открыть</span>
           </button>
@@ -1996,8 +2019,8 @@ function DetectionAnalyticsPage({ detectionRunId }: { detectionRunId: string }) 
 
   async function saveFeedback(data: {
     rating: DetectionFeedbackRating;
-    correct_occupied?: number | null;
-    correct_free?: number | null;
+    expected_occupied_count?: number | null;
+    expected_free_count?: number | null;
     error_type?: DetectionFeedbackErrorType | null;
     comment?: string | null;
   }) {
@@ -2048,12 +2071,12 @@ function DetectionAnalyticsPage({ detectionRunId }: { detectionRunId: string }) 
             <Detail label="Статус" value={item.status ?? '—'} />
             <Detail label="Время обработки" value={formatMs(item.processing_time_ms)} />
             <Detail label="Версия модели" value={item.model_version ?? '—'} />
-            <Detail label="Машин найдено" value={formatNumber(item.cars_detected)} />
-            <Detail label="Занято" value={formatNumber(item.occupied)} />
-            <Detail label="Свободно" value={formatNumber(item.free)} />
-            <Detail label="Всего мест" value={formatNumber(item.total)} />
-            <Detail label="Уверенность модели" value={formatPercent(item.confidence)} />
-            <Detail label="Ошибка" value={item.error ?? '—'} />
+            <Detail label="Машин найдено" value={formatNumber(item.detected_cars_count ?? item.cars_detected)} />
+            <Detail label="Занято" value={formatNumber(item.occupied_count ?? item.occupied)} />
+            <Detail label="Свободно" value={formatNumber(item.free_count ?? item.free)} />
+            <Detail label="Всего мест" value={formatNumber(item.capacity ?? item.total)} />
+            <Detail label="Уверенность модели" value={formatPercent(item.confidence_avg ?? item.confidence)} />
+            <Detail label="Ошибка" value={item.error_message ?? item.error_code ?? item.error ?? '—'} />
           </div>
         ) : <div className="empty-state">Распознавание не найдено.</div>}
       </Block>
@@ -2061,8 +2084,8 @@ function DetectionAnalyticsPage({ detectionRunId }: { detectionRunId: string }) 
       {item && (
         <Block title="Сравнение изображений" state={detail}>
           <div className="analytics-image-compare">
-            <DetectionImage title="Raw-изображение" url={item.raw_image_url} />
-            <DetectionImage title="Annotated-изображение" url={item.annotated_image_url} />
+            <DetectionImage title="Raw-изображение" url={item.raw_snapshot_url ?? item.raw_image_url} />
+            <DetectionImage title="Annotated-изображение" url={item.annotated_snapshot_url ?? item.annotated_image_url} />
           </div>
         </Block>
       )}
@@ -2125,8 +2148,8 @@ function DetectionFeedbackForm({
   saving: boolean;
   onSubmit: (data: {
     rating: DetectionFeedbackRating;
-    correct_occupied?: number | null;
-    correct_free?: number | null;
+    expected_occupied_count?: number | null;
+    expected_free_count?: number | null;
     error_type?: DetectionFeedbackErrorType | null;
     comment?: string | null;
   }) => Promise<void>;
@@ -2144,8 +2167,8 @@ function DetectionFeedbackForm({
     try {
       await onSubmit({
         rating,
-        correct_occupied: correctOccupied ? Number(correctOccupied) : null,
-        correct_free: correctFree ? Number(correctFree) : null,
+        expected_occupied_count: correctOccupied ? Number(correctOccupied) : null,
+        expected_free_count: correctFree ? Number(correctFree) : null,
         error_type: errorType || null,
         comment: comment.trim() || null
       });
@@ -2173,12 +2196,12 @@ function DetectionFeedbackForm({
       <Field label="Тип ошибки">
         <Select value={errorType} onChange={event => setErrorType(event.target.value as DetectionFeedbackErrorType | '')}>
           <option value="">Не задан</option>
-          <option value="extra_car">Лишняя машина</option>
-          <option value="missing_car">Машина не найдена</option>
-          <option value="wrong_zone">Машина не в той зоне</option>
+          <option value="false_positive_car">Лишняя машина</option>
+          <option value="false_negative_car">Машина не найдена</option>
+          <option value="wrong_zone_assignment">Машина не в той зоне</option>
           <option value="bad_lighting">Плохое освещение</option>
-          <option value="bad_angle">Плохой ракурс</option>
-          <option value="calibration_issue">Проблема калибровки</option>
+          <option value="bad_camera_angle">Плохой ракурс</option>
+          <option value="calibration_problem">Проблема калибровки</option>
           <option value="other">Другое</option>
         </Select>
       </Field>
@@ -2235,10 +2258,10 @@ function FeedbackHistory({
               onClick={() => onOpen(item.feedback_id)}
             >
               <span>{formatDateTime(item.created_at)}</span>
-              <span>{item.user_email ?? item.user_id ?? '—'}</span>
+              <span>{item.created_by_email ?? item.user_email ?? item.created_by_user_id ?? item.user_id ?? '—'}</span>
               <span>{item.rating ?? '—'}</span>
-              <span>{formatNumber(item.correct_occupied)}</span>
-              <span>{formatNumber(item.correct_free)}</span>
+              <span>{formatNumber(item.expected_occupied_count ?? item.correct_occupied)}</span>
+              <span>{formatNumber(item.expected_free_count ?? item.correct_free)}</span>
               <span>{item.error_type ?? '—'}</span>
               <span>{item.comment ?? '—'}</span>
             </button>
@@ -2251,12 +2274,12 @@ function FeedbackHistory({
         <div className="analytics-feedback-detail">
           <h3>Подробная оценка</h3>
           <div className="details-grid analytics-detail-grid compact">
-            <Detail label="Автор" value={selected.data.user_email ?? selected.data.user_id ?? '—'} />
+            <Detail label="Автор" value={selected.data.created_by_email ?? selected.data.user_email ?? selected.data.created_by_user_id ?? selected.data.user_id ?? '—'} />
             <Detail label="Создано" value={formatDateTime(selected.data.created_at)} />
             <Detail label="Обновлено" value={formatDateTime(selected.data.updated_at)} />
             <Detail label="Оценка" value={selected.data.rating ?? '—'} />
-            <Detail label="Правильно занято" value={formatNumber(selected.data.correct_occupied)} />
-            <Detail label="Правильно свободно" value={formatNumber(selected.data.correct_free)} />
+            <Detail label="Правильно занято" value={formatNumber(selected.data.expected_occupied_count ?? selected.data.correct_occupied)} />
+            <Detail label="Правильно свободно" value={formatNumber(selected.data.expected_free_count ?? selected.data.correct_free)} />
             <Detail label="Тип ошибки" value={selected.data.error_type ?? '—'} />
             <Detail label="Комментарий" value={selected.data.comment ?? '—'} />
           </div>
