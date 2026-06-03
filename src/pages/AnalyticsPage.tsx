@@ -28,6 +28,8 @@ import { useSessionStore } from '@/auth/sessionStore';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
 import { useYandexMap } from '@/maps/useYandexMap';
 import { fitYandexMap, yandexPoint, type YandexPoint } from '@/maps/yandex';
+import { useStore } from '@/store/useStore';
+import { navigate } from '@/router/routes';
 
 type PeriodPreset = 'today' | 'yesterday' | '7d' | '30d' | 'custom';
 
@@ -1934,6 +1936,11 @@ function ZoneGeometryPreview({ zone }: { zone: ParkingZone }) {
 
 function CameraAnalyticsPage({ cameraId }: { cameraId: string }) {
   const currentPartnerId = useSessionStore(state => state.currentPartnerId);
+  const setLabelerReturnRoute = useStore(state => state.setLabelerReturnRoute);
+  const setLabelerCamera = useStore(state => state.setCamera);
+  const loadCameraMeta = useStore(state => state.loadCameraMeta);
+  const loadZones = useStore(state => state.loadZones);
+  const setViewMode = useStore(state => state.setViewMode);
   const numericCameraId = Number(cameraId);
   const [camera, setCamera] = useState<LoadState<Camera>>(emptyState);
   const [zones, setZones] = useState<LoadState<ParkingZone[]>>(emptyState);
@@ -1985,6 +1992,19 @@ function CameraAnalyticsPage({ cameraId }: { cameraId: string }) {
     };
   }, [numericCameraId, currentPartnerId, query]);
 
+  function openCameraAdmin() {
+    navigate('cameras');
+  }
+
+  function openCameraLabeler() {
+    setLabelerReturnRoute('cameras');
+    setLabelerCamera(String(numericCameraId));
+    loadCameraMeta(numericCameraId);
+    loadZones();
+    setViewMode('labeler');
+    navigate('labeler');
+  }
+
   return (
     <section className="page-stack analytics-page">
       <div className="page-heading">
@@ -1994,6 +2014,8 @@ function CameraAnalyticsPage({ cameraId }: { cameraId: string }) {
         </div>
         <div className="row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <Button variant="ghost" onClick={() => setAnalyticsRoute({ view: 'dashboard' })}>Назад к аналитике</Button>
+          <Button variant="ghost" onClick={openCameraAdmin}>Открыть камеру</Button>
+          <Button onClick={openCameraLabeler}>Открыть разметку</Button>
         </div>
       </div>
 
