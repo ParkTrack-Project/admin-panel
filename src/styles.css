@@ -96,6 +96,28 @@ body { background: var(--bg); color: var(--text); font-family: Inter, system-ui,
   padding-right: 4px;
 }
 
+.analytics-scope-hint {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.analytics-clear-selection {
+  justify-self: start;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.analytics-clear-selection:disabled {
+  color: var(--muted);
+  cursor: default;
+  opacity: 0.65;
+}
+
 .analytics-check-row > span {
   min-width: 0;
   display: grid;
@@ -305,6 +327,10 @@ body { background: var(--bg); color: var(--text); font-family: Inter, system-ui,
 
 .analytics-detail-grid.compact {
   grid-template-columns: repeat(2, minmax(150px, 1fr));
+}
+
+.analytics-forecast-quality-metrics {
+  margin-bottom: 14px;
 }
 
 .analytics-zone-geometry {
