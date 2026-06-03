@@ -3,13 +3,11 @@ import { api } from '@/api/client';
 import { Button } from '@/components/UiKit';
 import { navigate } from '@/router/routes';
 import { useSessionStore } from '@/auth/sessionStore';
-import type { Camera, HealthResponse, VersionResponse } from '@/api/client';
+import type { Camera } from '@/api/client';
 import type { ParkingZone } from '@/types';
 
 type DashboardState = {
   loading: boolean;
-  health?: HealthResponse;
-  version?: VersionResponse;
   cameras: Camera[];
   zones: ParkingZone[];
   error?: string;
@@ -67,9 +65,7 @@ export default function DashboardPage() {
     async function load() {
       setState(prev => ({ ...prev, loading: true, error: undefined }));
       try {
-        const [health, version, cameras, zones] = await Promise.allSettled([
-          api.health(),
-          api.version(),
+        const [cameras, zones] = await Promise.allSettled([
           api.listCameras({ partner_id: currentPartnerId }),
           api.listZones({ partner_id: currentPartnerId })
         ]);
@@ -78,13 +74,9 @@ export default function DashboardPage() {
 
         setState({
           loading: false,
-          health: health.status === 'fulfilled' ? health.value : undefined,
-          version: version.status === 'fulfilled' ? version.value : undefined,
           cameras: cameras.status === 'fulfilled' ? cameras.value : [],
           zones: zones.status === 'fulfilled' ? zones.value : [],
           error: formatDashboardLoadError([
-            { label: 'статус API', result: health },
-            { label: 'версию API', result: version },
             { label: 'камеры', result: cameras, ignoreStatuses: [401, 403] },
             { label: 'зоны', result: zones }
           ])
@@ -185,8 +177,6 @@ export default function DashboardPage() {
       {state.error && <div className="notice warning">{state.error}</div>}
 
       <div className="metric-grid dashboard-metric-grid">
-        <MetricCard label="API" value={state.loading ? '...' : state.health?.status ?? 'unknown'} />
-        <MetricCard label="Версия" value={state.version?.api_version ?? state.version?.version ?? 'unknown'} />
         <MetricCard label="Камеры" value={state.cameras.length} hint={`${metrics.activeCameras} active / ${metrics.inactiveCameras} inactive`} />
         <MetricCard label="Зоны" value={state.zones.length} hint={`${metrics.activeZones} active / ${metrics.paidZones} paid`} />
         <MetricCard label="Свободные места" value={metrics.freePlaces} />
@@ -208,32 +198,6 @@ export default function DashboardPage() {
             <div className="dashboard-summary-row">
               <span className="metric-label">Партнёры</span>
               <strong>{session.user?.partner_memberships.filter(m => m.is_active !== false).length ?? 0}</strong>
-            </div>
-            <div className="dashboard-summary-row">
-              <span className="metric-label">Permissions</span>
-              <strong>{session.user?.permissions.length ?? 0}</strong>
-            </div>
-          </div>
-        </div>
-
-        <div className="section-panel">
-          <h2>Система</h2>
-          <div className="dashboard-summary-list">
-            <div className="dashboard-summary-row">
-              <span className="metric-label">API status</span>
-              <strong>{state.health?.status ?? 'unknown'}</strong>
-            </div>
-            <div className="dashboard-summary-row">
-              <span className="metric-label">Database</span>
-              <strong>{state.health?.database ?? 'unknown'}</strong>
-            </div>
-            <div className="dashboard-summary-row">
-              <span className="metric-label">API version</span>
-              <strong>{state.version?.api_version ?? state.version?.version ?? 'unknown'}</strong>
-            </div>
-            <div className="dashboard-summary-row">
-              <span className="metric-label">Текущий partner</span>
-              <strong>{currentPartnerId ?? (session.isAdmin() ? 'Все партнёры' : '—')}</strong>
             </div>
           </div>
         </div>

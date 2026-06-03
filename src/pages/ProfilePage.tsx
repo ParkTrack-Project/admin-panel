@@ -153,15 +153,11 @@ export default function ProfilePage() {
       </div>
 
       <div className="details-grid">
-        <Detail label="ID" value={user.user_id} />
         <Detail label="Имя" value={user.full_name || '—'} />
         <Detail label="Телефон" value={user.phone || '—'} />
         <Detail label="Глобальная роль" value={role} />
-        <Detail label="Права" value={user.permissions.length} />
-        <Detail label="Email verified" value={user.is_email_verified === false ? 'Нет' : 'Да'} />
+        <Detail label="Email подтверждён" value={user.is_email_verified === false ? 'Нет' : 'Да'} />
         <Detail label="Статус" value={user.is_active === false ? 'Неактивен' : 'Активен'} />
-        <Detail label="Создан" value={formatDate(user.created_at)} />
-        <Detail label="Обновлён" value={formatDate(user.updated_at)} />
       </div>
 
       <div className="details-grid profile-panels-grid">
@@ -304,15 +300,6 @@ function Detail({ label, value }: { label: string; value: string | number }) {
       <div className="detail-value">{value}</div>
     </div>
   );
-}
-
-function formatDate(dateStr?: string) {
-  if (!dateStr) return '—';
-  try {
-    return new Date(dateStr).toLocaleString('ru-RU');
-  } catch {
-    return dateStr;
-  }
 }
 
 function formatAccessScope(scope?: string) {
