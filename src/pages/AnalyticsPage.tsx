@@ -899,7 +899,12 @@ function AnalyticsFiltersPanel({
           search={filters.zoneSearch}
           onSearch={value => onChange(prev => ({ ...prev, zoneSearch: value }))}
           selectedIds={filters.selectedZoneIds}
-          onSelectedIds={ids => onChange(prev => ({ ...prev, selectedZoneIds: ids }))}
+          maxSelected={1}
+          onSelectedIds={ids => onChange(prev => ({
+            ...prev,
+            selectedZoneIds: ids,
+            selectedCameraIds: ids.length ? [] : prev.selectedCameraIds
+          }))}
           items={zones.map(zone => ({
             id: String(zone.id),
             label: `Зона #${zone.id}`,
@@ -912,7 +917,12 @@ function AnalyticsFiltersPanel({
           search={filters.cameraSearch}
           onSearch={value => onChange(prev => ({ ...prev, cameraSearch: value }))}
           selectedIds={filters.selectedCameraIds}
-          onSelectedIds={ids => onChange(prev => ({ ...prev, selectedCameraIds: ids }))}
+          maxSelected={1}
+          onSelectedIds={ids => onChange(prev => ({
+            ...prev,
+            selectedZoneIds: ids.length ? [] : prev.selectedZoneIds,
+            selectedCameraIds: ids
+          }))}
           items={cameras.map(camera => ({
             id: String(camera.camera_id),
             label: `#${camera.camera_id} · ${camera.title}`,
@@ -920,6 +930,9 @@ function AnalyticsFiltersPanel({
           }))}
           emptyMessage={cameraError ?? 'Камеры не найдены'}
         />
+      </div>
+      <div className="analytics-scope-hint">
+        Фокус аналитики: все данные, одна зона или одна камера. Выбор зоны очищает камеру, выбор камеры очищает зону.
       </div>
     </div>
   );
@@ -931,6 +944,7 @@ function MultiEntityPicker({
   selectedIds,
   items,
   emptyMessage,
+  maxSelected,
   onSearch,
   onSelectedIds
 }: {
@@ -939,6 +953,7 @@ function MultiEntityPicker({
   selectedIds: string[];
   items: Array<{ id: string; label: string; meta?: string }>;
   emptyMessage: string;
+  maxSelected?: number;
   onSearch: (value: string) => void;
   onSelectedIds: (ids: string[]) => void;
 }) {
@@ -952,6 +967,10 @@ function MultiEntityPicker({
   const allVisibleSelected = visibleIds.length > 0 && visibleSelected.length === visibleIds.length;
 
   function toggle(id: string, checked: boolean) {
+    if (checked && maxSelected === 1) {
+      onSelectedIds([id]);
+      return;
+    }
     const next = new Set(selectedIds);
     if (checked) next.add(id);
     else next.delete(id);
@@ -974,17 +993,23 @@ function MultiEntityPicker({
         <span className="small">выбрано: {selectedIds.length}</span>
       </div>
       <Input value={search} onChange={event => onSearch(event.target.value)} placeholder="Поиск по id или названию" />
-      <label className="analytics-check-row">
-        <input
-          type="checkbox"
-          checked={allVisibleSelected}
-          ref={input => {
-            if (input) input.indeterminate = visibleSelected.length > 0 && !allVisibleSelected;
-          }}
-          onChange={event => toggleVisible(event.target.checked)}
-        />
-        <span>Все отфильтрованные</span>
-      </label>
+      {maxSelected === 1 ? (
+        <button type="button" className="analytics-clear-selection" onClick={() => onSelectedIds([])} disabled={!selectedIds.length}>
+          Показать все
+        </button>
+      ) : (
+        <label className="analytics-check-row">
+          <input
+            type="checkbox"
+            checked={allVisibleSelected}
+            ref={input => {
+              if (input) input.indeterminate = visibleSelected.length > 0 && !allVisibleSelected;
+            }}
+            onChange={event => toggleVisible(event.target.checked)}
+          />
+          <span>Все отфильтрованные</span>
+        </label>
+      )}
       <div className="analytics-picker-list">
         {visibleItems.map(item => (
           <label key={item.id} className="analytics-check-row">
