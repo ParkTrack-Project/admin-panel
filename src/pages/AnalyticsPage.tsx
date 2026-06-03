@@ -1202,24 +1202,6 @@ function Block<T>({
   );
 }
 
-function AnalyticsBackendStub({
-  title,
-  description
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="section-panel analytics-block analytics-backend-stub">
-      <div className="analytics-block-head">
-        <h2>{title}</h2>
-        <span className="status-pill paused">backend pending</span>
-      </div>
-      <div className="empty-state">{description}</div>
-    </div>
-  );
-}
-
 function LineChart({
   series,
   unit,
@@ -2461,22 +2443,5 @@ function FeedbackHistory({
         </div>
       )}
     </div>
-  );
-}
-
-function AnalyticsComingSoon({ title }: { title: string }) {
-  return (
-    <section className="page-stack analytics-page">
-      <div className="page-heading">
-        <div>
-          <h1>{title}</h1>
-          <p>Детальная страница будет добавлена следующим коммитом.</p>
-        </div>
-        <Button variant="ghost" onClick={() => setAnalyticsRoute({ view: 'dashboard' })}>Назад к аналитике</Button>
-      </div>
-      <div className="section-panel">
-        <div className="empty-state">Контейнер детализации подключён.</div>
-      </div>
-    </section>
   );
 }
