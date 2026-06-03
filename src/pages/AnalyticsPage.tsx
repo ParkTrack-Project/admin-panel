@@ -232,6 +232,44 @@ function formatAxisNumber(value: number, unit?: string) {
   return `${value.toFixed(digits)}${unit ?? ''}`;
 }
 
+function formatMetaValue(value: unknown) {
+  if (typeof value === 'number') return formatNumber(value);
+  if (typeof value === 'string' && value.trim()) return value;
+  return undefined;
+}
+
+function chartTooltipLines(label: string, point: ChartPoint, value: string) {
+  const meta = point.meta ?? {};
+  const lines = [label, formatAxisDateTime(point.x), value];
+  const zoneLabel = formatMetaValue(meta.zone_label);
+  const zoneId = formatMetaValue(meta.zone_id);
+  const cameraId = formatMetaValue(meta.camera_id);
+  const occupied = formatMetaValue((meta as any).occupied_count ?? (meta as any).occupied ?? (meta as any).actual_occupied_count ?? (meta as any).predicted_occupied_count);
+  const free = formatMetaValue((meta as any).free_count ?? (meta as any).free ?? (meta as any).predicted_free_count);
+  const capacity = formatMetaValue((meta as any).capacity ?? (meta as any).total);
+  const confidence = normalizePercent((meta as any).confidence_avg ?? (meta as any).average_confidence ?? (meta as any).confidence);
+  const observations = formatMetaValue((meta as any).observations_count ?? (meta as any).observations ?? (meta as any).count);
+  const forecastCreatedAt = formatMetaValue((meta as any).forecast_created_at);
+  const modelVersion = formatMetaValue((meta as any).model_version);
+  const errorPercent = normalizePercent((meta as any).absolute_error_occupancy_percent);
+  const aggregatedCount = formatMetaValue((meta as any).aggregated_count);
+
+  if (zoneLabel) lines.push(zoneLabel);
+  else if (zoneId) lines.push(`Зона #${zoneId}`);
+  if (cameraId) lines.push(`Камера #${cameraId}`);
+  if (occupied) lines.push(`Занято: ${occupied}`);
+  if (free) lines.push(`Свободно: ${free}`);
+  if (capacity) lines.push(`Всего мест: ${capacity}`);
+  if (confidence !== null) lines.push(`Уверенность: ${formatPercent(confidence)}`);
+  if (observations) lines.push(`Наблюдений: ${observations}`);
+  if (forecastCreatedAt) lines.push(`Прогноз создан: ${formatDateTime(forecastCreatedAt)}`);
+  if (modelVersion) lines.push(`Модель: ${modelVersion}`);
+  if (errorPercent !== null) lines.push(`Ошибка: ${formatPercent(errorPercent)}`);
+  if (aggregatedCount) lines.push(`Агрегировано точек: ${aggregatedCount}`);
+
+  return lines;
+}
+
 function sortChartPoints(points: ChartPoint[]) {
   return [...points].sort((a, b) => {
     const aTime = parsePointTime(a.x);
@@ -1272,9 +1310,9 @@ function LineChart({
     if (point.y === null) return undefined;
     const pointX = toX(point, index, item.points.length);
     const pointY = toY(point.y);
-    const lines = [item.label, formatAxisDateTime(point.x), tooltipValue(point.y)];
+    const lines = chartTooltipLines(item.label, point, tooltipValue(point.y));
     const tooltipWidth = Math.min(230, Math.max(128, Math.max(...lines.map(line => line.length)) * 6.4 + 18));
-    const tooltipHeight = 58;
+    const tooltipHeight = Math.max(58, 22 + lines.length * 16);
     let boxX = pointX + 12;
     let boxY = pointY - tooltipHeight - 12;
     if (boxX + tooltipWidth > width - padding.right) boxX = pointX - tooltipWidth - 12;
