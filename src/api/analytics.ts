@@ -160,6 +160,29 @@ export type AnalyticsForecastPoint = AnalyticsHistoryPoint & {
   predicted_occupancy_percent?: number | null;
 };
 
+export type ForecastQualityMetrics = {
+  mae_occupied_count?: number | null;
+  mae_occupancy_percent?: number | null;
+  bias_occupancy_percent?: number | null;
+  points_count?: number | null;
+};
+
+export type ForecastQualityPoint = {
+  timestamp?: string;
+  zone_id?: number | string | null;
+  actual_occupied_count?: number | null;
+  actual_occupancy_percent?: number | null;
+  predicted_occupied_count?: number | null;
+  predicted_occupancy_percent?: number | null;
+  absolute_error_occupancy_percent?: number | null;
+};
+
+export type ForecastQualityResponse = {
+  granularity?: string;
+  metrics?: ForecastQualityMetrics;
+  points?: ForecastQualityPoint[];
+};
+
 export type AnalyticsObservationsRate = {
   points?: AnalyticsObservationPoint[];
   items?: AnalyticsObservationPoint[];
@@ -395,6 +418,10 @@ export const analyticsApi = {
 
   async detectorHealth(query?: AnalyticsQuery) {
     return request<AnalyticsDetectorHealth>('GET', `/admin/analytics/detector-health${analyticsQuery(query)}`);
+  },
+
+  async forecastQuality(query?: AnalyticsQuery) {
+    return request<ForecastQualityResponse>('GET', `/admin/analytics/forecast-quality${analyticsQuery(query)}`);
   },
 
   async cameraDetections(cameraId: number, query?: AnalyticsQuery) {

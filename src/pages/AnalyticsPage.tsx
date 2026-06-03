@@ -18,6 +18,7 @@ import type {
   DetectionFeedbackRating,
   DetectionRunDetail,
   DetectionRunList,
+  ForecastQualityResponse,
   LegacyForecastSeriesPoint,
   LegacyOccupancySeriesPoint
 } from '@/api/client';
@@ -39,6 +40,7 @@ type AnalyticsFilters = {
   selectedCameraIds: string[];
   zoneSearch: string;
   cameraSearch: string;
+  forecastCreatedAt: string;
   autoRefresh: boolean;
 };
 
@@ -158,6 +160,7 @@ function defaultFilters(): AnalyticsFilters {
     selectedCameraIds: [],
     zoneSearch: '',
     cameraSearch: '',
+    forecastCreatedAt: '',
     autoRefresh: true
   };
 }
@@ -460,6 +463,39 @@ function forecastToSeries(history: AnalyticsHistory | undefined, forecast: Analy
   return [...fact, ...forecastPoints];
 }
 
+function forecastQualityToSeries(data: ForecastQualityResponse | undefined, zones: ParkingZone[]): ChartSeries[] {
+  const points = data?.points ?? [];
+  return [
+    {
+      key: 'quality-actual',
+      label: 'Факт',
+      color: CHART_COLORS[0],
+      points: points.map(point => ({
+        x: getPointTime(point),
+        y: normalizePercent(point.actual_occupancy_percent),
+        meta: {
+          ...point,
+          zone_label: getZoneLabel(point.zone_id ?? undefined, zones)
+        }
+      }))
+    },
+    {
+      key: 'quality-predicted',
+      label: 'Прогноз',
+      color: CHART_COLORS[1],
+      dashed: true,
+      points: points.map(point => ({
+        x: getPointTime(point),
+        y: normalizePercent(point.predicted_occupancy_percent),
+        meta: {
+          ...point,
+          zone_label: getZoneLabel(point.zone_id ?? undefined, zones)
+        }
+      }))
+    }
+  ];
+}
+
 function groupForecastPoints(points: NonNullable<AnalyticsForecast['points']>, zones: ParkingZone[]): ChartSeries[] {
   const grouped = new Map<string, ChartPoint[]>();
   points.forEach(point => {
@@ -508,6 +544,7 @@ function makeAnalyticsQuery(filters: AnalyticsFilters, partnerId?: number): Anal
     partner_id: partnerId,
     ...rangeForFilters(filters),
     granularity: filters.granularity,
+    forecast_created_at: filters.forecastCreatedAt ? new Date(filters.forecastCreatedAt).toISOString() : undefined,
     zone_id: filters.selectedZoneIds[0],
     camera_id: filters.selectedZoneIds.length ? undefined : filters.selectedCameraIds[0]
   };
@@ -649,6 +686,7 @@ export default function AnalyticsPage() {
 
 function AnalyticsDashboard() {
   const currentPartnerId = useSessionStore(state => state.currentPartnerId);
+  const isAdmin = useSessionStore(state => state.isAdmin());
   const notifySuccess = useFeedbackStore(state => state.success);
   const [filters, setFilters] = useState<AnalyticsFilters>(() => defaultFilters());
   const [refreshKey, setRefreshKey] = useState(0);
@@ -661,6 +699,7 @@ function AnalyticsDashboard() {
   const [forecast, setForecast] = useState<LoadState<AnalyticsForecast>>(emptyState);
   const [observations, setObservations] = useState<LoadState<AnalyticsObservationsRate>>(emptyState);
   const [health, setHealth] = useState<LoadState<AnalyticsDetectorHealth>>(emptyState);
+  const [forecastQuality, setForecastQuality] = useState<LoadState<ForecastQualityResponse>>(emptyState);
 
   const zoneItems = useMemo(() => zones.data ?? [], [zones.data]);
   const cameraItems = useMemo(() => cameras.data ?? [], [cameras.data]);
@@ -678,6 +717,7 @@ function AnalyticsDashboard() {
       setForecast({ loading: true });
       setObservations({ loading: true });
       setHealth({ loading: true });
+      setForecastQuality({ loading: isAdmin });
     }
 
     const emptyForecast: AnalyticsForecast = {
@@ -692,7 +732,8 @@ function AnalyticsDashboard() {
       historyResult,
       forecastResult,
       observationsResult,
-      healthResult
+      healthResult,
+      forecastQualityResult
     ] = await Promise.allSettled([
       api.analytics.summary(analyticsQuery),
       api.analytics.updateFrequency(analyticsQuery),
@@ -700,7 +741,8 @@ function AnalyticsDashboard() {
       api.analytics.occupancyHistory(analyticsQuery),
       analyticsQuery.zone_id ? api.analytics.occupancyForecast(analyticsQuery) : Promise.resolve(emptyForecast),
       api.analytics.observationsRate(analyticsQuery),
-      api.analytics.detectorHealth(analyticsQuery)
+      api.analytics.detectorHealth(analyticsQuery),
+      isAdmin ? api.analytics.forecastQuality(analyticsQuery) : Promise.resolve(undefined)
     ]);
 
     setSummary(summaryResult.status === 'fulfilled' ? { loading: false, data: summaryResult.value } : { loading: false, error: blockError(summaryResult.reason) });
@@ -710,7 +752,10 @@ function AnalyticsDashboard() {
     setForecast(forecastResult.status === 'fulfilled' ? { loading: false, data: forecastResult.value } : { loading: false, error: blockError(forecastResult.reason) });
     setObservations(observationsResult.status === 'fulfilled' ? { loading: false, data: observationsResult.value } : { loading: false, error: blockError(observationsResult.reason) });
     setHealth(healthResult.status === 'fulfilled' ? { loading: false, data: healthResult.value } : { loading: false, error: blockError(healthResult.reason) });
-  }, [analyticsQuery]);
+    setForecastQuality(forecastQualityResult.status === 'fulfilled'
+      ? { loading: false, data: forecastQualityResult.value }
+      : { loading: false, error: blockError(forecastQualityResult.reason) });
+  }, [analyticsQuery, isAdmin]);
 
   useEffect(() => {
     let cancelled = false;
@@ -750,6 +795,7 @@ function AnalyticsDashboard() {
   );
   const confidenceSeries = useMemo(() => confidenceToSeries(confidence.data), [confidence.data]);
   const observationBars = useMemo(() => observationsToBars(observations.data), [observations.data]);
+  const forecastQualitySeries = useMemo(() => forecastQualityToSeries(forecastQuality.data, zoneItems), [forecastQuality.data, zoneItems]);
 
   function refresh() {
     setRefreshKey(key => key + 1);
@@ -819,6 +865,24 @@ function AnalyticsDashboard() {
           <LineChart series={confidenceSeries} unit="%" granularity={filters.granularity} yLabel="Уверенность, %" emptyMessage="Нет данных по уверенности модели" />
         </Block>
       </div>
+
+      {isAdmin && (
+        <Block title="Качество прогнозов" state={forecastQuality}>
+          <div className="details-grid analytics-detail-grid compact analytics-forecast-quality-metrics">
+            <Detail label="MAE мест" value={formatNumber(forecastQuality.data?.metrics?.mae_occupied_count)} />
+            <Detail label="MAE занятости" value={formatPercent(forecastQuality.data?.metrics?.mae_occupancy_percent)} />
+            <Detail label="Bias занятости" value={formatPercent(forecastQuality.data?.metrics?.bias_occupancy_percent)} />
+            <Detail label="Точек сравнения" value={formatNumber(forecastQuality.data?.metrics?.points_count)} />
+          </div>
+          <LineChart
+            series={forecastQualitySeries}
+            unit="%"
+            granularity={filters.granularity}
+            yLabel="Занятость, %"
+            emptyMessage="Качество прогнозов недоступно за выбранный период"
+          />
+        </Block>
+      )}
     </section>
   );
 }
@@ -879,6 +943,15 @@ function AnalyticsFiltersPanel({
             <option value="1h">1 час</option>
             <option value="1d">1 день</option>
           </Select>
+        </Field>
+
+        <Field label="Срез прогноза">
+          <Input
+            type="datetime-local"
+            value={filters.forecastCreatedAt}
+            onChange={event => onChange(prev => ({ ...prev, forecastCreatedAt: event.target.value }))}
+            title="Пустое значение — последний доступный прогноз для каждой точки времени"
+          />
         </Field>
 
         <label className="analytics-toggle">

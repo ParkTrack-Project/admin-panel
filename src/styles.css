@@ -329,6 +329,10 @@ body { background: var(--bg); color: var(--text); font-family: Inter, system-ui,
   grid-template-columns: repeat(2, minmax(150px, 1fr));
 }
 
+.analytics-forecast-quality-metrics {
+  margin-bottom: 14px;
+}
+
 .analytics-zone-geometry {
   display: grid;
   gap: 12px;
