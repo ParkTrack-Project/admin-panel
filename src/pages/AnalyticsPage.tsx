@@ -654,63 +654,63 @@ function AnalyticsDashboard() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [cameras, setCameras] = useState<LoadState<Camera[]>>(emptyState);
   const [zones, setZones] = useState<LoadState<ParkingZone[]>>(emptyState);
-  const [legacyOccupancy, setLegacyOccupancy] = useState<LoadState<LegacyOccupancyDataset[]>>(emptyState);
-  const [legacyForecast, setLegacyForecast] = useState<LoadState<LegacyForecastDataset[]>>(emptyState);
+  const [summary, setSummary] = useState<LoadState<AnalyticsSummary>>(emptyState);
+  const [frequency, setFrequency] = useState<LoadState<AnalyticsUpdateFrequency>>(emptyState);
+  const [confidence, setConfidence] = useState<LoadState<AnalyticsConfidence>>(emptyState);
+  const [history, setHistory] = useState<LoadState<AnalyticsHistory>>(emptyState);
+  const [forecast, setForecast] = useState<LoadState<AnalyticsForecast>>(emptyState);
+  const [observations, setObservations] = useState<LoadState<AnalyticsObservationsRate>>(emptyState);
+  const [health, setHealth] = useState<LoadState<AnalyticsDetectorHealth>>(emptyState);
 
   const zoneItems = useMemo(() => zones.data ?? [], [zones.data]);
   const cameraItems = useMemo(() => cameras.data ?? [], [cameras.data]);
+  const analyticsQuery = useMemo(
+    () => makeAnalyticsQuery(filters, currentPartnerId),
+    [filters, currentPartnerId]
+  );
 
   const loadDashboard = useCallback(async (silent = false) => {
-    const range = rangeForFilters(filters);
-    const targets = makeLegacySeriesTargets(filters, zoneItems, cameraItems);
     if (!silent) {
-      setLegacyOccupancy({ loading: true });
-      setLegacyForecast({ loading: true });
+      setSummary({ loading: true });
+      setFrequency({ loading: true });
+      setConfidence({ loading: true });
+      setHistory({ loading: true });
+      setForecast({ loading: true });
+      setObservations({ loading: true });
+      setHealth({ loading: true });
     }
 
-    const occupancyResults = await Promise.allSettled(
-      targets.map(target => api.analytics.legacyOccupancySeries({
-        partner_id: currentPartnerId,
-        ...range,
-        granularity: filters.granularity,
-        ...target.query
-      }))
-    );
-    const forecastResults = await Promise.allSettled(
-      targets.map(target => api.analytics.legacyForecastSeries({
-        partner_id: currentPartnerId,
-        ...range,
-        granularity: filters.granularity,
-        ...target.query
-      }))
-    );
+    const emptyForecast: AnalyticsForecast = {
+      available: false,
+      reason: 'select_zone',
+      points: []
+    };
+    const [
+      summaryResult,
+      frequencyResult,
+      confidenceResult,
+      historyResult,
+      forecastResult,
+      observationsResult,
+      healthResult
+    ] = await Promise.allSettled([
+      api.analytics.summary(analyticsQuery),
+      api.analytics.updateFrequency(analyticsQuery),
+      api.analytics.confidence(analyticsQuery),
+      api.analytics.occupancyHistory(analyticsQuery),
+      analyticsQuery.zone_id ? api.analytics.occupancyForecast(analyticsQuery) : Promise.resolve(emptyForecast),
+      api.analytics.observationsRate(analyticsQuery),
+      api.analytics.detectorHealth(analyticsQuery)
+    ]);
 
-    const occupancyFailed = occupancyResults.find(result => result.status === 'rejected') as PromiseRejectedResult | undefined;
-    const forecastFailed = forecastResults.find(result => result.status === 'rejected') as PromiseRejectedResult | undefined;
-
-    setLegacyOccupancy(occupancyFailed
-      ? { loading: false, error: blockError(occupancyFailed.reason) }
-      : {
-        loading: false,
-        data: occupancyResults.map((result, index) => ({
-          key: targets[index].key,
-          label: targets[index].label,
-          points: result.status === 'fulfilled' ? result.value : []
-        }))
-      }
-    );
-    setLegacyForecast(forecastFailed
-      ? { loading: false, error: blockError(forecastFailed.reason) }
-      : {
-        loading: false,
-        data: forecastResults.map((result, index) => ({
-          key: targets[index].key,
-          label: targets[index].label,
-          points: result.status === 'fulfilled' ? result.value : []
-        }))
-      }
-    );
-  }, [filters, currentPartnerId, zoneItems, cameraItems]);
+    setSummary(summaryResult.status === 'fulfilled' ? { loading: false, data: summaryResult.value } : { loading: false, error: blockError(summaryResult.reason) });
+    setFrequency(frequencyResult.status === 'fulfilled' ? { loading: false, data: frequencyResult.value } : { loading: false, error: blockError(frequencyResult.reason) });
+    setConfidence(confidenceResult.status === 'fulfilled' ? { loading: false, data: confidenceResult.value } : { loading: false, error: blockError(confidenceResult.reason) });
+    setHistory(historyResult.status === 'fulfilled' ? { loading: false, data: historyResult.value } : { loading: false, error: blockError(historyResult.reason) });
+    setForecast(forecastResult.status === 'fulfilled' ? { loading: false, data: forecastResult.value } : { loading: false, error: blockError(forecastResult.reason) });
+    setObservations(observationsResult.status === 'fulfilled' ? { loading: false, data: observationsResult.value } : { loading: false, error: blockError(observationsResult.reason) });
+    setHealth(healthResult.status === 'fulfilled' ? { loading: false, data: healthResult.value } : { loading: false, error: blockError(healthResult.reason) });
+  }, [analyticsQuery]);
 
   useEffect(() => {
     let cancelled = false;
@@ -743,10 +743,13 @@ function AnalyticsDashboard() {
     return () => window.clearInterval(timer);
   }, [filters.autoRefresh, loadDashboard]);
 
-  const occupancySeries = useMemo(() => legacyOccupancyToSeries(legacyOccupancy.data), [legacyOccupancy.data]);
-  const forecastSeries = useMemo(() => legacyForecastToSeries(legacyOccupancy.data, legacyForecast.data), [legacyOccupancy.data, legacyForecast.data]);
-  const confidenceSeries = useMemo(() => legacyConfidenceToSeries(legacyOccupancy.data), [legacyOccupancy.data]);
-  const observationBars = useMemo(() => legacyObservationsToBars(legacyOccupancy.data), [legacyOccupancy.data]);
+  const occupancySeries = useMemo(() => historyToOccupancySeries(history.data, zoneItems), [history.data, zoneItems]);
+  const forecastSeries = useMemo(
+    () => analyticsQuery.zone_id ? forecastToSeries(history.data, forecast.data, zoneItems) : [],
+    [analyticsQuery.zone_id, history.data, forecast.data, zoneItems]
+  );
+  const confidenceSeries = useMemo(() => confidenceToSeries(confidence.data), [confidence.data]);
+  const observationBars = useMemo(() => observationsToBars(observations.data), [observations.data]);
 
   function refresh() {
     setRefreshKey(key => key + 1);
@@ -779,37 +782,40 @@ function AnalyticsDashboard() {
         onRefresh={refresh}
       />
 
-      <AnalyticsBackendStub
-        title="KPI и агрегаты"
-        description="Этот блок ждёт новые `/admin/analytics/summary`, `/update-frequency` и `/confidence`. Пока backend не готов, оставляем графики на существующих `/occupancy` и `/forecasts`."
-      />
+      <Block title="KPI и агрегаты" state={{ loading: summary.loading || frequency.loading || confidence.loading, error: summary.error ?? frequency.error ?? confidence.error }}>
+        <KpiGrid summary={summary} frequency={frequency} confidence={confidence} />
+      </Block>
 
       <div className="analytics-dashboard-grid">
-        <AnalyticsBackendStub
-          title="Карта зон и камер"
-          description="Цвета текущей занятости, stale-статусы и popup-метрики включим после готовности `/admin/analytics/summary`."
-        />
+        <Block title="Карта зон и камер" state={{ loading: cameras.loading || zones.loading || health.loading, error: cameras.error ?? zones.error ?? health.error }}>
+          <AnalyticsMap zones={zoneItems} cameras={cameraItems} summary={summary.data} health={health.data} />
+        </Block>
 
-        <AnalyticsBackendStub
-          title="Проблемные зоны"
-          description="Таблица detector health ждёт `/admin/analytics/detector-health`."
-        />
+        <Block title="Проблемные зоны" state={health}>
+          <DetectorHealthTable items={health.data?.items ?? []} />
+        </Block>
       </div>
 
       <div className="analytics-chart-grid">
-        <Block title="Занятость" state={legacyOccupancy}>
+        <Block title="Занятость" state={history}>
           <LineChart series={occupancySeries} unit="%" granularity={filters.granularity} yLabel="Занятость, %" emptyMessage="Нет данных за выбранный период" />
         </Block>
 
-        <Block title="Прогноз занятости" state={legacyForecast}>
-          <LineChart series={forecastSeries} unit="%" granularity={filters.granularity} yLabel="Занятость, %" emptyMessage="Прогноз недоступен" />
+        <Block title="Прогноз занятости" state={forecast}>
+          <LineChart
+            series={forecastSeries}
+            unit="%"
+            granularity={filters.granularity}
+            yLabel="Занятость, %"
+            emptyMessage={analyticsQuery.zone_id ? 'Прогноз недоступен' : 'Выберите одну парковочную зону, чтобы увидеть прогноз'}
+          />
         </Block>
 
-        <Block title="Количество наблюдений" state={legacyOccupancy}>
+        <Block title="Количество наблюдений" state={observations}>
           <BarChart points={observationBars} granularity={filters.granularity} yLabel="Наблюдений" emptyMessage="Нет наблюдений за выбранный период" />
         </Block>
 
-        <Block title="Уверенность модели" state={legacyOccupancy}>
+        <Block title="Уверенность модели" state={confidence}>
           <LineChart series={confidenceSeries} unit="%" granularity={filters.granularity} yLabel="Уверенность, %" emptyMessage="Нет данных по уверенности модели" />
         </Block>
       </div>
@@ -1415,11 +1421,13 @@ function BarChart({
 function AnalyticsMap({
   zones,
   cameras,
-  summary
+  summary,
+  health
 }: {
   zones: ParkingZone[];
   cameras: Camera[];
   summary?: AnalyticsSummary;
+  health?: AnalyticsDetectorHealth;
 }) {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const [selected, setSelected] = useState<React.ReactNode>(null);
@@ -1437,13 +1445,22 @@ function AnalyticsMap({
     const collection = new ymaps.GeoObjectCollection();
     const boundsPoints: YandexPoint[] = [];
     const summaryByZone = new Map((summary?.zones ?? []).map(item => [String(item.zone_id), item]));
+    const healthByZone = new Map((health?.items ?? []).map(item => [String(item.zone_id), item]));
 
     zones.forEach(zone => {
       const points = zoneMapPoints(zone);
       if (points.length < 3) return;
       boundsPoints.push(...points);
       const zoneSummary = summaryByZone.get(String(zone.id));
-      const color = occupancyColor(zoneSummary?.occupancy_percent, zoneSummary?.last_update_at ?? zone.occupancy_updated_at);
+      const zoneHealth = healthByZone.get(String(zone.id));
+      const capacity = zoneHealth?.capacity ?? zoneSummary?.capacity ?? zone.capacity;
+      const occupied = zoneHealth?.occupied_count ?? zoneHealth?.occupied ?? zoneSummary?.occupied_count ?? zoneSummary?.occupied ?? zone.occupied;
+      const free = zoneHealth?.free_count ?? zoneHealth?.free ?? zoneSummary?.free_count ?? zoneSummary?.free ?? zone.free_count;
+      const occupancy = zoneHealth?.occupancy_percent ?? zoneSummary?.occupancy_percent ?? (
+        typeof occupied === 'number' && typeof capacity === 'number' && capacity > 0 ? (occupied / capacity) * 100 : null
+      );
+      const lastUpdate = zoneHealth?.last_update_at ?? zoneSummary?.last_update_at ?? zone.occupancy_updated_at;
+      const color = occupancyColor(occupancy, lastUpdate);
       const polygon = new ymaps.Polygon(
         [points],
         { hintContent: `Зона #${String(zone.id)}` },
@@ -1461,11 +1478,11 @@ function AnalyticsMap({
           <MapDetails
             title={`Зона #${String(zone.id)}`}
             rows={[
-              ['Всего мест', formatNumber(zoneSummary?.capacity ?? zone.capacity)],
-              ['Занято', formatNumber(zoneSummary?.occupied_count ?? zoneSummary?.occupied ?? zone.occupied)],
-              ['Свободно', formatNumber(zoneSummary?.free_count ?? zoneSummary?.free ?? zone.free_count)],
-              ['Занятость', formatPercent(zoneSummary?.occupancy_percent)],
-              ['Последнее обновление', formatDateTime(zoneSummary?.last_update_at ?? zone.occupancy_updated_at)]
+              ['Всего мест', formatNumber(capacity)],
+              ['Занято', formatNumber(occupied)],
+              ['Свободно', formatNumber(free)],
+              ['Занятость', formatPercent(occupancy)],
+              ['Последнее обновление', formatDateTime(lastUpdate)]
             ]}
             actions={[
               ['Редактировать камеру', () => setAnalyticsRoute({ view: 'camera', cameraId: String(zone.camera_id) })],
@@ -1512,7 +1529,7 @@ function AnalyticsMap({
     return () => {
       map.geoObjects.remove(collection);
     };
-  }, [ymaps, map, zones, cameras, summary]);
+  }, [ymaps, map, zones, cameras, summary, health]);
 
   return (
     <div className="analytics-map-layout">
