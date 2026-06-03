@@ -635,13 +635,13 @@ export default function AnalyticsPage() {
   const route = useAnalyticsRoute();
 
   if (route.view === 'zone') {
-    return <AnalyticsComingSoon title={`Аналитика зоны #${route.zoneId}`} />;
+    return <ZoneAnalyticsPage zoneId={route.zoneId} />;
   }
   if (route.view === 'camera') {
-    return <AnalyticsComingSoon title={`Аналитика камеры #${route.cameraId}`} />;
+    return <CameraAnalyticsPage cameraId={route.cameraId} />;
   }
   if (route.view === 'detection') {
-    return <AnalyticsComingSoon title={`Распознавание #${route.detectionRunId}`} />;
+    return <DetectionAnalyticsPage detectionRunId={route.detectionRunId} />;
   }
 
   return <AnalyticsDashboard />;
