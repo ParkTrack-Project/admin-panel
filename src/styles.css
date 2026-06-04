@@ -359,10 +359,30 @@ body { background: var(--bg); color: var(--text); font-family: Inter, system-ui,
   font-size: 12px;
 }
 
-.analytics-health-table-wrap {
+.table-scroll.analytics-health-table-wrap {
   max-height: 520px;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: scroll;
+  overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  scrollbar-color: var(--accent) var(--panel-soft);
+  scrollbar-width: auto;
+}
+
+.analytics-health-table-wrap::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.analytics-health-table-wrap::-webkit-scrollbar-track {
+  background: var(--panel-soft);
+  border-radius: 8px;
+}
+
+.analytics-health-table-wrap::-webkit-scrollbar-thumb {
+  background: var(--accent);
+  border: 2px solid var(--panel-soft);
+  border-radius: 8px;
 }
 
 .analytics-health-table-wrap .table-header {
