@@ -151,6 +151,7 @@ export type AnalyticsForecast = {
 };
 
 export type AnalyticsForecastPoint = AnalyticsHistoryPoint & {
+  predicted_for?: string | null;
   forecast_created_at?: string | null;
   model_version?: string | null;
   predicted_occupied_count?: number | null;
@@ -342,7 +343,7 @@ export type LegacySeriesQuery = AnalyticsRange & {
   granularity?: AnalyticsGranularity;
 };
 
-function analyticsQuery(query: AnalyticsQuery = {}) {
+function analyticsQuery(query: AnalyticsQuery = {}, includeForecastCreatedAt = false) {
   const search = new URLSearchParams();
   const scalarQuery = buildQuery({
     partner_id: query.partner_id,
@@ -351,7 +352,7 @@ function analyticsQuery(query: AnalyticsQuery = {}) {
     from: query.from,
     to: query.to,
     granularity: query.granularity,
-    forecast_created_at: query.forecast_created_at,
+    forecast_created_at: includeForecastCreatedAt ? query.forecast_created_at : undefined,
     status: query.status,
     limit: query.limit,
     top: query.top,
@@ -405,7 +406,7 @@ export const analyticsApi = {
   },
 
   async occupancyForecast(query?: AnalyticsQuery) {
-    return request<AnalyticsForecast>('GET', `/admin/analytics/occupancy-forecast${analyticsQuery(query)}`);
+    return request<AnalyticsForecast>('GET', `/admin/analytics/occupancy-forecast${analyticsQuery(query, true)}`);
   },
 
   async occupancyHeatmap(query?: AnalyticsQuery) {

@@ -31,7 +31,8 @@ import { fitYandexMap, yandexPoint, type YandexPoint } from '@/maps/yandex';
 import { useStore } from '@/store/useStore';
 import { navigate } from '@/router/routes';
 
-type PeriodPreset = 'today' | 'yesterday' | '7d' | '30d' | 'custom';
+type PeriodPreset = 'today' | 'yesterday' | '1h' | '6h' | '12h' | '24h' | '7d' | '30d' | 'custom';
+type AutoRefreshInterval = 'off' | '10s' | '30s' | '1m' | '5m' | '15m' | '30m' | '1h';
 
 type AnalyticsFilters = {
   period: PeriodPreset;
@@ -43,7 +44,7 @@ type AnalyticsFilters = {
   zoneSearch: string;
   cameraSearch: string;
   forecastCreatedAt: string;
-  autoRefresh: boolean;
+  autoRefreshInterval: AutoRefreshInterval;
 };
 
 type LoadState<T> = {
@@ -84,7 +85,16 @@ type AnalyticsRouteState =
   | { view: 'camera'; cameraId: string }
   | { view: 'detection'; detectionRunId: string };
 
-const AUTO_REFRESH_MS = 60_000;
+const AUTO_REFRESH_INTERVALS: Record<AutoRefreshInterval, number | null> = {
+  off: null,
+  '10s': 10_000,
+  '30s': 30_000,
+  '1m': 60_000,
+  '5m': 5 * 60_000,
+  '15m': 15 * 60_000,
+  '30m': 30 * 60_000,
+  '1h': 60 * 60_000
+};
 const MAX_VISIBLE_SERIES = 10;
 const MAX_CHART_POINTS = 120;
 const MAX_MARKER_POINTS = 90;
@@ -163,7 +173,7 @@ function defaultFilters(): AnalyticsFilters {
     zoneSearch: '',
     cameraSearch: '',
     forecastCreatedAt: '',
-    autoRefresh: true
+    autoRefreshInterval: '1m'
   };
 }
 
@@ -176,6 +186,16 @@ function rangeForFilters(filters: AnalyticsFilters) {
     const yesterday = new Date(now);
     yesterday.setDate(yesterday.getDate() - 1);
     return { from: startOfDay(yesterday).toISOString(), to: endOfDay(yesterday).toISOString() };
+  }
+  const relativePeriodMs: Partial<Record<PeriodPreset, number>> = {
+    '1h': 60 * 60_000,
+    '6h': 6 * 60 * 60_000,
+    '12h': 12 * 60 * 60_000,
+    '24h': 24 * 60 * 60_000
+  };
+  const relativeMs = relativePeriodMs[filters.period];
+  if (relativeMs) {
+    return { from: new Date(now.getTime() - relativeMs).toISOString(), to: now.toISOString() };
   }
   if (filters.period === '7d') {
     const from = new Date(now);
@@ -213,6 +233,27 @@ function formatDateTime(value?: string | null) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU');
 }
 
+function formatRelativeDateTime(value?: string | null) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  const differenceMs = date.getTime() - Date.now();
+  const absoluteMs = Math.abs(differenceMs);
+  const units: Array<{ unit: Intl.RelativeTimeFormatUnit; milliseconds: number }> = [
+    { unit: 'year', milliseconds: 365 * 24 * 60 * 60_000 },
+    { unit: 'month', milliseconds: 30 * 24 * 60 * 60_000 },
+    { unit: 'day', milliseconds: 24 * 60 * 60_000 },
+    { unit: 'hour', milliseconds: 60 * 60_000 },
+    { unit: 'minute', milliseconds: 60_000 },
+    { unit: 'second', milliseconds: 1_000 }
+  ];
+  const selected = units.find(item => absoluteMs >= item.milliseconds) ?? units[units.length - 1];
+  const amount = Math.round(differenceMs / selected.milliseconds);
+
+  return new Intl.RelativeTimeFormat('ru-RU', { numeric: 'auto' }).format(amount, selected.unit);
+}
+
 function formatStatus(value?: string | null) {
   const labels: Record<string, string> = {
     active: 'Активна',
@@ -221,6 +262,22 @@ function formatStatus(value?: string | null) {
     error: 'Ошибка'
   };
   return labels[value ?? ''] ?? value ?? '—';
+}
+
+function detectorStatus(value?: string | null) {
+  const normalized = (value ?? 'no_data').trim().toLowerCase().replaceAll(' ', '_');
+  const labels: Record<string, string> = {
+    online: 'Онлайн',
+    stale: 'Данные устарели',
+    offline: 'Офлайн',
+    no_data: 'Нет данных',
+    low_confidence: 'Низкая уверенность',
+    error: 'Ошибка'
+  };
+  return {
+    key: normalized,
+    label: labels[normalized] ?? value ?? labels.no_data
+  };
 }
 
 function parsePointTime(value: string) {
@@ -280,6 +337,37 @@ function chartTooltipLines(label: string, point: ChartPoint, value: string) {
   if (aggregatedCount) lines.push(`Агрегировано точек: ${aggregatedCount}`);
 
   return lines;
+}
+
+function wrapTooltipLines(lines: string[], maxCharacters = 26) {
+  return lines.flatMap(line => {
+    if (line.length <= maxCharacters) return [line];
+
+    const wrapped: string[] = [];
+    let current = '';
+    line.split(/\s+/).forEach(word => {
+      if (word.length > maxCharacters) {
+        if (current) {
+          wrapped.push(current);
+          current = '';
+        }
+        for (let index = 0; index < word.length; index += maxCharacters) {
+          wrapped.push(word.slice(index, index + maxCharacters));
+        }
+        return;
+      }
+
+      const candidate = current ? `${current} ${word}` : word;
+      if (candidate.length > maxCharacters) {
+        wrapped.push(current);
+        current = word;
+      } else {
+        current = candidate;
+      }
+    });
+    if (current) wrapped.push(current);
+    return wrapped;
+  });
 }
 
 function sortChartPoints(points: ChartPoint[]) {
@@ -388,8 +476,8 @@ function formatDuration(seconds?: number | null) {
   return `${(seconds / 3600).toFixed(1)} ч`;
 }
 
-function getPointTime(point: { ts?: string; timestamp?: string }) {
-  return point.ts ?? point.timestamp ?? '';
+function getPointTime(point: { ts?: string; timestamp?: string; predicted_for?: string | null }) {
+  return point.ts ?? point.timestamp ?? point.predicted_for ?? '';
 }
 
 function pointOccupied(point: { occupied_count?: number | null; occupied?: number | null }) {
@@ -831,12 +919,13 @@ function AnalyticsDashboard() {
   }, [loadDashboard, refreshKey]);
 
   useEffect(() => {
-    if (!filters.autoRefresh) return;
+    const intervalMs = AUTO_REFRESH_INTERVALS[filters.autoRefreshInterval];
+    if (!intervalMs) return;
     const timer = window.setInterval(() => {
       loadDashboard(true);
-    }, AUTO_REFRESH_MS);
+    }, intervalMs);
     return () => window.clearInterval(timer);
-  }, [filters.autoRefresh, loadDashboard]);
+  }, [filters.autoRefreshInterval, loadDashboard]);
 
   const occupancySeries = useMemo(() => historyToOccupancySeries(history.data, zoneItems), [history.data, zoneItems]);
   const forecastSeries = useMemo(
@@ -862,9 +951,6 @@ function AnalyticsDashboard() {
             {currentPartnerId !== undefined ? ` · партнёр #${currentPartnerId}` : ''}
           </p>
         </div>
-        <div className="row" style={{ justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-          <Button variant="ghost" onClick={refresh}>Обновить</Button>
-        </div>
       </div>
 
       <AnalyticsFiltersPanel
@@ -887,7 +973,7 @@ function AnalyticsDashboard() {
           <AnalyticsMap zones={zoneItems} cameras={cameraItems} summary={summary.data} health={health.data} />
         </Block>
 
-        <Block title="Проблемные зоны" state={health}>
+        <Block title="Состояние зон" state={health}>
           <DetectorHealthTable items={health.data?.items ?? []} />
         </Block>
       </div>
@@ -958,63 +1044,82 @@ function AnalyticsFiltersPanel({
 }) {
   return (
     <div className="section-panel analytics-filters">
-      <div className="analytics-filter-row">
-        <Field label="Период">
+      <div className="analytics-toolbar">
+        <div className="analytics-refresh-control">
+          <Button type="button" variant="ghost" className="analytics-refresh-button" onClick={onRefresh} disabled={loading}>
+            <span className="analytics-refresh-icon" aria-hidden="true">↻</span>
+            <span>Обновить</span>
+          </Button>
           <Select
-            value={filters.period}
-            onChange={event => onChange(prev => ({ ...prev, period: event.target.value as PeriodPreset }))}
+            className="analytics-toolbar-select analytics-refresh-select"
+            aria-label="Частота автообновления"
+            title="Частота автообновления"
+            value={filters.autoRefreshInterval}
+            onChange={event => onChange(prev => ({ ...prev, autoRefreshInterval: event.target.value as AutoRefreshInterval }))}
           >
-            <option value="today">Сегодня</option>
-            <option value="yesterday">Вчера</option>
-            <option value="7d">7 дней</option>
-            <option value="30d">30 дней</option>
-            <option value="custom">Произвольный</option>
+            <option value="off">Авто: выкл.</option>
+            <option value="10s">Авто: 10 сек</option>
+            <option value="30s">Авто: 30 сек</option>
+            <option value="1m">Авто: 1 мин</option>
+            <option value="5m">Авто: 5 мин</option>
+            <option value="15m">Авто: 15 мин</option>
+            <option value="30m">Авто: 30 мин</option>
+            <option value="1h">Авто: 1 час</option>
           </Select>
-        </Field>
+        </div>
 
-        {filters.period === 'custom' && (
-          <>
-            <Field label="С">
-              <Input type="datetime-local" value={filters.from} onChange={event => onChange(prev => ({ ...prev, from: event.target.value }))} />
-            </Field>
-            <Field label="По">
-              <Input type="datetime-local" value={filters.to} onChange={event => onChange(prev => ({ ...prev, to: event.target.value }))} />
-            </Field>
-          </>
-        )}
+        <Select
+          className="analytics-toolbar-select analytics-period-select"
+          aria-label="Временной диапазон"
+          title="Временной диапазон"
+          value={filters.period}
+          onChange={event => onChange(prev => ({ ...prev, period: event.target.value as PeriodPreset }))}
+        >
+          <option value="today">Период: сегодня</option>
+          <option value="yesterday">Период: вчера</option>
+          <option value="1h">Период: последний час</option>
+          <option value="6h">Период: последние 6 часов</option>
+          <option value="12h">Период: последние 12 часов</option>
+          <option value="24h">Период: последние 24 часа</option>
+          <option value="7d">Период: последние 7 дней</option>
+          <option value="30d">Период: последние 30 дней</option>
+          <option value="custom">Период: произвольный</option>
+        </Select>
 
-        <Field label="Детализация">
-          <Select
-            value={filters.granularity}
-            onChange={event => onChange(prev => ({ ...prev, granularity: event.target.value as AnalyticsGranularity }))}
-          >
-            <option value="5m">5 минут</option>
-            <option value="15m">15 минут</option>
-            <option value="1h">1 час</option>
-            <option value="1d">1 день</option>
-          </Select>
-        </Field>
+        <Select
+          className="analytics-toolbar-select analytics-granularity-select"
+          aria-label="Детализация графиков"
+          title="Детализация графиков"
+          value={filters.granularity}
+          onChange={event => onChange(prev => ({ ...prev, granularity: event.target.value as AnalyticsGranularity }))}
+        >
+          <option value="5m">Детализация: 5 минут</option>
+          <option value="15m">Детализация: 15 минут</option>
+          <option value="1h">Детализация: 1 час</option>
+          <option value="1d">Детализация: 1 день</option>
+        </Select>
 
         <Field label="Срез прогноза">
           <Input
+            className="analytics-forecast-cutoff"
             type="datetime-local"
             value={filters.forecastCreatedAt}
             onChange={event => onChange(prev => ({ ...prev, forecastCreatedAt: event.target.value }))}
             title="Пустое значение — последний доступный прогноз для каждой точки времени"
           />
         </Field>
-
-        <label className="analytics-toggle">
-          <input
-            type="checkbox"
-            checked={filters.autoRefresh}
-            onChange={event => onChange(prev => ({ ...prev, autoRefresh: event.target.checked }))}
-          />
-          <span>Автообновление</span>
-        </label>
-
-        <Button type="button" onClick={onRefresh} disabled={loading}>Обновить данные</Button>
       </div>
+
+      {filters.period === 'custom' && (
+        <div className="analytics-custom-range">
+          <Field label="Начало периода">
+            <Input type="datetime-local" value={filters.from} onChange={event => onChange(prev => ({ ...prev, from: event.target.value }))} />
+          </Field>
+          <Field label="Конец периода">
+            <Input type="datetime-local" value={filters.to} onChange={event => onChange(prev => ({ ...prev, to: event.target.value }))} />
+          </Field>
+        </div>
+      )}
 
       <div className="analytics-picker-grid">
         <MultiEntityPicker
@@ -1165,14 +1270,16 @@ function KpiGrid({
   const summaryData = summary.data;
   const frequencyData = frequency.data;
   const confidenceData = confidence.data;
+  const freshestUpdate = summaryData?.freshest_update_at ?? summaryData?.newest_update_at ?? frequencyData?.freshest_update_at ?? frequencyData?.newest_update_at;
+  const oldestUpdate = summaryData?.oldest_update_at ?? frequencyData?.oldest_update_at;
   const cards = [
     { label: 'Активных зон', value: formatNumber(summaryData?.active_zones_count ?? summaryData?.active_zones) },
     { label: 'Всего мест', value: formatNumber(summaryData?.total_capacity) },
     { label: 'Занято сейчас', value: formatNumber(summaryData?.current_occupied_count ?? summaryData?.occupied_now) },
     { label: 'Свободно сейчас', value: formatNumber(summaryData?.current_free_count ?? summaryData?.free_now) },
     { label: 'Средняя занятость', value: formatPercent(summaryData?.avg_occupancy_percent ?? summaryData?.average_occupancy_percent) },
-    { label: 'Самое свежее обновление', value: formatDateTime(summaryData?.freshest_update_at ?? summaryData?.newest_update_at ?? frequencyData?.freshest_update_at ?? frequencyData?.newest_update_at) },
-    { label: 'Самое старое обновление', value: formatDateTime(summaryData?.oldest_update_at ?? frequencyData?.oldest_update_at) },
+    { label: 'Самое свежее обновление', value: formatRelativeDateTime(freshestUpdate), exact: formatDateTime(freshestUpdate) },
+    { label: 'Самое старое обновление', value: formatRelativeDateTime(oldestUpdate), exact: formatDateTime(oldestUpdate) },
     { label: 'Средняя частота', value: formatDuration(summaryData?.avg_update_interval_sec ?? frequencyData?.avg_update_interval_sec ?? frequencyData?.average_interval_seconds) },
     { label: 'Макс. интервал', value: formatDuration(summaryData?.max_update_interval_sec ?? frequencyData?.max_update_interval_sec ?? frequencyData?.max_interval_seconds) },
     { label: 'Уверенность модели', value: formatPercent(confidenceData?.avg_confidence ?? confidenceData?.average_confidence ?? summaryData?.avg_confidence ?? summaryData?.average_confidence) }
@@ -1184,6 +1291,9 @@ function KpiGrid({
         <div className="metric-card" key={card.label}>
           <div className="metric-label">{card.label}</div>
           <div className="metric-value">{summary.loading || frequency.loading || confidence.loading ? '...' : card.value}</div>
+          {!summary.loading && !frequency.loading && !confidence.loading && card.exact && card.exact !== '—' && (
+            <div className="analytics-kpi-exact">{card.exact}</div>
+          )}
         </div>
       ))}
     </div>
@@ -1304,8 +1414,8 @@ function LineChart({
     if (point.y === null) return undefined;
     const pointX = toX(point, index, item.points.length);
     const pointY = toY(point.y);
-    const lines = chartTooltipLines(item.label, point, tooltipValue(point.y));
-    const tooltipWidth = Math.min(230, Math.max(128, Math.max(...lines.map(line => line.length)) * 6.4 + 18));
+    const lines = wrapTooltipLines(chartTooltipLines(item.label, point, tooltipValue(point.y)));
+    const tooltipWidth = Math.min(230, Math.max(128, Math.max(...lines.map(line => line.length)) * 7.2 + 24));
     const tooltipHeight = Math.max(58, 22 + lines.length * 16);
     let boxX = pointX + 12;
     let boxY = pointY - tooltipHeight - 12;
@@ -1709,43 +1819,52 @@ function DetectorHealthTable({ items }: { items: AnalyticsDetectorHealthItem[] }
   }
 
   return (
-    <div className="table-scroll analytics-health-table-wrap">
-      <div className="table-header analytics-health-table">
-        <span>Зона</span>
-        <span>Камера</span>
-        <span>Всего</span>
-        <span>Занято</span>
-        <span>Свободно</span>
-        <span>Занятость</span>
-        <span>Уверенность модели</span>
-        <span>Последнее обновление</span>
-        <span>Возраст</span>
-        <span>Средний интервал</span>
-        <span>Макс. интервал</span>
-        <span>Статус</span>
-      </div>
-      <div className="table-list">
-        {items.map(item => (
-          <button
-            type="button"
-            key={String(item.zone_id)}
-            className="table-row analytics-health-table contract-row-button"
-            onClick={() => setAnalyticsRoute({ view: 'zone', zoneId: String(item.zone_id) })}
-          >
-            <span>#{String(item.zone_id)}</span>
-            <span>{item.camera_id ? `#${item.camera_id}` : '—'}</span>
-            <span>{formatNumber(item.capacity)}</span>
-            <span>{formatNumber(item.occupied_count ?? item.occupied)}</span>
-            <span>{formatNumber(item.free_count ?? item.free)}</span>
-            <span>{formatPercent(item.occupancy_percent)}</span>
-            <span>{formatPercent(item.confidence_avg ?? item.confidence)}</span>
-            <span>{formatDateTime(item.last_update_at)}</span>
-            <span>{formatDuration(item.sec_ago ?? item.stale_seconds)}</span>
-            <span>{formatDuration(item.avg_update_interval_sec ?? item.average_interval_seconds)}</span>
-            <span>{formatDuration(item.max_update_interval_sec ?? item.max_interval_seconds)}</span>
-            <span className={`status-pill analytics-status-${item.status ?? 'no_data'}`}>{item.status ?? 'no_data'}</span>
-          </button>
-        ))}
+    <div className="analytics-health-content">
+      <div className="analytics-health-count">Показано зон: {items.length}</div>
+      <div className="table-scroll analytics-health-table-wrap">
+        <div className="table-header analytics-health-table">
+          <span>Зона</span>
+          <span>Камера</span>
+          <span>Статус</span>
+          <span>Всего</span>
+          <span>Занято</span>
+          <span>Свободно</span>
+          <span>Занятость</span>
+          <span>Уверенность модели</span>
+          <span>Последнее обновление</span>
+          <span>Возраст</span>
+          <span>Средний интервал</span>
+          <span>Макс. интервал</span>
+        </div>
+        <div className="table-list">
+          {items.map(item => {
+            const status = detectorStatus(item.status);
+            return (
+              <button
+                type="button"
+                key={String(item.zone_id)}
+                className="table-row analytics-health-table contract-row-button"
+                onClick={() => setAnalyticsRoute({ view: 'zone', zoneId: String(item.zone_id) })}
+              >
+                <span>#{String(item.zone_id)}</span>
+                <span className="analytics-health-camera">
+                  <strong>{item.camera_id ? `#${item.camera_id}` : '—'}</strong>
+                  {item.camera_title && <span className="small">{item.camera_title}</span>}
+                </span>
+                <span><span className={`status-pill analytics-status-${status.key}`}>{status.label}</span></span>
+                <span>{formatNumber(item.capacity)}</span>
+                <span>{formatNumber(item.occupied_count ?? item.occupied)}</span>
+                <span>{formatNumber(item.free_count ?? item.free)}</span>
+                <span>{formatPercent(item.occupancy_percent)}</span>
+                <span>{formatPercent(item.confidence_avg ?? item.confidence)}</span>
+                <span>{formatDateTime(item.last_update_at)}</span>
+                <span>{formatDuration(item.sec_ago ?? item.stale_seconds)}</span>
+                <span>{formatDuration(item.avg_update_interval_sec ?? item.average_interval_seconds)}</span>
+                <span>{formatDuration(item.max_update_interval_sec ?? item.max_interval_seconds)}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

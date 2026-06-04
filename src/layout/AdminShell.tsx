@@ -123,15 +123,12 @@ export default function AdminShell({ route, children }: { route: AppRoute; child
         </div>
 
         <div className="admin-header-user">
-          <div>
-            <div className="admin-user-name">{session.user?.full_name || session.user?.email}</div>
-            <div className="small">{session.accessToken ? 'Сессия активна' : 'Без токена'}</div>
-          </div>
+          <div className="admin-user-name">{session.user?.full_name || session.user?.email}</div>
           <Button variant="ghost" onClick={() => session.logout()}>Выйти</Button>
         </div>
       </header>
 
-      <main className="admin-content">
+      <main className={`admin-content admin-content-${route}`}>
         {children}
       </main>
     </div>
