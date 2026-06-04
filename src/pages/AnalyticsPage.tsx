@@ -476,8 +476,8 @@ function formatDuration(seconds?: number | null) {
   return `${(seconds / 3600).toFixed(1)} ч`;
 }
 
-function getPointTime(point: { ts?: string; timestamp?: string }) {
-  return point.ts ?? point.timestamp ?? '';
+function getPointTime(point: { ts?: string; timestamp?: string; predicted_for?: string | null }) {
+  return point.ts ?? point.timestamp ?? point.predicted_for ?? '';
 }
 
 function pointOccupied(point: { occupied_count?: number | null; occupied?: number | null }) {
