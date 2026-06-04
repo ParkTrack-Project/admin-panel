@@ -1,6 +1,6 @@
 import { Stage, Layer, Image as KImage } from 'react-konva';
 import useImage from 'use-image';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '@/store/useStore';
 import ZoneLayer from './ZoneLayer';
 import type { KonvaEventObject } from 'konva/lib/Node';
@@ -21,6 +21,24 @@ export default function ImageViewport() {
   useEffect(() => {
     viewRef.current = { scale, offsetX, offsetY };
   }, [scale, offsetX, offsetY]);
+
+  const centerImage = useCallback((
+    viewportWidth = size.w,
+    viewportHeight = size.h,
+    fillViewport = isFullscreen
+  ) => {
+    if (!image || viewportWidth <= 0 || viewportHeight <= 0) return;
+
+    const scaleX = viewportWidth / image.naturalWidth;
+    const scaleY = viewportHeight / image.naturalHeight;
+    const nextScale = fillViewport
+      ? Math.max(scaleX, scaleY)
+      : Math.min(scaleX, scaleY, 1);
+    const nextOffsetX = (viewportWidth - image.naturalWidth * nextScale) / 2;
+    const nextOffsetY = (viewportHeight - image.naturalHeight * nextScale) / 2;
+
+    setView(nextScale, nextOffsetX, nextOffsetY);
+  }, [image, isFullscreen, setView, size.h, size.w]);
 
   useEffect(() => {
     function onResize() {
@@ -48,19 +66,22 @@ export default function ImageViewport() {
 
   useEffect(() => {
     function onFullscreenChange() {
-      setIsFullscreen(document.fullscreenElement === containerRef.current);
+      const enteredFullscreen = document.fullscreenElement === containerRef.current;
+      setIsFullscreen(enteredFullscreen);
       window.setTimeout(() => {
         if (!containerRef.current) return;
-        setSize({
+        const nextSize = {
           w: containerRef.current.clientWidth,
           h: containerRef.current.clientHeight
-        });
+        };
+        setSize(nextSize);
+        centerImage(nextSize.w, nextSize.h, enteredFullscreen);
       }, 0);
     }
 
     document.addEventListener('fullscreenchange', onFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
-  }, []);
+  }, [centerImage]);
 
   async function toggleFullscreen() {
     const container = containerRef.current;
@@ -228,6 +249,19 @@ export default function ImageViewport() {
         <>
           <div className="toolbar">
             <div className="badge">scale: {scale.toFixed(2)} • tool: {tool}</div>
+            <Button
+              type="button"
+              variant="ghost"
+              className="viewport-center-button"
+              onClick={() => centerImage()}
+              title="Центрировать и заполнить кадр"
+              aria-label="Центрировать и заполнить кадр"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="5" />
+                <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+              </svg>
+            </Button>
             <Button
               type="button"
               variant="ghost"
