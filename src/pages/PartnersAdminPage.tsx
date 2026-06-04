@@ -5,6 +5,7 @@ import { Button, Field, Input, Select } from '@/components/UiKit';
 import { BulkActionBar, BulkSelectionCheckbox } from '@/components/BulkActionBar';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
 import { validateOptionalPhone } from '@/utils/phone';
+import { formatAccessScope, formatPartnerRole } from '@/utils/accessLabels';
 import type { AccessScope } from '@/types';
 
 type AdminPartner = {
@@ -414,7 +415,7 @@ export default function PartnersAdminPage() {
 
     const confirmed = await confirmAction({
       title: 'Удалить партнёра?',
-      message: `Организация "${selectedPartner.name}" будет удалена из backend.`,
+      message: `Организация "${selectedPartner.name}" будет удалена без возможности восстановления.`,
       confirmLabel: 'Удалить',
       cancelLabel: 'Отмена',
       tone: 'danger'
@@ -611,10 +612,6 @@ export default function PartnersAdminPage() {
           <div className="metric-label">Сотрудников</div>
           <div className="metric-value">{members.length}</div>
         </div>
-        <div className="metric-card">
-          <div className="metric-label">Current context</div>
-          <div className="metric-value">{currentPartnerId ?? 'all'}</div>
-        </div>
       </div>
 
       <div className="filter-bar">
@@ -717,7 +714,7 @@ export default function PartnersAdminPage() {
                   <span>{partner.name}</span>
                   <span>{partner.slug}</span>
                   <span className={`status-pill ${partner.is_active ? 'active' : 'paused'}`}>
-                    {partner.is_active ? 'active' : 'inactive'}
+                    {partner.is_active ? 'Активен' : 'Неактивен'}
                   </span>
                 </div>
               ))}
@@ -839,11 +836,11 @@ export default function PartnersAdminPage() {
                 {!membersLoading && canViewMembers && (
                   <div className="table-scroll">
                     <div className="table-header memberships-contract">
-                      <span>User</span>
-                      <span>Role</span>
-                      <span>Read</span>
-                      <span>Write</span>
-                      <span>Delete</span>
+                      <span>Сотрудник</span>
+                      <span>Роль</span>
+                      <span>Чтение</span>
+                      <span>Изменение</span>
+                      <span>Удаление</span>
                     </div>
                     <div className="table-list">
                       {members.map(member => (
@@ -854,10 +851,10 @@ export default function PartnersAdminPage() {
                           onClick={() => setSelectedMemberUserId(member.user_id)}
                         >
                           <span>{member.email}</span>
-                          <span>{member.user_role}</span>
-                          <span>{member.read_scope}</span>
-                          <span>{member.write_scope}</span>
-                          <span>{member.delete_scope}</span>
+                          <span>{formatPartnerRole(member.user_role)}</span>
+                          <span>{formatAccessScope(member.read_scope)}</span>
+                          <span>{formatAccessScope(member.write_scope)}</span>
+                          <span>{formatAccessScope(member.delete_scope)}</span>
                         </button>
                       ))}
                       {!members.length && <div className="empty-state">У партнёра пока нет сотрудников.</div>}
@@ -871,7 +868,7 @@ export default function PartnersAdminPage() {
                   <h2>Доступ сотрудника</h2>
                   <div className="small">{selectedMember.email}</div>
                   <div className="profile-form-grid">
-                    <Field label="Role">
+                    <Field label="Роль">
                       <Select
                         disabled={!canUpdateMembers}
                         value={memberEditor.userRole}
@@ -880,10 +877,10 @@ export default function PartnersAdminPage() {
                           setMemberEditor(prev => prev ? ({ ...prev, userRole: e.target.value }) : prev);
                         }}
                       >
-                        {memberRoleOptions.map(role => <option key={role} value={role}>{role}</option>)}
+                        {memberRoleOptions.map(role => <option key={role} value={role}>{formatPartnerRole(role)}</option>)}
                       </Select>
                     </Field>
-                    <Field label="Read scope">
+                    <Field label="Доступ на чтение">
                       <Select
                         disabled={!canUpdateMembers}
                         value={memberEditor.readScope}
@@ -892,10 +889,10 @@ export default function PartnersAdminPage() {
                           setMemberEditor(prev => prev ? ({ ...prev, readScope: e.target.value }) : prev);
                         }}
                       >
-                        {scopeOptions.map(scope => <option key={scope} value={scope}>{scope}</option>)}
+                        {scopeOptions.map(scope => <option key={scope} value={scope}>{formatAccessScope(scope)}</option>)}
                       </Select>
                     </Field>
-                    <Field label="Write scope">
+                    <Field label="Доступ на изменение">
                       <Select
                         disabled={!canUpdateMembers}
                         value={memberEditor.writeScope}
@@ -904,10 +901,10 @@ export default function PartnersAdminPage() {
                           setMemberEditor(prev => prev ? ({ ...prev, writeScope: e.target.value }) : prev);
                         }}
                       >
-                        {scopeOptions.map(scope => <option key={scope} value={scope}>{scope}</option>)}
+                        {scopeOptions.map(scope => <option key={scope} value={scope}>{formatAccessScope(scope)}</option>)}
                       </Select>
                     </Field>
-                    <Field label="Delete scope">
+                    <Field label="Доступ на удаление">
                       <Select
                         disabled={!canUpdateMembers}
                         value={memberEditor.deleteScope}
@@ -916,7 +913,7 @@ export default function PartnersAdminPage() {
                           setMemberEditor(prev => prev ? ({ ...prev, deleteScope: e.target.value }) : prev);
                         }}
                       >
-                        {scopeOptions.map(scope => <option key={scope} value={scope}>{scope}</option>)}
+                        {scopeOptions.map(scope => <option key={scope} value={scope}>{formatAccessScope(scope)}</option>)}
                       </Select>
                     </Field>
                   </div>
@@ -964,40 +961,40 @@ export default function PartnersAdminPage() {
                       ))}
                     </Select>
                   </Field>
-                  <Field label="Role">
+                  <Field label="Роль">
                     <Select
                       value={inviteForm.userRole}
                       disabled={!canInviteMembers || !canViewUsers}
                       onChange={e => setInviteForm(prev => ({ ...prev, userRole: e.target.value }))}
                     >
-                      {memberRoleOptions.map(role => <option key={role} value={role}>{role}</option>)}
+                      {memberRoleOptions.map(role => <option key={role} value={role}>{formatPartnerRole(role)}</option>)}
                     </Select>
                   </Field>
-                  <Field label="Read scope">
+                  <Field label="Доступ на чтение">
                     <Select
                       value={inviteForm.readScope}
                       disabled={!canInviteMembers || !canViewUsers}
                       onChange={e => setInviteForm(prev => ({ ...prev, readScope: e.target.value }))}
                     >
-                      {scopeOptions.map(scope => <option key={scope} value={scope}>{scope}</option>)}
+                      {scopeOptions.map(scope => <option key={scope} value={scope}>{formatAccessScope(scope)}</option>)}
                     </Select>
                   </Field>
-                  <Field label="Write scope">
+                  <Field label="Доступ на изменение">
                     <Select
                       value={inviteForm.writeScope}
                       disabled={!canInviteMembers || !canViewUsers}
                       onChange={e => setInviteForm(prev => ({ ...prev, writeScope: e.target.value }))}
                     >
-                      {scopeOptions.map(scope => <option key={scope} value={scope}>{scope}</option>)}
+                      {scopeOptions.map(scope => <option key={scope} value={scope}>{formatAccessScope(scope)}</option>)}
                     </Select>
                   </Field>
-                  <Field label="Delete scope">
+                  <Field label="Доступ на удаление">
                     <Select
                       value={inviteForm.deleteScope}
                       disabled={!canInviteMembers || !canViewUsers}
                       onChange={e => setInviteForm(prev => ({ ...prev, deleteScope: e.target.value }))}
                     >
-                      {scopeOptions.map(scope => <option key={scope} value={scope}>{scope}</option>)}
+                      {scopeOptions.map(scope => <option key={scope} value={scope}>{formatAccessScope(scope)}</option>)}
                     </Select>
                   </Field>
                 </div>

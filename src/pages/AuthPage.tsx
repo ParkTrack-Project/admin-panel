@@ -58,7 +58,7 @@ export default function AuthPage({ mode }: { mode: 'login' | 'register' }) {
     <div className="auth-screen">
       <section className="auth-panel">
         <div className="brand-block auth-brand">
-          <div className="brand-mark">P</div>
+          <div className="brand-mark"></div>
           <div>
             <div className="brand-name">ParkTrack</div>
             <div className="brand-subtitle">{isRegister ? 'Регистрация' : 'Вход'}</div>

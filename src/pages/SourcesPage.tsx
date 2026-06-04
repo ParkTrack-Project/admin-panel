@@ -19,6 +19,19 @@ function normalizeStatus(source: DataSource) {
   return source.status || 'active';
 }
 
+function formatStatus(source: DataSource) {
+  const status = normalizeStatus(source);
+  const labels: Record<string, string> = {
+    active: 'Активен',
+    inactive: 'Неактивен',
+    paused: 'Приостановлен',
+    degraded: 'Есть проблемы',
+    pending: 'Ожидает',
+    error: 'Ошибка'
+  };
+  return labels[status] ?? status;
+}
+
 export default function SourcesPage() {
   const currentPartnerId = useSessionStore(state => state.currentPartnerId);
   const canViewCameras = useSessionStore(state => state.hasPermission('cameras.view'));
@@ -210,8 +223,8 @@ export default function SourcesPage() {
             onChange={e => setFilters(prev => ({ ...prev, status: e.target.value }))}
           >
             <option value="all">Все</option>
-            <option value="active">active</option>
-            <option value="inactive">inactive</option>
+            <option value="active">Активные</option>
+            <option value="inactive">Неактивные</option>
           </Select>
         </Field>
       </div>
@@ -227,7 +240,7 @@ export default function SourcesPage() {
               <span>Тип</span>
               <span>Название</span>
               <span>Статус</span>
-              <span>Entity</span>
+              <span>Объект</span>
             </div>
             <div className="table-list">
               {filteredSources.map(source => (
@@ -243,7 +256,7 @@ export default function SourcesPage() {
                   <span>{source.title}</span>
                   <span>
                     <span className={`status-pill ${normalizeStatus(source) === 'inactive' ? 'paused' : 'active'}`}>
-                      {normalizeStatus(source)}
+                      {formatStatus(source)}
                     </span>
                   </span>
                   <span>{source.entity_type} #{source.entity_id}</span>
@@ -262,28 +275,28 @@ export default function SourcesPage() {
               <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
                   <h2 style={{ margin: 0 }}>{selectedSource.title}</h2>
-                  <div className="small">Source #{selectedSource.source_id}</div>
+                  <div className="small">Источник #{selectedSource.source_id}</div>
                 </div>
                 <span className={`status-pill ${normalizeStatus(selectedSource) === 'inactive' ? 'paused' : 'active'}`}>
-                  {normalizeStatus(selectedSource)}
+                  {formatStatus(selectedSource)}
                 </span>
               </div>
 
               <div className="details-grid contract-detail-grid">
                 <div className="detail-card">
-                  <div className="metric-label">Entity type</div>
+                  <div className="metric-label">Тип объекта</div>
                   <div className="detail-value">{selectedSource.entity_type}</div>
                 </div>
                 <div className="detail-card">
-                  <div className="metric-label">Entity ID</div>
+                  <div className="metric-label">ID объекта</div>
                   <div className="detail-value">{selectedSource.entity_id}</div>
                 </div>
                 <div className="detail-card">
-                  <div className="metric-label">Partner</div>
+                  <div className="metric-label">Партнёр</div>
                   <div className="detail-value">{selectedSource.partner_id ?? '—'}</div>
                 </div>
                 <div className="detail-card">
-                  <div className="metric-label">Active</div>
+                  <div className="metric-label">Активен</div>
                   <div className="detail-value">{selectedSource.is_active ? 'Да' : 'Нет'}</div>
                 </div>
                 <div className="detail-card">

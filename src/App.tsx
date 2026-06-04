@@ -198,7 +198,7 @@ function renderRoute(route: AppRoute, viewMode: ViewMode) {
   if (route === 'sources') return <SourcesPage />;
   if (route === 'cameras') {
     return (
-      <div className="legacy-map-grid">
+      <div className="legacy-map-grid camera-map-grid">
         <CamerasPage />
       </div>
     );

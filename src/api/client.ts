@@ -55,6 +55,7 @@ export type {
   DetectionRunDetail,
   DetectionRunList,
   DetectionRunListItem,
+  ForecastQualityResponse,
   LegacyForecastSeriesPoint,
   LegacyOccupancySeriesPoint,
   LegacySeriesQuery
