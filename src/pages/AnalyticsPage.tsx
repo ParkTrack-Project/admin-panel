@@ -339,6 +339,37 @@ function chartTooltipLines(label: string, point: ChartPoint, value: string) {
   return lines;
 }
 
+function wrapTooltipLines(lines: string[], maxCharacters = 26) {
+  return lines.flatMap(line => {
+    if (line.length <= maxCharacters) return [line];
+
+    const wrapped: string[] = [];
+    let current = '';
+    line.split(/\s+/).forEach(word => {
+      if (word.length > maxCharacters) {
+        if (current) {
+          wrapped.push(current);
+          current = '';
+        }
+        for (let index = 0; index < word.length; index += maxCharacters) {
+          wrapped.push(word.slice(index, index + maxCharacters));
+        }
+        return;
+      }
+
+      const candidate = current ? `${current} ${word}` : word;
+      if (candidate.length > maxCharacters) {
+        wrapped.push(current);
+        current = word;
+      } else {
+        current = candidate;
+      }
+    });
+    if (current) wrapped.push(current);
+    return wrapped;
+  });
+}
+
 function sortChartPoints(points: ChartPoint[]) {
   return [...points].sort((a, b) => {
     const aTime = parsePointTime(a.x);
@@ -1383,8 +1414,8 @@ function LineChart({
     if (point.y === null) return undefined;
     const pointX = toX(point, index, item.points.length);
     const pointY = toY(point.y);
-    const lines = chartTooltipLines(item.label, point, tooltipValue(point.y));
-    const tooltipWidth = Math.min(230, Math.max(128, Math.max(...lines.map(line => line.length)) * 6.4 + 18));
+    const lines = wrapTooltipLines(chartTooltipLines(item.label, point, tooltipValue(point.y)));
+    const tooltipWidth = Math.min(230, Math.max(128, Math.max(...lines.map(line => line.length)) * 7.2 + 24));
     const tooltipHeight = Math.max(58, 22 + lines.length * 16);
     let boxX = pointX + 12;
     let boxY = pointY - tooltipHeight - 12;
