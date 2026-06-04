@@ -118,14 +118,29 @@ function YandexCamerasMap({
   const center = cameraMapPoint(selectedCamera) ?? cameraMapPoint(firstCamera) ?? yandexPoint(59.9386, 30.3141);
   const { ymaps, map, loading, error } = useYandexMap(mapRef, {
     center,
-    zoom: selectedCamera ? 17 : 14
+    zoom: selectedCamera ? 17 : 14,
+    syncView: false
   });
 
   useEffect(() => {
+    if (!map || !mapRef.current) return;
+
+    const fitMapToContainer = () => {
+      map.container.fitToViewport();
+    };
+    const observer = new ResizeObserver(fitMapToContainer);
+    observer.observe(mapRef.current);
+    fitMapToContainer();
+
+    return () => observer.disconnect();
+  }, [map]);
+
+  useEffect(() => {
     if (!map) return;
+    map.container.fitToViewport();
     const selectedPoint = cameraMapPoint(selectedCamera);
     if (selectedPoint) {
-      map.setCenter(selectedPoint, 17, { duration: 200 });
+      map.setCenter(selectedPoint, 17);
       return;
     }
 
@@ -136,7 +151,7 @@ function YandexCamerasMap({
       fitYandexMap(map, points, 14);
       return;
     }
-    map.setCenter(yandexPoint(59.9386, 30.3141), 14, { duration: 200 });
+    map.setCenter(yandexPoint(59.9386, 30.3141), 14);
   }, [map, cameras, selectedCamera?.camera_id]);
 
   useEffect(() => {
