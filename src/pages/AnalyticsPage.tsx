@@ -13,6 +13,7 @@ import type {
   AnalyticsSummary,
   AnalyticsUpdateFrequency,
   Camera,
+  CameraSnapshot,
   DetectionFeedback,
   DetectionFeedbackErrorType,
   DetectionFeedbackRating,
@@ -106,6 +107,54 @@ const GRANULARITY_LABELS: Record<AnalyticsGranularity, string> = {
   '1h': '1 час',
   '1d': '1 день'
 };
+type CameraSnapshotTab = 'snapshot' | 'raw' | 'annotated';
+
+const cameraSnapshotCache = new Map<string, CameraSnapshot>();
+const cameraSnapshotRequests = new Map<string, Promise<CameraSnapshot>>();
+
+function cameraSnapshotCacheKey(cameraId: number, tab: CameraSnapshotTab) {
+  return `${cameraId}:${tab === 'annotated' ? 'annotated' : 'raw'}`;
+}
+
+function revokeCameraSnapshot(snapshot?: CameraSnapshot) {
+  if (snapshot?.image_url.startsWith('blob:')) {
+    URL.revokeObjectURL(snapshot.image_url);
+  }
+}
+
+function fetchCameraSnapshot(cameraId: number, tab: CameraSnapshotTab, force = false) {
+  const cacheKey = cameraSnapshotCacheKey(cameraId, tab);
+  const cached = cameraSnapshotCache.get(cacheKey);
+  if (!force && cached) return Promise.resolve(cached);
+
+  const pending = cameraSnapshotRequests.get(cacheKey);
+  if (!force && pending) return pending;
+
+  let request: Promise<CameraSnapshot>;
+  request = api.getSnapshot(cameraId, {
+    annotated: tab === 'annotated',
+    fallback_to_raw: true
+  }).then(snapshot => {
+    if (cameraSnapshotRequests.get(cacheKey) !== request) {
+      revokeCameraSnapshot(snapshot);
+      return snapshot;
+    }
+
+    const previous = cameraSnapshotCache.get(cacheKey);
+    if (previous?.image_url !== snapshot.image_url) {
+      revokeCameraSnapshot(previous);
+    }
+    cameraSnapshotCache.set(cacheKey, snapshot);
+    return snapshot;
+  }).finally(() => {
+    if (cameraSnapshotRequests.get(cacheKey) === request) {
+      cameraSnapshotRequests.delete(cacheKey);
+    }
+  });
+
+  cameraSnapshotRequests.set(cacheKey, request);
+  return request;
+}
 
 function emptyState<T>(): LoadState<T> {
   return { loading: false };
@@ -2204,37 +2253,46 @@ function CameraAnalyticsPage({ cameraId }: { cameraId: string }) {
 }
 
 function CameraSnapshots({ cameraId }: { cameraId: number }) {
-  const [tab, setTab] = useState<'snapshot' | 'raw' | 'annotated'>('snapshot');
-  const [snapshot, setSnapshot] = useState<LoadState<{ image_url: string; captured_at?: string }>>(emptyState);
-  const [fullscreenUrl, setFullscreenUrl] = useState<string | undefined>();
-  const options = tab === 'annotated' ? { annotated: true, fallback_to_raw: true } : { annotated: false, fallback_to_raw: true };
+  const [tab, setTab] = useState<CameraSnapshotTab>('snapshot');
+  const [snapshot, setSnapshot] = useState<LoadState<CameraSnapshot>>(emptyState);
+  const [fullscreen, setFullscreen] = useState(false);
+  const visibleRequestRef = useRef(0);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (targetTab: CameraSnapshotTab, force = false) => {
+    const requestId = ++visibleRequestRef.current;
     setSnapshot({ loading: true });
     try {
-      const result = await api.getSnapshot(cameraId, options);
+      const result = await fetchCameraSnapshot(cameraId, targetTab, force);
+      if (visibleRequestRef.current !== requestId) return;
       setSnapshot({ loading: false, data: result });
     } catch (error) {
+      if (visibleRequestRef.current !== requestId) return;
       setSnapshot({ loading: false, error: blockError(error) });
     }
-  }, [cameraId, tab]);
+  }, [cameraId]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    load(tab);
+  }, [load, tab]);
+
+  function renderTabs(className = '') {
+    return (
+      <div className={`segmented analytics-snapshot-tabs ${className}`.trim()} role="tablist" aria-label="Вариант снимка камеры">
+        <button type="button" role="tab" aria-selected={tab === 'snapshot'} className={tab === 'snapshot' ? 'active' : ''} onClick={() => setTab('snapshot')}>Последний снимок</button>
+        <button type="button" role="tab" aria-selected={tab === 'raw'} className={tab === 'raw' ? 'active' : ''} onClick={() => setTab('raw')}>Последнее распознавание</button>
+        <button type="button" role="tab" aria-selected={tab === 'annotated'} className={tab === 'annotated' ? 'active' : ''} onClick={() => setTab('annotated')}>С разметкой</button>
+      </div>
+    );
+  }
 
   return (
     <div className="analytics-snapshot-block">
-      <div className="segmented">
-        <button type="button" className={tab === 'snapshot' ? 'active' : ''} onClick={() => setTab('snapshot')}>Последний снимок</button>
-        <button type="button" className={tab === 'raw' ? 'active' : ''} onClick={() => setTab('raw')}>Последнее распознавание</button>
-        <button type="button" className={tab === 'annotated' ? 'active' : ''} onClick={() => setTab('annotated')}>С разметкой</button>
-      </div>
+      {renderTabs()}
       <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <span className="small">Снято: {formatDateTime(snapshot.data?.captured_at)}</span>
         <div className="row" style={{ flexWrap: 'wrap' }}>
-          <Button variant="ghost" onClick={load} disabled={snapshot.loading}>{snapshot.loading ? 'Загрузка...' : 'Обновить'}</Button>
-          <Button variant="ghost" onClick={() => snapshot.data?.image_url && setFullscreenUrl(snapshot.data.image_url)} disabled={!snapshot.data?.image_url}>На весь экран</Button>
+          <Button variant="ghost" onClick={() => load(tab, true)} disabled={snapshot.loading}>{snapshot.loading ? 'Загрузка...' : 'Обновить'}</Button>
+          <Button variant="ghost" onClick={() => setFullscreen(true)} disabled={!snapshot.data?.image_url}>На весь экран</Button>
         </div>
       </div>
       {snapshot.error && <div className="notice error">Снимок недоступен: {snapshot.error}</div>}
@@ -2243,10 +2301,26 @@ function CameraSnapshots({ cameraId }: { cameraId: number }) {
       ) : !snapshot.loading && !snapshot.error ? (
         <div className="empty-state">Снимок недоступен</div>
       ) : null}
-      {fullscreenUrl && (
-        <div className="fullscreen-preview" role="dialog">
-          <button type="button" className="fullscreen-close" onClick={() => setFullscreenUrl(undefined)}>×</button>
-          <img src={fullscreenUrl} alt="Снимок камеры" />
+      {fullscreen && (
+        <div className="fullscreen-preview analytics-snapshot-fullscreen" role="dialog" aria-modal="true" aria-label="Полноэкранный просмотр снимка камеры">
+          <div className="analytics-snapshot-fullscreen-toolbar">
+            {renderTabs('fullscreen-tabs')}
+            <span>Снято: {formatDateTime(snapshot.data?.captured_at)}</span>
+            <Button variant="ghost" onClick={() => load(tab, true)} disabled={snapshot.loading}>
+              {snapshot.loading ? 'Загрузка...' : 'Обновить'}
+            </Button>
+          </div>
+          <button type="button" className="fullscreen-close" onClick={() => setFullscreen(false)} aria-label="Закрыть полноэкранный просмотр">×</button>
+          <div className="analytics-snapshot-fullscreen-stage">
+            {snapshot.error && <div className="notice error">Снимок недоступен: {snapshot.error}</div>}
+            {snapshot.data?.image_url ? (
+              <img src={snapshot.data.image_url} alt="Снимок камеры" />
+            ) : !snapshot.loading && !snapshot.error ? (
+              <div className="analytics-snapshot-fullscreen-state">Снимок недоступен</div>
+            ) : (
+              <div className="analytics-snapshot-fullscreen-state">Загрузка снимка...</div>
+            )}
+          </div>
         </div>
       )}
     </div>
