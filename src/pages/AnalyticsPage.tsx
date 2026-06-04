@@ -1653,12 +1653,12 @@ function AnalyticsMap({
 
   return (
     <div className="analytics-map-layout">
+      <div className="analytics-map-details">
+        {selected ?? <div className="empty-state">Выберите зону или камеру на карте.</div>}
+      </div>
       <div className="analytics-map-host" ref={mapRef}>
         {loading && <div className="map-status-overlay">Загрузка Яндекс.Карт...</div>}
         {error && <div className="map-status-overlay error">{error}</div>}
-      </div>
-      <div className="analytics-map-details">
-        {selected ?? <div className="empty-state">Выберите зону или камеру на карте.</div>}
       </div>
     </div>
   );

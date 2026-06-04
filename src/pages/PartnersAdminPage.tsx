@@ -611,10 +611,6 @@ export default function PartnersAdminPage() {
           <div className="metric-label">Сотрудников</div>
           <div className="metric-value">{members.length}</div>
         </div>
-        <div className="metric-card">
-          <div className="metric-label">Current context</div>
-          <div className="metric-value">{currentPartnerId ?? 'all'}</div>
-        </div>
       </div>
 
       <div className="filter-bar">
