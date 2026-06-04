@@ -301,6 +301,12 @@ function formatAxisNumber(value: number, unit?: string) {
   return `${value.toFixed(digits)}${unit ?? ''}`;
 }
 
+function chartTickAnchor(index: number, total: number): 'start' | 'middle' | 'end' {
+  if (index === 0) return 'start';
+  if (index === total - 1) return 'end';
+  return 'middle';
+}
+
 function formatMetaValue(value: unknown) {
   if (typeof value === 'number') return formatNumber(value);
   if (typeof value === 'string' && value.trim()) return value;
@@ -1506,7 +1512,13 @@ function LineChart({
           );
         }))}
         {xTicks.map((tick, index) => (
-          <text key={`x-${index}`} x={tick.x} y={height - padding.bottom + 22} textAnchor="middle" className="chart-axis-tick">
+          <text
+            key={`x-${index}`}
+            x={tick.x}
+            y={height - padding.bottom + 22}
+            textAnchor={chartTickAnchor(index, xTicks.length)}
+            className="chart-axis-tick"
+          >
             {tick.label}
           </text>
         ))}
@@ -1629,7 +1641,13 @@ function BarChart({
           );
         })}
         {xTicks.map((tick, index) => (
-          <text key={`bar-x-${index}`} x={tick.x} y={height - padding.bottom + 22} textAnchor="middle" className="chart-axis-tick">
+          <text
+            key={`bar-x-${index}`}
+            x={tick.x}
+            y={height - padding.bottom + 22}
+            textAnchor={chartTickAnchor(index, xTicks.length)}
+            className="chart-axis-tick"
+          >
             {tick.label}
           </text>
         ))}
