@@ -4,6 +4,7 @@ import { api } from '@/api/client';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
 import { Button, Field, Input } from '@/components/UiKit';
 import { validateOptionalPhone } from '@/utils/phone';
+import { formatAccessScope, formatGlobalRole, formatPartnerRole } from '@/utils/accessLabels';
 
 export default function ProfilePage() {
   const user = useSessionStore(s => s.user);
@@ -24,7 +25,7 @@ export default function ProfilePage() {
   const [profileError, setProfileError] = useState<string | undefined>();
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [passwordError, setPasswordError] = useState<string | undefined>();
-  const role = user?.global_role ?? '—';
+  const role = formatGlobalRole(user?.global_role);
   const memberships = user?.partner_memberships ?? [];
   const hasProfileChanges = useMemo(() => (
     profileForm.fullName.trim() !== (user?.full_name ?? '')
@@ -300,27 +301,4 @@ function Detail({ label, value }: { label: string; value: string | number }) {
       <div className="detail-value">{value}</div>
     </div>
   );
-}
-
-function formatAccessScope(scope?: string) {
-  const labels: Record<string, string> = {
-    none: 'Нет доступа',
-    own: 'Свои',
-    assigned: 'Назначенные',
-    own_or_assigned: 'Свои и назначенные',
-    partner_all: 'Весь партнёр',
-    global_all: 'Все партнёры'
-  };
-  return labels[scope ?? ''] ?? scope ?? '—';
-}
-
-function formatPartnerRole(role?: string) {
-  const labels: Record<string, string> = {
-    partner_owner: 'Владелец партнёра',
-    partner_admin: 'Администратор партнёра',
-    partner_manager: 'Менеджер партнёра',
-    partner_analyst: 'Аналитик партнёра',
-    partner_viewer: 'Наблюдатель партнёра'
-  };
-  return labels[role ?? ''] ?? role ?? '—';
 }

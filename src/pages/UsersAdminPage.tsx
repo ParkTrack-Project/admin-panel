@@ -5,6 +5,7 @@ import { Button, Field, Input, Select } from '@/components/UiKit';
 import { BulkActionBar, BulkSelectionCheckbox } from '@/components/BulkActionBar';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
 import { validateOptionalPhone } from '@/utils/phone';
+import { formatAccessScope, formatGlobalRole, formatPartnerRole } from '@/utils/accessLabels';
 import type { AccessScope, PartnerMembership } from '@/types';
 
 type AdminUser = {
@@ -373,7 +374,7 @@ export default function UsersAdminPage() {
 
     const confirmed = await confirmAction({
       title: 'Деактивировать пользователя?',
-      message: `Пользователь ${selectedUser.email} будет удалён из текущей таблицы backend.`,
+      message: `Пользователь ${selectedUser.email} будет удалён без возможности восстановления.`,
       confirmLabel: 'Деактивировать',
       cancelLabel: 'Отмена',
       tone: 'danger'
@@ -548,7 +549,7 @@ export default function UsersAdminPage() {
       <div className="page-heading">
         <div>
           <h1>Пользователи</h1>
-          <p>Реальный список пользователей, редактирование профиля и статуса через текущий backend.</p>
+          <p>Пользователи, роли, статусы и доступы к партнёрским организациям.</p>
         </div>
         <Button
           onClick={() => {
@@ -575,7 +576,7 @@ export default function UsersAdminPage() {
           <div className="metric-value">{new Set(users.map(user => user.global_role)).size}</div>
         </div>
         <div className="metric-card">
-          <div className="metric-label">Memberships</div>
+          <div className="metric-label">Доступы к партнёрам</div>
           <div className="metric-value">{totalMemberships}</div>
         </div>
       </div>
@@ -587,8 +588,8 @@ export default function UsersAdminPage() {
         <Field label="Роль">
           <Select value={roleFilter} onChange={e => setRoleFilter(e.target.value)}>
             <option value="all">Все</option>
-            <option value="admin">admin</option>
-            <option value="user">user</option>
+            <option value="admin">Администраторы</option>
+            <option value="user">Пользователи</option>
           </Select>
         </Field>
         <Field label="Статус">
@@ -673,8 +674,8 @@ export default function UsersAdminPage() {
                   setCreateUserForm(prev => ({ ...prev, globalRole: e.target.value }));
                 }}
               >
-                <option value="user">user</option>
-                <option value="admin">admin</option>
+                <option value="user">Пользователь</option>
+                <option value="admin">Администратор</option>
               </Select>
             </Field>
             <div className="row create-user-actions">
@@ -744,9 +745,9 @@ export default function UsersAdminPage() {
                   </span>
                   <span>{user.user_id}</span>
                   <span>{user.email}</span>
-                  <span>{user.global_role}</span>
+                  <span>{formatGlobalRole(user.global_role)}</span>
                   <span className={`status-pill ${user.is_active ? 'active' : 'paused'}`}>
-                    {user.is_active ? 'active' : 'inactive'}
+                    {user.is_active ? 'Активен' : 'Неактивен'}
                   </span>
                   <span>{formatDate(user.created_at)}</span>
                 </div>
@@ -764,7 +765,7 @@ export default function UsersAdminPage() {
               <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
                   <h2 style={{ margin: 0 }}>{selectedUser.full_name || selectedUser.email}</h2>
-                  <div className="small">User #{selectedUser.user_id}</div>
+                  <div className="small">Пользователь #{selectedUser.user_id}</div>
                 </div>
                 <span className={`status-pill ${selectedUser.is_active ? 'active' : 'paused'}`}>
                   {selectedUser.is_active ? 'Активен' : 'Неактивен'}
@@ -781,11 +782,11 @@ export default function UsersAdminPage() {
                   <div className="detail-value">{formatDate(selectedUser.updated_at)}</div>
                 </div>
                 <div className="detail-card">
-                  <div className="metric-label">Email verified</div>
+                  <div className="metric-label">Email подтверждён</div>
                   <div className="detail-value">{selectedUser.is_email_verified ? 'Да' : 'Нет'}</div>
                 </div>
                 <div className="detail-card">
-                  <div className="metric-label">Memberships</div>
+                  <div className="metric-label">Доступы к партнёрам</div>
                   <div className="detail-value">{selectedMemberships.length}</div>
                 </div>
               </div>
@@ -831,8 +832,8 @@ export default function UsersAdminPage() {
                       setEditor(prev => prev ? ({ ...prev, globalRole: e.target.value }) : prev);
                     }}
                   >
-                    <option value="user">user</option>
-                    <option value="admin">admin</option>
+                    <option value="user">Пользователь</option>
+                    <option value="admin">Администратор</option>
                   </Select>
                 </Field>
                 <Field label="Статус">
@@ -854,33 +855,33 @@ export default function UsersAdminPage() {
               {saveError && <div className="notice error">{saveError}</div>}
 
               <div className="contract-memberships">
-                <h3>Partner Memberships</h3>
+                <h3>Доступы к партнёрам</h3>
                 {!canViewPartnerMembers && (
-                  <div className="notice warning">Недостаточно прав для просмотра членств в партнёрах.</div>
+                  <div className="notice warning">Недостаточно прав для просмотра доступов к партнёрам.</div>
                 )}
-                {membershipsLoading && <div className="empty-state">Загрузка членств...</div>}
+                {membershipsLoading && <div className="empty-state">Загрузка доступов...</div>}
                 {!membershipsLoading && canViewPartnerMembers && (
                   <div className="table-scroll">
                     <div className="table-header memberships-contract">
-                      <span>Partner</span>
-                      <span>Role</span>
-                      <span>Read</span>
-                      <span>Write</span>
-                      <span>Delete</span>
+                      <span>Партнёр</span>
+                      <span>Роль</span>
+                      <span>Чтение</span>
+                      <span>Изменение</span>
+                      <span>Удаление</span>
                     </div>
                     <div className="table-list">
                       {selectedMemberships.map((membership, index) => (
                         <div className="table-row memberships-contract" key={`${membership.partner_id}-${membership.role}-${index}`}>
                           <span>{partnerNameById.get(membership.partner_id) ?? `Партнёр #${membership.partner_id}`}</span>
-                          <span>{membership.role}</span>
-                          <span>{membership.read_scope}</span>
-                          <span>{membership.write_scope}</span>
-                          <span>{membership.delete_scope}</span>
+                          <span>{formatPartnerRole(membership.role)}</span>
+                          <span>{formatAccessScope(membership.read_scope)}</span>
+                          <span>{formatAccessScope(membership.write_scope)}</span>
+                          <span>{formatAccessScope(membership.delete_scope)}</span>
                         </div>
                       ))}
                       {!selectedMemberships.length && (
                         <div className="empty-state">
-                          Для этого пользователя backend пока не вернул членства в партнёрах.
+                          У пользователя пока нет доступов к партнёрам.
                         </div>
                       )}
                     </div>
@@ -907,7 +908,7 @@ export default function UsersAdminPage() {
                           ))}
                         </Select>
                       </Field>
-                      <Field label="Role">
+                      <Field label="Роль">
                         <Select
                           value={addPartnerForm.userRole}
                           onChange={e => {
@@ -915,31 +916,31 @@ export default function UsersAdminPage() {
                             setAddPartnerForm(prev => ({ ...prev, userRole: e.target.value }));
                           }}
                         >
-                          {memberRoleOptions.map(role => <option key={role} value={role}>{role}</option>)}
+                          {memberRoleOptions.map(role => <option key={role} value={role}>{formatPartnerRole(role)}</option>)}
                         </Select>
                       </Field>
-                      <Field label="Read scope">
+                      <Field label="Доступ на чтение">
                         <Select
                           value={addPartnerForm.readScope}
                           onChange={e => setAddPartnerForm(prev => ({ ...prev, readScope: e.target.value }))}
                         >
-                          {scopeOptions.map(scope => <option key={scope} value={scope}>{scope}</option>)}
+                          {scopeOptions.map(scope => <option key={scope} value={scope}>{formatAccessScope(scope)}</option>)}
                         </Select>
                       </Field>
-                      <Field label="Write scope">
+                      <Field label="Доступ на изменение">
                         <Select
                           value={addPartnerForm.writeScope}
                           onChange={e => setAddPartnerForm(prev => ({ ...prev, writeScope: e.target.value }))}
                         >
-                          {scopeOptions.map(scope => <option key={scope} value={scope}>{scope}</option>)}
+                          {scopeOptions.map(scope => <option key={scope} value={scope}>{formatAccessScope(scope)}</option>)}
                         </Select>
                       </Field>
-                      <Field label="Delete scope">
+                      <Field label="Доступ на удаление">
                         <Select
                           value={addPartnerForm.deleteScope}
                           onChange={e => setAddPartnerForm(prev => ({ ...prev, deleteScope: e.target.value }))}
                         >
-                          {scopeOptions.map(scope => <option key={scope} value={scope}>{scope}</option>)}
+                          {scopeOptions.map(scope => <option key={scope} value={scope}>{formatAccessScope(scope)}</option>)}
                         </Select>
                       </Field>
                     </div>

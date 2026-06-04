@@ -613,7 +613,7 @@ export default function ZonesAdminPage() {
                     <span>{freeCount ?? '—'}</span>
                     <span>{zone.pay}</span>
                     <span className={`status-pill ${zone.is_active === false ? 'paused' : 'active'}`}>
-                      {zone.is_active === false ? 'paused' : 'active'}
+                      {zone.is_active === false ? 'Неактивна' : 'Активна'}
                     </span>
                     <span>{formatZoneLocationType(zone.location_type)}</span>
                   </div>

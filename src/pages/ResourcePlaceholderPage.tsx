@@ -28,7 +28,7 @@ export default function ResourcePlaceholderPage({
           {endpoints.map(endpoint => (
             <div className="table-row" key={endpoint}>
               <div>{endpoint}</div>
-              <div><span className="status-pill paused">Ожидает backend</span></div>
+              <div><span className="status-pill paused">В разработке</span></div>
             </div>
           ))}
         </div>
