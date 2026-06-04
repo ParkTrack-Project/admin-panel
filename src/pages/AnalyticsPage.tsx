@@ -927,10 +927,9 @@ function AnalyticsDashboard() {
     return () => window.clearInterval(timer);
   }, [filters.autoRefreshInterval, loadDashboard]);
 
-  const occupancySeries = useMemo(() => historyToOccupancySeries(history.data, zoneItems), [history.data, zoneItems]);
   const forecastSeries = useMemo(
-    () => analyticsQuery.zone_id ? forecastToSeries(history.data, forecast.data, zoneItems) : [],
-    [analyticsQuery.zone_id, history.data, forecast.data, zoneItems]
+    () => forecastToSeries(history.data, forecast.data, zoneItems),
+    [history.data, forecast.data, zoneItems]
   );
   const confidenceSeries = useMemo(() => confidenceToSeries(confidence.data), [confidence.data]);
   const observationBars = useMemo(() => observationsToBars(observations.data), [observations.data]);
@@ -979,17 +978,13 @@ function AnalyticsDashboard() {
       </div>
 
       <div className="analytics-chart-grid">
-        <Block title="Занятость" state={history}>
-          <LineChart series={occupancySeries} unit="%" granularity={filters.granularity} yLabel="Занятость, %" emptyMessage="Нет данных за выбранный период" />
-        </Block>
-
-        <Block title="Прогноз занятости" state={forecast}>
+        <Block title="Занятость и прогноз" state={{ loading: history.loading || forecast.loading, error: history.error ?? forecast.error }}>
           <LineChart
             series={forecastSeries}
             unit="%"
             granularity={filters.granularity}
             yLabel="Занятость, %"
-            emptyMessage={analyticsQuery.zone_id ? 'Прогноз недоступен' : 'Выберите одну парковочную зону, чтобы увидеть прогноз'}
+            emptyMessage={analyticsQuery.zone_id ? 'Данные занятости и прогноза недоступны' : 'Нет данных занятости за выбранный период'}
           />
         </Block>
 
