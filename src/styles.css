@@ -46,6 +46,17 @@ body { background: var(--bg); color: var(--text); font-family: Inter, system-ui,
   gap: 16px;
 }
 
+.analytics-controls-panel {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: grid;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 28px rgba(24, 33, 27, 0.14);
+}
+
 .analytics-toolbar {
   display: flex;
   align-items: end;
@@ -1852,6 +1863,10 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
 
   .admin-sidebar {
     padding: 12px;
+  }
+
+  .analytics-controls-panel {
+    position: static;
   }
 
   .admin-nav {

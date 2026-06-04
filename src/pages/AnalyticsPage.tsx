@@ -1044,85 +1044,88 @@ function AnalyticsFiltersPanel({
   onRefresh: () => void;
 }) {
   return (
-    <div className="section-panel analytics-filters">
-      <div className="analytics-toolbar">
-        <div className="analytics-refresh-control">
-          <Button type="button" variant="ghost" className="analytics-refresh-button" onClick={onRefresh} disabled={loading}>
-            <span className="analytics-refresh-icon" aria-hidden="true">↻</span>
-            <span>Обновить</span>
-          </Button>
+    <>
+      <div className="section-panel analytics-controls-panel">
+        <div className="analytics-toolbar">
+          <div className="analytics-refresh-control">
+            <Button type="button" variant="ghost" className="analytics-refresh-button" onClick={onRefresh} disabled={loading}>
+              <span className="analytics-refresh-icon" aria-hidden="true">↻</span>
+              <span>Обновить</span>
+            </Button>
+            <Select
+              className="analytics-toolbar-select analytics-refresh-select"
+              aria-label="Частота автообновления"
+              title="Частота автообновления"
+              value={filters.autoRefreshInterval}
+              onChange={event => onChange(prev => ({ ...prev, autoRefreshInterval: event.target.value as AutoRefreshInterval }))}
+            >
+              <option value="off">Авто: выкл.</option>
+              <option value="10s">Авто: 10 сек</option>
+              <option value="30s">Авто: 30 сек</option>
+              <option value="1m">Авто: 1 мин</option>
+              <option value="5m">Авто: 5 мин</option>
+              <option value="15m">Авто: 15 мин</option>
+              <option value="30m">Авто: 30 мин</option>
+              <option value="1h">Авто: 1 час</option>
+            </Select>
+          </div>
+
           <Select
-            className="analytics-toolbar-select analytics-refresh-select"
-            aria-label="Частота автообновления"
-            title="Частота автообновления"
-            value={filters.autoRefreshInterval}
-            onChange={event => onChange(prev => ({ ...prev, autoRefreshInterval: event.target.value as AutoRefreshInterval }))}
+            className="analytics-toolbar-select analytics-period-select"
+            aria-label="Временной диапазон"
+            title="Временной диапазон"
+            value={filters.period}
+            onChange={event => onChange(prev => ({ ...prev, period: event.target.value as PeriodPreset }))}
           >
-            <option value="off">Авто: выкл.</option>
-            <option value="10s">Авто: 10 сек</option>
-            <option value="30s">Авто: 30 сек</option>
-            <option value="1m">Авто: 1 мин</option>
-            <option value="5m">Авто: 5 мин</option>
-            <option value="15m">Авто: 15 мин</option>
-            <option value="30m">Авто: 30 мин</option>
-            <option value="1h">Авто: 1 час</option>
+            <option value="today">Период: сегодня</option>
+            <option value="yesterday">Период: вчера</option>
+            <option value="1h">Период: последний час</option>
+            <option value="6h">Период: последние 6 часов</option>
+            <option value="12h">Период: последние 12 часов</option>
+            <option value="24h">Период: последние 24 часа</option>
+            <option value="7d">Период: последние 7 дней</option>
+            <option value="30d">Период: последние 30 дней</option>
+            <option value="custom">Период: произвольный</option>
           </Select>
+
+          <Select
+            className="analytics-toolbar-select analytics-granularity-select"
+            aria-label="Детализация графиков"
+            title="Детализация графиков"
+            value={filters.granularity}
+            onChange={event => onChange(prev => ({ ...prev, granularity: event.target.value as AnalyticsGranularity }))}
+          >
+            <option value="5m">Детализация: 5 минут</option>
+            <option value="15m">Детализация: 15 минут</option>
+            <option value="1h">Детализация: 1 час</option>
+            <option value="1d">Детализация: 1 день</option>
+          </Select>
+
+          <Field label="Срез прогноза">
+            <Input
+              className="analytics-forecast-cutoff"
+              type="datetime-local"
+              value={filters.forecastCreatedAt}
+              onChange={event => onChange(prev => ({ ...prev, forecastCreatedAt: event.target.value }))}
+              title="Пустое значение — последний доступный прогноз для каждой точки времени"
+            />
+          </Field>
         </div>
 
-        <Select
-          className="analytics-toolbar-select analytics-period-select"
-          aria-label="Временной диапазон"
-          title="Временной диапазон"
-          value={filters.period}
-          onChange={event => onChange(prev => ({ ...prev, period: event.target.value as PeriodPreset }))}
-        >
-          <option value="today">Период: сегодня</option>
-          <option value="yesterday">Период: вчера</option>
-          <option value="1h">Период: последний час</option>
-          <option value="6h">Период: последние 6 часов</option>
-          <option value="12h">Период: последние 12 часов</option>
-          <option value="24h">Период: последние 24 часа</option>
-          <option value="7d">Период: последние 7 дней</option>
-          <option value="30d">Период: последние 30 дней</option>
-          <option value="custom">Период: произвольный</option>
-        </Select>
-
-        <Select
-          className="analytics-toolbar-select analytics-granularity-select"
-          aria-label="Детализация графиков"
-          title="Детализация графиков"
-          value={filters.granularity}
-          onChange={event => onChange(prev => ({ ...prev, granularity: event.target.value as AnalyticsGranularity }))}
-        >
-          <option value="5m">Детализация: 5 минут</option>
-          <option value="15m">Детализация: 15 минут</option>
-          <option value="1h">Детализация: 1 час</option>
-          <option value="1d">Детализация: 1 день</option>
-        </Select>
-
-        <Field label="Срез прогноза">
-          <Input
-            className="analytics-forecast-cutoff"
-            type="datetime-local"
-            value={filters.forecastCreatedAt}
-            onChange={event => onChange(prev => ({ ...prev, forecastCreatedAt: event.target.value }))}
-            title="Пустое значение — последний доступный прогноз для каждой точки времени"
-          />
-        </Field>
+        {filters.period === 'custom' && (
+          <div className="analytics-custom-range">
+            <Field label="Начало периода">
+              <Input type="datetime-local" value={filters.from} onChange={event => onChange(prev => ({ ...prev, from: event.target.value }))} />
+            </Field>
+            <Field label="Конец периода">
+              <Input type="datetime-local" value={filters.to} onChange={event => onChange(prev => ({ ...prev, to: event.target.value }))} />
+            </Field>
+          </div>
+        )}
       </div>
 
-      {filters.period === 'custom' && (
-        <div className="analytics-custom-range">
-          <Field label="Начало периода">
-            <Input type="datetime-local" value={filters.from} onChange={event => onChange(prev => ({ ...prev, from: event.target.value }))} />
-          </Field>
-          <Field label="Конец периода">
-            <Input type="datetime-local" value={filters.to} onChange={event => onChange(prev => ({ ...prev, to: event.target.value }))} />
-          </Field>
-        </div>
-      )}
-
-      <div className="analytics-picker-grid">
+      <div className="section-panel analytics-filters">
+        <div className="analytics-picker-grid">
         <MultiEntityPicker
           title="Парковочные зоны"
           search={filters.zoneSearch}
@@ -1159,11 +1162,12 @@ function AnalyticsFiltersPanel({
           }))}
           emptyMessage={cameraError ?? 'Камеры не найдены'}
         />
+        </div>
+        <div className="analytics-scope-hint">
+          Фокус аналитики: все данные, одна зона или одна камера. Выбор зоны очищает камеру, выбор камеры очищает зону.
+        </div>
       </div>
-      <div className="analytics-scope-hint">
-        Фокус аналитики: все данные, одна зона или одна камера. Выбор зоны очищает камеру, выбор камеры очищает зону.
-      </div>
-    </div>
+    </>
   );
 }
 
