@@ -264,6 +264,22 @@ function formatStatus(value?: string | null) {
   return labels[value ?? ''] ?? value ?? '—';
 }
 
+function detectorStatus(value?: string | null) {
+  const normalized = (value ?? 'no_data').trim().toLowerCase().replaceAll(' ', '_');
+  const labels: Record<string, string> = {
+    online: 'Онлайн',
+    stale: 'Данные устарели',
+    offline: 'Офлайн',
+    no_data: 'Нет данных',
+    low_confidence: 'Низкая уверенность',
+    error: 'Ошибка'
+  };
+  return {
+    key: normalized,
+    label: labels[normalized] ?? value ?? labels.no_data
+  };
+}
+
 function parsePointTime(value: string) {
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : null;
@@ -926,7 +942,7 @@ function AnalyticsDashboard() {
           <AnalyticsMap zones={zoneItems} cameras={cameraItems} summary={summary.data} health={health.data} />
         </Block>
 
-        <Block title="Проблемные зоны" state={health}>
+        <Block title="Состояние зон" state={health}>
           <DetectorHealthTable items={health.data?.items ?? []} />
         </Block>
       </div>
@@ -1772,43 +1788,52 @@ function DetectorHealthTable({ items }: { items: AnalyticsDetectorHealthItem[] }
   }
 
   return (
-    <div className="table-scroll analytics-health-table-wrap">
-      <div className="table-header analytics-health-table">
-        <span>Зона</span>
-        <span>Камера</span>
-        <span>Всего</span>
-        <span>Занято</span>
-        <span>Свободно</span>
-        <span>Занятость</span>
-        <span>Уверенность модели</span>
-        <span>Последнее обновление</span>
-        <span>Возраст</span>
-        <span>Средний интервал</span>
-        <span>Макс. интервал</span>
-        <span>Статус</span>
-      </div>
-      <div className="table-list">
-        {items.map(item => (
-          <button
-            type="button"
-            key={String(item.zone_id)}
-            className="table-row analytics-health-table contract-row-button"
-            onClick={() => setAnalyticsRoute({ view: 'zone', zoneId: String(item.zone_id) })}
-          >
-            <span>#{String(item.zone_id)}</span>
-            <span>{item.camera_id ? `#${item.camera_id}` : '—'}</span>
-            <span>{formatNumber(item.capacity)}</span>
-            <span>{formatNumber(item.occupied_count ?? item.occupied)}</span>
-            <span>{formatNumber(item.free_count ?? item.free)}</span>
-            <span>{formatPercent(item.occupancy_percent)}</span>
-            <span>{formatPercent(item.confidence_avg ?? item.confidence)}</span>
-            <span>{formatDateTime(item.last_update_at)}</span>
-            <span>{formatDuration(item.sec_ago ?? item.stale_seconds)}</span>
-            <span>{formatDuration(item.avg_update_interval_sec ?? item.average_interval_seconds)}</span>
-            <span>{formatDuration(item.max_update_interval_sec ?? item.max_interval_seconds)}</span>
-            <span className={`status-pill analytics-status-${item.status ?? 'no_data'}`}>{item.status ?? 'no_data'}</span>
-          </button>
-        ))}
+    <div className="analytics-health-content">
+      <div className="analytics-health-count">Показано зон: {items.length}</div>
+      <div className="table-scroll analytics-health-table-wrap">
+        <div className="table-header analytics-health-table">
+          <span>Зона</span>
+          <span>Камера</span>
+          <span>Статус</span>
+          <span>Всего</span>
+          <span>Занято</span>
+          <span>Свободно</span>
+          <span>Занятость</span>
+          <span>Уверенность модели</span>
+          <span>Последнее обновление</span>
+          <span>Возраст</span>
+          <span>Средний интервал</span>
+          <span>Макс. интервал</span>
+        </div>
+        <div className="table-list">
+          {items.map(item => {
+            const status = detectorStatus(item.status);
+            return (
+              <button
+                type="button"
+                key={String(item.zone_id)}
+                className="table-row analytics-health-table contract-row-button"
+                onClick={() => setAnalyticsRoute({ view: 'zone', zoneId: String(item.zone_id) })}
+              >
+                <span>#{String(item.zone_id)}</span>
+                <span className="analytics-health-camera">
+                  <strong>{item.camera_id ? `#${item.camera_id}` : '—'}</strong>
+                  {item.camera_title && <span className="small">{item.camera_title}</span>}
+                </span>
+                <span><span className={`status-pill analytics-status-${status.key}`}>{status.label}</span></span>
+                <span>{formatNumber(item.capacity)}</span>
+                <span>{formatNumber(item.occupied_count ?? item.occupied)}</span>
+                <span>{formatNumber(item.free_count ?? item.free)}</span>
+                <span>{formatPercent(item.occupancy_percent)}</span>
+                <span>{formatPercent(item.confidence_avg ?? item.confidence)}</span>
+                <span>{formatDateTime(item.last_update_at)}</span>
+                <span>{formatDuration(item.sec_ago ?? item.stale_seconds)}</span>
+                <span>{formatDuration(item.avg_update_interval_sec ?? item.average_interval_seconds)}</span>
+                <span>{formatDuration(item.max_update_interval_sec ?? item.max_interval_seconds)}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
