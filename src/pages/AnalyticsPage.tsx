@@ -1328,6 +1328,7 @@ function LineChart({
   unit,
   emptyMessage,
   granularity,
+  initialHiddenSeries = [],
   xLabel = 'Время',
   yLabel = unit ? `Значение, ${unit}` : 'Значение'
 }: {
@@ -1335,10 +1336,11 @@ function LineChart({
   unit?: string;
   emptyMessage: string;
   granularity?: AnalyticsGranularity;
+  initialHiddenSeries?: string[];
   xLabel?: string;
   yLabel?: string;
 }) {
-  const [hidden, setHidden] = useState<Set<string>>(() => new Set());
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set(initialHiddenSeries));
   const [tooltip, setTooltip] = useState<{
     key: string;
     x: number;
@@ -2026,7 +2028,12 @@ function ZoneAnalyticsPage({ zoneId }: { zoneId: string }) {
 
       <div className="analytics-chart-grid">
         <Block title="Занято / свободно" state={history}>
-          <LineChart series={occupiedFreeSeries} yLabel="Мест" emptyMessage="Нет данных за выбранный период" />
+          <LineChart
+            series={occupiedFreeSeries}
+            initialHiddenSeries={['free']}
+            yLabel="Мест"
+            emptyMessage="Нет данных за выбранный период"
+          />
         </Block>
         <Block title="Занятость, %" state={history}>
           <LineChart series={occupancySeries} unit="%" yLabel="Занятость, %" emptyMessage="Нет данных за выбранный период" />
