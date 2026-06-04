@@ -609,7 +609,9 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   grid-template-areas:
     "admin-sidebar admin-header"
     "admin-sidebar admin-content";
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
   background: var(--bg);
 }
 
@@ -702,14 +704,19 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding: 22px;
+  padding: 18px;
+}
+
+.admin-content-cameras {
+  overflow: hidden;
+  padding: 12px;
 }
 
 .page-stack {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  max-width: 1180px;
+  gap: 16px;
+  max-width: 1440px;
 }
 
 .page-heading {
@@ -1141,6 +1148,30 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
+}
+
+.camera-map-grid {
+  grid-template-columns: minmax(340px, 380px) minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  background: var(--panel);
+}
+
+.camera-map-grid > .camera-admin-sidebar {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.camera-map-grid > .canvas {
+  min-height: 0;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.camera-map-grid .yandex-map-host {
+  min-height: 0;
+  background: var(--panel);
 }
 
 .camera-admin-sidebar {
@@ -1743,5 +1774,23 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
     grid-template-areas:
       "sidebar"
       "canvas";
+  }
+
+  .admin-content-cameras {
+    overflow: auto;
+    padding: 12px;
+  }
+
+  .camera-map-grid {
+    height: auto;
+    min-height: 720px;
+  }
+
+  .camera-map-grid > .camera-admin-sidebar {
+    overflow: visible;
+  }
+
+  .camera-map-grid > .canvas {
+    min-height: 460px;
   }
 }

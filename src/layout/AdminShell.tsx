@@ -131,7 +131,7 @@ export default function AdminShell({ route, children }: { route: AppRoute; child
         </div>
       </header>
 
-      <main className="admin-content">
+      <main className={`admin-content admin-content-${route}`}>
         {children}
       </main>
     </div>
