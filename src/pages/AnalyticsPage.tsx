@@ -31,7 +31,8 @@ import { fitYandexMap, yandexPoint, type YandexPoint } from '@/maps/yandex';
 import { useStore } from '@/store/useStore';
 import { navigate } from '@/router/routes';
 
-type PeriodPreset = 'today' | 'yesterday' | '7d' | '30d' | 'custom';
+type PeriodPreset = 'today' | 'yesterday' | '1h' | '6h' | '12h' | '24h' | '7d' | '30d' | 'custom';
+type AutoRefreshInterval = 'off' | '10s' | '30s' | '1m' | '5m' | '15m' | '30m' | '1h';
 
 type AnalyticsFilters = {
   period: PeriodPreset;
@@ -43,7 +44,7 @@ type AnalyticsFilters = {
   zoneSearch: string;
   cameraSearch: string;
   forecastCreatedAt: string;
-  autoRefresh: boolean;
+  autoRefreshInterval: AutoRefreshInterval;
 };
 
 type LoadState<T> = {
@@ -84,7 +85,16 @@ type AnalyticsRouteState =
   | { view: 'camera'; cameraId: string }
   | { view: 'detection'; detectionRunId: string };
 
-const AUTO_REFRESH_MS = 60_000;
+const AUTO_REFRESH_INTERVALS: Record<AutoRefreshInterval, number | null> = {
+  off: null,
+  '10s': 10_000,
+  '30s': 30_000,
+  '1m': 60_000,
+  '5m': 5 * 60_000,
+  '15m': 15 * 60_000,
+  '30m': 30 * 60_000,
+  '1h': 60 * 60_000
+};
 const MAX_VISIBLE_SERIES = 10;
 const MAX_CHART_POINTS = 120;
 const MAX_MARKER_POINTS = 90;
@@ -163,7 +173,7 @@ function defaultFilters(): AnalyticsFilters {
     zoneSearch: '',
     cameraSearch: '',
     forecastCreatedAt: '',
-    autoRefresh: true
+    autoRefreshInterval: '1m'
   };
 }
 
@@ -176,6 +186,16 @@ function rangeForFilters(filters: AnalyticsFilters) {
     const yesterday = new Date(now);
     yesterday.setDate(yesterday.getDate() - 1);
     return { from: startOfDay(yesterday).toISOString(), to: endOfDay(yesterday).toISOString() };
+  }
+  const relativePeriodMs: Partial<Record<PeriodPreset, number>> = {
+    '1h': 60 * 60_000,
+    '6h': 6 * 60 * 60_000,
+    '12h': 12 * 60 * 60_000,
+    '24h': 24 * 60 * 60_000
+  };
+  const relativeMs = relativePeriodMs[filters.period];
+  if (relativeMs) {
+    return { from: new Date(now.getTime() - relativeMs).toISOString(), to: now.toISOString() };
   }
   if (filters.period === '7d') {
     const from = new Date(now);
@@ -831,12 +851,13 @@ function AnalyticsDashboard() {
   }, [loadDashboard, refreshKey]);
 
   useEffect(() => {
-    if (!filters.autoRefresh) return;
+    const intervalMs = AUTO_REFRESH_INTERVALS[filters.autoRefreshInterval];
+    if (!intervalMs) return;
     const timer = window.setInterval(() => {
       loadDashboard(true);
-    }, AUTO_REFRESH_MS);
+    }, intervalMs);
     return () => window.clearInterval(timer);
-  }, [filters.autoRefresh, loadDashboard]);
+  }, [filters.autoRefreshInterval, loadDashboard]);
 
   const occupancySeries = useMemo(() => historyToOccupancySeries(history.data, zoneItems), [history.data, zoneItems]);
   const forecastSeries = useMemo(
@@ -861,9 +882,6 @@ function AnalyticsDashboard() {
             Текущая занятость, история, прогнозы и состояние detector-а
             {currentPartnerId !== undefined ? ` · партнёр #${currentPartnerId}` : ''}
           </p>
-        </div>
-        <div className="row" style={{ justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-          <Button variant="ghost" onClick={refresh}>Обновить</Button>
         </div>
       </div>
 
@@ -958,63 +976,82 @@ function AnalyticsFiltersPanel({
 }) {
   return (
     <div className="section-panel analytics-filters">
-      <div className="analytics-filter-row">
-        <Field label="Период">
+      <div className="analytics-toolbar">
+        <div className="analytics-refresh-control">
+          <Button type="button" variant="ghost" className="analytics-refresh-button" onClick={onRefresh} disabled={loading}>
+            <span className="analytics-refresh-icon" aria-hidden="true">↻</span>
+            <span>Обновить</span>
+          </Button>
           <Select
-            value={filters.period}
-            onChange={event => onChange(prev => ({ ...prev, period: event.target.value as PeriodPreset }))}
+            className="analytics-toolbar-select analytics-refresh-select"
+            aria-label="Частота автообновления"
+            title="Частота автообновления"
+            value={filters.autoRefreshInterval}
+            onChange={event => onChange(prev => ({ ...prev, autoRefreshInterval: event.target.value as AutoRefreshInterval }))}
           >
-            <option value="today">Сегодня</option>
-            <option value="yesterday">Вчера</option>
-            <option value="7d">7 дней</option>
-            <option value="30d">30 дней</option>
-            <option value="custom">Произвольный</option>
+            <option value="off">Авто: выкл.</option>
+            <option value="10s">Авто: 10 сек</option>
+            <option value="30s">Авто: 30 сек</option>
+            <option value="1m">Авто: 1 мин</option>
+            <option value="5m">Авто: 5 мин</option>
+            <option value="15m">Авто: 15 мин</option>
+            <option value="30m">Авто: 30 мин</option>
+            <option value="1h">Авто: 1 час</option>
           </Select>
-        </Field>
+        </div>
 
-        {filters.period === 'custom' && (
-          <>
-            <Field label="С">
-              <Input type="datetime-local" value={filters.from} onChange={event => onChange(prev => ({ ...prev, from: event.target.value }))} />
-            </Field>
-            <Field label="По">
-              <Input type="datetime-local" value={filters.to} onChange={event => onChange(prev => ({ ...prev, to: event.target.value }))} />
-            </Field>
-          </>
-        )}
+        <Select
+          className="analytics-toolbar-select analytics-period-select"
+          aria-label="Временной диапазон"
+          title="Временной диапазон"
+          value={filters.period}
+          onChange={event => onChange(prev => ({ ...prev, period: event.target.value as PeriodPreset }))}
+        >
+          <option value="today">Период: сегодня</option>
+          <option value="yesterday">Период: вчера</option>
+          <option value="1h">Период: последний час</option>
+          <option value="6h">Период: последние 6 часов</option>
+          <option value="12h">Период: последние 12 часов</option>
+          <option value="24h">Период: последние 24 часа</option>
+          <option value="7d">Период: последние 7 дней</option>
+          <option value="30d">Период: последние 30 дней</option>
+          <option value="custom">Период: произвольный</option>
+        </Select>
 
-        <Field label="Детализация">
-          <Select
-            value={filters.granularity}
-            onChange={event => onChange(prev => ({ ...prev, granularity: event.target.value as AnalyticsGranularity }))}
-          >
-            <option value="5m">5 минут</option>
-            <option value="15m">15 минут</option>
-            <option value="1h">1 час</option>
-            <option value="1d">1 день</option>
-          </Select>
-        </Field>
+        <Select
+          className="analytics-toolbar-select analytics-granularity-select"
+          aria-label="Детализация графиков"
+          title="Детализация графиков"
+          value={filters.granularity}
+          onChange={event => onChange(prev => ({ ...prev, granularity: event.target.value as AnalyticsGranularity }))}
+        >
+          <option value="5m">Детализация: 5 минут</option>
+          <option value="15m">Детализация: 15 минут</option>
+          <option value="1h">Детализация: 1 час</option>
+          <option value="1d">Детализация: 1 день</option>
+        </Select>
 
         <Field label="Срез прогноза">
           <Input
+            className="analytics-forecast-cutoff"
             type="datetime-local"
             value={filters.forecastCreatedAt}
             onChange={event => onChange(prev => ({ ...prev, forecastCreatedAt: event.target.value }))}
             title="Пустое значение — последний доступный прогноз для каждой точки времени"
           />
         </Field>
-
-        <label className="analytics-toggle">
-          <input
-            type="checkbox"
-            checked={filters.autoRefresh}
-            onChange={event => onChange(prev => ({ ...prev, autoRefresh: event.target.checked }))}
-          />
-          <span>Автообновление</span>
-        </label>
-
-        <Button type="button" onClick={onRefresh} disabled={loading}>Обновить данные</Button>
       </div>
+
+      {filters.period === 'custom' && (
+        <div className="analytics-custom-range">
+          <Field label="Начало периода">
+            <Input type="datetime-local" value={filters.from} onChange={event => onChange(prev => ({ ...prev, from: event.target.value }))} />
+          </Field>
+          <Field label="Конец периода">
+            <Input type="datetime-local" value={filters.to} onChange={event => onChange(prev => ({ ...prev, to: event.target.value }))} />
+          </Field>
+        </div>
+      )}
 
       <div className="analytics-picker-grid">
         <MultiEntityPicker
