@@ -213,6 +213,16 @@ function formatDateTime(value?: string | null) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU');
 }
 
+function formatStatus(value?: string | null) {
+  const labels: Record<string, string> = {
+    active: 'Активна',
+    inactive: 'Неактивна',
+    stale: 'Данные устарели',
+    error: 'Ошибка'
+  };
+  return labels[value ?? ''] ?? value ?? '—';
+}
+
 function parsePointTime(value: string) {
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : null;
@@ -1863,7 +1873,7 @@ function ZoneAnalyticsPage({ zoneId }: { zoneId: string }) {
             <Detail label="Занятость" value={formatPercent(metrics?.occupancy)} />
             <Detail label="Уверенность модели" value={formatPercent(metrics?.confidence)} />
             <Detail label="Последнее обновление" value={formatDateTime(metrics?.lastUpdate)} />
-            <Detail label="Статус" value={metrics?.status ?? '—'} />
+            <Detail label="Статус" value={formatStatus(metrics?.status)} />
           </div>
         ) : <div className="empty-state">Зона не найдена.</div>}
       </Block>
@@ -2078,10 +2088,10 @@ function CameraSnapshots({ cameraId }: { cameraId: number }) {
         <button type="button" className={tab === 'annotated' ? 'active' : ''} onClick={() => setTab('annotated')}>С разметкой</button>
       </div>
       <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-        <span className="small">Timestamp: {formatDateTime(snapshot.data?.captured_at)}</span>
+        <span className="small">Снято: {formatDateTime(snapshot.data?.captured_at)}</span>
         <div className="row" style={{ flexWrap: 'wrap' }}>
           <Button variant="ghost" onClick={load} disabled={snapshot.loading}>{snapshot.loading ? 'Загрузка...' : 'Обновить'}</Button>
-          <Button variant="ghost" onClick={() => snapshot.data?.image_url && setFullscreenUrl(snapshot.data.image_url)} disabled={!snapshot.data?.image_url}>Fullscreen</Button>
+          <Button variant="ghost" onClick={() => snapshot.data?.image_url && setFullscreenUrl(snapshot.data.image_url)} disabled={!snapshot.data?.image_url}>На весь экран</Button>
         </div>
       </div>
       {snapshot.error && <div className="notice error">Снимок недоступен: {snapshot.error}</div>}
@@ -2241,8 +2251,8 @@ function DetectionAnalyticsPage({ detectionRunId }: { detectionRunId: string }) 
       {item && (
         <Block title="Сравнение изображений" state={detail}>
           <div className="analytics-image-compare">
-            <DetectionImage title="Raw-изображение" url={item.raw_snapshot_url ?? item.raw_image_url} />
-            <DetectionImage title="Annotated-изображение" url={item.annotated_snapshot_url ?? item.annotated_image_url} />
+            <DetectionImage title="Исходное изображение" url={item.raw_snapshot_url ?? item.raw_image_url} />
+            <DetectionImage title="Изображение с разметкой" url={item.annotated_snapshot_url ?? item.annotated_image_url} />
           </div>
         </Block>
       )}
@@ -2283,7 +2293,7 @@ function DetectionImage({ title, url }: { title: string; url?: string | null }) 
       <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <h3>{title}</h3>
         <div className="row" style={{ flexWrap: 'wrap' }}>
-          <Button variant="ghost" disabled={!url} onClick={() => setFullscreen(true)}>Fullscreen</Button>
+          <Button variant="ghost" disabled={!url} onClick={() => setFullscreen(true)}>На весь экран</Button>
           <Button variant="ghost" disabled={!url} onClick={() => url && window.open(url, '_blank', 'noopener,noreferrer')}>В новой вкладке</Button>
         </div>
       </div>

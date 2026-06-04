@@ -666,7 +666,7 @@ export default function CamerasPage() {
       }
       await container.requestFullscreen();
     } catch (e: any) {
-      setError(`Не удалось открыть snapshot на весь экран: ${String(e?.message || e)}`);
+      setError(`Не удалось открыть кадр на весь экран: ${String(e?.message || e)}`);
     }
   }
 
@@ -776,7 +776,7 @@ export default function CamerasPage() {
                     </span>
                     <span>{typeof zonesCount === 'number' ? zonesCount : '—'}</span>
                     <span className={`status-pill ${cam.is_active === false ? 'paused' : 'active'}`}>
-                      {cam.is_active === false ? 'paused' : 'active'}
+                      {cam.is_active === false ? 'Неактивна' : 'Активна'}
                     </span>
                   </div>
                 );
@@ -949,7 +949,7 @@ export default function CamerasPage() {
                     <Button
                       variant="ghost"
                       onClick={toggleSnapshotFullscreen}
-                      title={isSnapshotFullscreen ? 'Выйти из полноэкранного режима' : 'Открыть snapshot на весь экран'}
+                      title={isSnapshotFullscreen ? 'Выйти из полноэкранного режима' : 'Открыть кадр на весь экран'}
                     >
                       {isSnapshotFullscreen ? 'Свернуть' : 'На весь экран'}
                     </Button>
@@ -962,7 +962,7 @@ export default function CamerasPage() {
                   </Button>
                 </div>
               </div>
-              {snapshot.loading && <div className="empty-state">Загрузка snapshot...</div>}
+              {snapshot.loading && <div className="empty-state">Загрузка кадра...</div>}
               {!snapshot.loading && snapshot.error && (
                 <div className="notice warning">{snapshot.error}</div>
               )}
