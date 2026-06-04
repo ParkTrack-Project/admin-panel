@@ -1097,9 +1097,22 @@ function AnalyticsFiltersPanel({
       <div className="section-panel analytics-controls-panel">
         <div className="analytics-toolbar">
           <div className="analytics-refresh-control">
-            <Button type="button" variant="ghost" className="analytics-refresh-button" onClick={onRefresh} disabled={loading}>
-              <span className="analytics-refresh-icon" aria-hidden="true">↻</span>
-              <span>Обновить</span>
+            <Button
+              type="button"
+              variant="ghost"
+              className="analytics-refresh-button"
+              onClick={onRefresh}
+              disabled={loading}
+              aria-label={loading ? 'Обновление данных' : 'Обновить данные'}
+              title={loading ? 'Обновление данных' : 'Обновить данные'}
+            >
+              <svg
+                className={`analytics-refresh-icon${loading ? ' loading' : ''}`}
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5" />
+              </svg>
             </Button>
             <Select
               className="analytics-toolbar-select analytics-refresh-select"
