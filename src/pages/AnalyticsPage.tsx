@@ -233,6 +233,27 @@ function formatDateTime(value?: string | null) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU');
 }
 
+function formatRelativeDateTime(value?: string | null) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  const differenceMs = date.getTime() - Date.now();
+  const absoluteMs = Math.abs(differenceMs);
+  const units: Array<{ unit: Intl.RelativeTimeFormatUnit; milliseconds: number }> = [
+    { unit: 'year', milliseconds: 365 * 24 * 60 * 60_000 },
+    { unit: 'month', milliseconds: 30 * 24 * 60 * 60_000 },
+    { unit: 'day', milliseconds: 24 * 60 * 60_000 },
+    { unit: 'hour', milliseconds: 60 * 60_000 },
+    { unit: 'minute', milliseconds: 60_000 },
+    { unit: 'second', milliseconds: 1_000 }
+  ];
+  const selected = units.find(item => absoluteMs >= item.milliseconds) ?? units[units.length - 1];
+  const amount = Math.round(differenceMs / selected.milliseconds);
+
+  return new Intl.RelativeTimeFormat('ru-RU', { numeric: 'auto' }).format(amount, selected.unit);
+}
+
 function formatStatus(value?: string | null) {
   const labels: Record<string, string> = {
     active: 'Активна',
@@ -1202,14 +1223,16 @@ function KpiGrid({
   const summaryData = summary.data;
   const frequencyData = frequency.data;
   const confidenceData = confidence.data;
+  const freshestUpdate = summaryData?.freshest_update_at ?? summaryData?.newest_update_at ?? frequencyData?.freshest_update_at ?? frequencyData?.newest_update_at;
+  const oldestUpdate = summaryData?.oldest_update_at ?? frequencyData?.oldest_update_at;
   const cards = [
     { label: 'Активных зон', value: formatNumber(summaryData?.active_zones_count ?? summaryData?.active_zones) },
     { label: 'Всего мест', value: formatNumber(summaryData?.total_capacity) },
     { label: 'Занято сейчас', value: formatNumber(summaryData?.current_occupied_count ?? summaryData?.occupied_now) },
     { label: 'Свободно сейчас', value: formatNumber(summaryData?.current_free_count ?? summaryData?.free_now) },
     { label: 'Средняя занятость', value: formatPercent(summaryData?.avg_occupancy_percent ?? summaryData?.average_occupancy_percent) },
-    { label: 'Самое свежее обновление', value: formatDateTime(summaryData?.freshest_update_at ?? summaryData?.newest_update_at ?? frequencyData?.freshest_update_at ?? frequencyData?.newest_update_at) },
-    { label: 'Самое старое обновление', value: formatDateTime(summaryData?.oldest_update_at ?? frequencyData?.oldest_update_at) },
+    { label: 'Самое свежее обновление', value: formatRelativeDateTime(freshestUpdate), exact: formatDateTime(freshestUpdate) },
+    { label: 'Самое старое обновление', value: formatRelativeDateTime(oldestUpdate), exact: formatDateTime(oldestUpdate) },
     { label: 'Средняя частота', value: formatDuration(summaryData?.avg_update_interval_sec ?? frequencyData?.avg_update_interval_sec ?? frequencyData?.average_interval_seconds) },
     { label: 'Макс. интервал', value: formatDuration(summaryData?.max_update_interval_sec ?? frequencyData?.max_update_interval_sec ?? frequencyData?.max_interval_seconds) },
     { label: 'Уверенность модели', value: formatPercent(confidenceData?.avg_confidence ?? confidenceData?.average_confidence ?? summaryData?.avg_confidence ?? summaryData?.average_confidence) }
@@ -1221,6 +1244,9 @@ function KpiGrid({
         <div className="metric-card" key={card.label}>
           <div className="metric-label">{card.label}</div>
           <div className="metric-value">{summary.loading || frequency.loading || confidence.loading ? '...' : card.value}</div>
+          {!summary.loading && !frequency.loading && !confidence.loading && card.exact && card.exact !== '—' && (
+            <div className="analytics-kpi-exact">{card.exact}</div>
+          )}
         </div>
       ))}
     </div>
