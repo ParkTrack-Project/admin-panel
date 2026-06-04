@@ -46,6 +46,17 @@ body { background: var(--bg); color: var(--text); font-family: Inter, system-ui,
   gap: 16px;
 }
 
+.analytics-controls-panel {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: grid;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 28px rgba(24, 33, 27, 0.14);
+}
+
 .analytics-toolbar {
   display: flex;
   align-items: end;
@@ -359,10 +370,30 @@ body { background: var(--bg); color: var(--text); font-family: Inter, system-ui,
   font-size: 12px;
 }
 
-.analytics-health-table-wrap {
+.table-scroll.analytics-health-table-wrap {
   max-height: 520px;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: scroll;
+  overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  scrollbar-color: var(--accent) var(--panel-soft);
+  scrollbar-width: auto;
+}
+
+.analytics-health-table-wrap::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.analytics-health-table-wrap::-webkit-scrollbar-track {
+  background: var(--panel-soft);
+  border-radius: 8px;
+}
+
+.analytics-health-table-wrap::-webkit-scrollbar-thumb {
+  background: var(--accent);
+  border: 2px solid var(--panel-soft);
+  border-radius: 8px;
 }
 
 .analytics-health-table-wrap .table-header {
@@ -456,6 +487,37 @@ body { background: var(--bg); color: var(--text); font-family: Inter, system-ui,
   gap: 12px;
 }
 
+.analytics-snapshot-tabs {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px;
+  gap: 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #eef6f0;
+  overflow-x: auto;
+}
+
+.analytics-snapshot-tabs button {
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #4f5c55;
+  font: inherit;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.analytics-snapshot-tabs button.active {
+  background: #fff;
+  color: var(--accent);
+  box-shadow: 0 1px 4px rgba(18, 35, 24, 0.12);
+}
+
 .analytics-snapshot {
   width: 100%;
   max-height: 560px;
@@ -481,6 +543,57 @@ body { background: var(--bg); color: var(--text); font-family: Inter, system-ui,
   object-fit: contain;
 }
 
+.analytics-snapshot-fullscreen {
+  grid-template-rows: auto minmax(0, 1fr);
+  place-items: stretch;
+  gap: 16px;
+  padding: 18px;
+}
+
+.analytics-snapshot-fullscreen-toolbar {
+  min-width: 0;
+  padding-right: 56px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #fff;
+}
+
+.analytics-snapshot-fullscreen-toolbar .analytics-snapshot-tabs {
+  flex: 1 1 auto;
+  width: auto;
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.analytics-snapshot-fullscreen-toolbar .analytics-snapshot-tabs button {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.analytics-snapshot-fullscreen-toolbar .analytics-snapshot-tabs button.active {
+  background: #fff;
+  color: #102015;
+}
+
+.analytics-snapshot-fullscreen-toolbar .button {
+  flex: 0 0 auto;
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.analytics-snapshot-fullscreen-stage {
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.analytics-snapshot-fullscreen-state {
+  color: #fff;
+  font-weight: 700;
+}
+
 .fullscreen-close {
   position: fixed;
   top: 18px;
@@ -494,6 +607,17 @@ body { background: var(--bg); color: var(--text); font-family: Inter, system-ui,
   font-size: 30px;
   line-height: 1;
   cursor: pointer;
+}
+
+@media (max-width: 760px) {
+  .analytics-snapshot-fullscreen-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .analytics-snapshot-fullscreen-toolbar .analytics-snapshot-tabs {
+    width: 100%;
+  }
 }
 
 .table-header.analytics-detections-table,
@@ -1835,6 +1959,10 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
 
   .admin-sidebar {
     padding: 12px;
+  }
+
+  .analytics-controls-panel {
+    position: static;
   }
 
   .admin-nav {

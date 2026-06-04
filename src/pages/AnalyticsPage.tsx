@@ -13,6 +13,7 @@ import type {
   AnalyticsSummary,
   AnalyticsUpdateFrequency,
   Camera,
+  CameraSnapshot,
   DetectionFeedback,
   DetectionFeedbackErrorType,
   DetectionFeedbackRating,
@@ -106,6 +107,54 @@ const GRANULARITY_LABELS: Record<AnalyticsGranularity, string> = {
   '1h': '1 час',
   '1d': '1 день'
 };
+type CameraSnapshotTab = 'snapshot' | 'raw' | 'annotated';
+
+const cameraSnapshotCache = new Map<string, CameraSnapshot>();
+const cameraSnapshotRequests = new Map<string, Promise<CameraSnapshot>>();
+
+function cameraSnapshotCacheKey(cameraId: number, tab: CameraSnapshotTab) {
+  return `${cameraId}:${tab === 'annotated' ? 'annotated' : 'raw'}`;
+}
+
+function revokeCameraSnapshot(snapshot?: CameraSnapshot) {
+  if (snapshot?.image_url.startsWith('blob:')) {
+    URL.revokeObjectURL(snapshot.image_url);
+  }
+}
+
+function fetchCameraSnapshot(cameraId: number, tab: CameraSnapshotTab, force = false) {
+  const cacheKey = cameraSnapshotCacheKey(cameraId, tab);
+  const cached = cameraSnapshotCache.get(cacheKey);
+  if (!force && cached) return Promise.resolve(cached);
+
+  const pending = cameraSnapshotRequests.get(cacheKey);
+  if (!force && pending) return pending;
+
+  let request: Promise<CameraSnapshot>;
+  request = api.getSnapshot(cameraId, {
+    annotated: tab === 'annotated',
+    fallback_to_raw: true
+  }).then(snapshot => {
+    if (cameraSnapshotRequests.get(cacheKey) !== request) {
+      revokeCameraSnapshot(snapshot);
+      return snapshot;
+    }
+
+    const previous = cameraSnapshotCache.get(cacheKey);
+    if (previous?.image_url !== snapshot.image_url) {
+      revokeCameraSnapshot(previous);
+    }
+    cameraSnapshotCache.set(cacheKey, snapshot);
+    return snapshot;
+  }).finally(() => {
+    if (cameraSnapshotRequests.get(cacheKey) === request) {
+      cameraSnapshotRequests.delete(cacheKey);
+    }
+  });
+
+  cameraSnapshotRequests.set(cacheKey, request);
+  return request;
+}
 
 function emptyState<T>(): LoadState<T> {
   return { loading: false };
@@ -299,6 +348,12 @@ function formatAxisDateTime(value: string | number) {
 function formatAxisNumber(value: number, unit?: string) {
   const digits = Math.abs(value) >= 10 || value === 0 ? 0 : 1;
   return `${value.toFixed(digits)}${unit ?? ''}`;
+}
+
+function chartTickAnchor(index: number, total: number): 'start' | 'middle' | 'end' {
+  if (index === 0) return 'start';
+  if (index === total - 1) return 'end';
+  return 'middle';
 }
 
 function formatMetaValue(value: unknown) {
@@ -927,10 +982,9 @@ function AnalyticsDashboard() {
     return () => window.clearInterval(timer);
   }, [filters.autoRefreshInterval, loadDashboard]);
 
-  const occupancySeries = useMemo(() => historyToOccupancySeries(history.data, zoneItems), [history.data, zoneItems]);
   const forecastSeries = useMemo(
-    () => analyticsQuery.zone_id ? forecastToSeries(history.data, forecast.data, zoneItems) : [],
-    [analyticsQuery.zone_id, history.data, forecast.data, zoneItems]
+    () => forecastToSeries(history.data, forecast.data, zoneItems),
+    [history.data, forecast.data, zoneItems]
   );
   const confidenceSeries = useMemo(() => confidenceToSeries(confidence.data), [confidence.data]);
   const observationBars = useMemo(() => observationsToBars(observations.data), [observations.data]);
@@ -979,17 +1033,13 @@ function AnalyticsDashboard() {
       </div>
 
       <div className="analytics-chart-grid">
-        <Block title="Занятость" state={history}>
-          <LineChart series={occupancySeries} unit="%" granularity={filters.granularity} yLabel="Занятость, %" emptyMessage="Нет данных за выбранный период" />
-        </Block>
-
-        <Block title="Прогноз занятости" state={forecast}>
+        <Block title="Занятость и прогноз" state={{ loading: history.loading || forecast.loading, error: history.error ?? forecast.error }}>
           <LineChart
             series={forecastSeries}
             unit="%"
             granularity={filters.granularity}
             yLabel="Занятость, %"
-            emptyMessage={analyticsQuery.zone_id ? 'Прогноз недоступен' : 'Выберите одну парковочную зону, чтобы увидеть прогноз'}
+            emptyMessage={analyticsQuery.zone_id ? 'Данные занятости и прогноза недоступны' : 'Нет данных занятости за выбранный период'}
           />
         </Block>
 
@@ -1043,85 +1093,88 @@ function AnalyticsFiltersPanel({
   onRefresh: () => void;
 }) {
   return (
-    <div className="section-panel analytics-filters">
-      <div className="analytics-toolbar">
-        <div className="analytics-refresh-control">
-          <Button type="button" variant="ghost" className="analytics-refresh-button" onClick={onRefresh} disabled={loading}>
-            <span className="analytics-refresh-icon" aria-hidden="true">↻</span>
-            <span>Обновить</span>
-          </Button>
+    <>
+      <div className="section-panel analytics-controls-panel">
+        <div className="analytics-toolbar">
+          <div className="analytics-refresh-control">
+            <Button type="button" variant="ghost" className="analytics-refresh-button" onClick={onRefresh} disabled={loading}>
+              <span className="analytics-refresh-icon" aria-hidden="true">↻</span>
+              <span>Обновить</span>
+            </Button>
+            <Select
+              className="analytics-toolbar-select analytics-refresh-select"
+              aria-label="Частота автообновления"
+              title="Частота автообновления"
+              value={filters.autoRefreshInterval}
+              onChange={event => onChange(prev => ({ ...prev, autoRefreshInterval: event.target.value as AutoRefreshInterval }))}
+            >
+              <option value="off">Авто: выкл.</option>
+              <option value="10s">Авто: 10 сек</option>
+              <option value="30s">Авто: 30 сек</option>
+              <option value="1m">Авто: 1 мин</option>
+              <option value="5m">Авто: 5 мин</option>
+              <option value="15m">Авто: 15 мин</option>
+              <option value="30m">Авто: 30 мин</option>
+              <option value="1h">Авто: 1 час</option>
+            </Select>
+          </div>
+
           <Select
-            className="analytics-toolbar-select analytics-refresh-select"
-            aria-label="Частота автообновления"
-            title="Частота автообновления"
-            value={filters.autoRefreshInterval}
-            onChange={event => onChange(prev => ({ ...prev, autoRefreshInterval: event.target.value as AutoRefreshInterval }))}
+            className="analytics-toolbar-select analytics-period-select"
+            aria-label="Временной диапазон"
+            title="Временной диапазон"
+            value={filters.period}
+            onChange={event => onChange(prev => ({ ...prev, period: event.target.value as PeriodPreset }))}
           >
-            <option value="off">Авто: выкл.</option>
-            <option value="10s">Авто: 10 сек</option>
-            <option value="30s">Авто: 30 сек</option>
-            <option value="1m">Авто: 1 мин</option>
-            <option value="5m">Авто: 5 мин</option>
-            <option value="15m">Авто: 15 мин</option>
-            <option value="30m">Авто: 30 мин</option>
-            <option value="1h">Авто: 1 час</option>
+            <option value="today">Период: сегодня</option>
+            <option value="yesterday">Период: вчера</option>
+            <option value="1h">Период: последний час</option>
+            <option value="6h">Период: последние 6 часов</option>
+            <option value="12h">Период: последние 12 часов</option>
+            <option value="24h">Период: последние 24 часа</option>
+            <option value="7d">Период: последние 7 дней</option>
+            <option value="30d">Период: последние 30 дней</option>
+            <option value="custom">Период: произвольный</option>
           </Select>
+
+          <Select
+            className="analytics-toolbar-select analytics-granularity-select"
+            aria-label="Детализация графиков"
+            title="Детализация графиков"
+            value={filters.granularity}
+            onChange={event => onChange(prev => ({ ...prev, granularity: event.target.value as AnalyticsGranularity }))}
+          >
+            <option value="5m">Детализация: 5 минут</option>
+            <option value="15m">Детализация: 15 минут</option>
+            <option value="1h">Детализация: 1 час</option>
+            <option value="1d">Детализация: 1 день</option>
+          </Select>
+
+          <Field label="Срез прогноза">
+            <Input
+              className="analytics-forecast-cutoff"
+              type="datetime-local"
+              value={filters.forecastCreatedAt}
+              onChange={event => onChange(prev => ({ ...prev, forecastCreatedAt: event.target.value }))}
+              title="Пустое значение — последний доступный прогноз для каждой точки времени"
+            />
+          </Field>
         </div>
 
-        <Select
-          className="analytics-toolbar-select analytics-period-select"
-          aria-label="Временной диапазон"
-          title="Временной диапазон"
-          value={filters.period}
-          onChange={event => onChange(prev => ({ ...prev, period: event.target.value as PeriodPreset }))}
-        >
-          <option value="today">Период: сегодня</option>
-          <option value="yesterday">Период: вчера</option>
-          <option value="1h">Период: последний час</option>
-          <option value="6h">Период: последние 6 часов</option>
-          <option value="12h">Период: последние 12 часов</option>
-          <option value="24h">Период: последние 24 часа</option>
-          <option value="7d">Период: последние 7 дней</option>
-          <option value="30d">Период: последние 30 дней</option>
-          <option value="custom">Период: произвольный</option>
-        </Select>
-
-        <Select
-          className="analytics-toolbar-select analytics-granularity-select"
-          aria-label="Детализация графиков"
-          title="Детализация графиков"
-          value={filters.granularity}
-          onChange={event => onChange(prev => ({ ...prev, granularity: event.target.value as AnalyticsGranularity }))}
-        >
-          <option value="5m">Детализация: 5 минут</option>
-          <option value="15m">Детализация: 15 минут</option>
-          <option value="1h">Детализация: 1 час</option>
-          <option value="1d">Детализация: 1 день</option>
-        </Select>
-
-        <Field label="Срез прогноза">
-          <Input
-            className="analytics-forecast-cutoff"
-            type="datetime-local"
-            value={filters.forecastCreatedAt}
-            onChange={event => onChange(prev => ({ ...prev, forecastCreatedAt: event.target.value }))}
-            title="Пустое значение — последний доступный прогноз для каждой точки времени"
-          />
-        </Field>
+        {filters.period === 'custom' && (
+          <div className="analytics-custom-range">
+            <Field label="Начало периода">
+              <Input type="datetime-local" value={filters.from} onChange={event => onChange(prev => ({ ...prev, from: event.target.value }))} />
+            </Field>
+            <Field label="Конец периода">
+              <Input type="datetime-local" value={filters.to} onChange={event => onChange(prev => ({ ...prev, to: event.target.value }))} />
+            </Field>
+          </div>
+        )}
       </div>
 
-      {filters.period === 'custom' && (
-        <div className="analytics-custom-range">
-          <Field label="Начало периода">
-            <Input type="datetime-local" value={filters.from} onChange={event => onChange(prev => ({ ...prev, from: event.target.value }))} />
-          </Field>
-          <Field label="Конец периода">
-            <Input type="datetime-local" value={filters.to} onChange={event => onChange(prev => ({ ...prev, to: event.target.value }))} />
-          </Field>
-        </div>
-      )}
-
-      <div className="analytics-picker-grid">
+      <div className="section-panel analytics-filters">
+        <div className="analytics-picker-grid">
         <MultiEntityPicker
           title="Парковочные зоны"
           search={filters.zoneSearch}
@@ -1158,11 +1211,12 @@ function AnalyticsFiltersPanel({
           }))}
           emptyMessage={cameraError ?? 'Камеры не найдены'}
         />
+        </div>
+        <div className="analytics-scope-hint">
+          Фокус аналитики: все данные, одна зона или одна камера. Выбор зоны очищает камеру, выбор камеры очищает зону.
+        </div>
       </div>
-      <div className="analytics-scope-hint">
-        Фокус аналитики: все данные, одна зона или одна камера. Выбор зоны очищает камеру, выбор камеры очищает зону.
-      </div>
-    </div>
+    </>
   );
 }
 
@@ -1327,6 +1381,7 @@ function LineChart({
   unit,
   emptyMessage,
   granularity,
+  initialHiddenSeries = [],
   xLabel = 'Время',
   yLabel = unit ? `Значение, ${unit}` : 'Значение'
 }: {
@@ -1334,10 +1389,11 @@ function LineChart({
   unit?: string;
   emptyMessage: string;
   granularity?: AnalyticsGranularity;
+  initialHiddenSeries?: string[];
   xLabel?: string;
   yLabel?: string;
 }) {
-  const [hidden, setHidden] = useState<Set<string>>(() => new Set());
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set(initialHiddenSeries));
   const [tooltip, setTooltip] = useState<{
     key: string;
     x: number;
@@ -1511,7 +1567,13 @@ function LineChart({
           );
         }))}
         {xTicks.map((tick, index) => (
-          <text key={`x-${index}`} x={tick.x} y={height - padding.bottom + 22} textAnchor="middle" className="chart-axis-tick">
+          <text
+            key={`x-${index}`}
+            x={tick.x}
+            y={height - padding.bottom + 22}
+            textAnchor={chartTickAnchor(index, xTicks.length)}
+            className="chart-axis-tick"
+          >
             {tick.label}
           </text>
         ))}
@@ -1634,7 +1696,13 @@ function BarChart({
           );
         })}
         {xTicks.map((tick, index) => (
-          <text key={`bar-x-${index}`} x={tick.x} y={height - padding.bottom + 22} textAnchor="middle" className="chart-axis-tick">
+          <text
+            key={`bar-x-${index}`}
+            x={tick.x}
+            y={height - padding.bottom + 22}
+            textAnchor={chartTickAnchor(index, xTicks.length)}
+            className="chart-axis-tick"
+          >
             {tick.label}
           </text>
         ))}
@@ -2013,7 +2081,12 @@ function ZoneAnalyticsPage({ zoneId }: { zoneId: string }) {
 
       <div className="analytics-chart-grid">
         <Block title="Занято / свободно" state={history}>
-          <LineChart series={occupiedFreeSeries} yLabel="Мест" emptyMessage="Нет данных за выбранный период" />
+          <LineChart
+            series={occupiedFreeSeries}
+            initialHiddenSeries={['free']}
+            yLabel="Мест"
+            emptyMessage="Нет данных за выбранный период"
+          />
         </Block>
         <Block title="Занятость, %" state={history}>
           <LineChart series={occupancySeries} unit="%" yLabel="Занятость, %" emptyMessage="Нет данных за выбранный период" />
@@ -2180,37 +2253,46 @@ function CameraAnalyticsPage({ cameraId }: { cameraId: string }) {
 }
 
 function CameraSnapshots({ cameraId }: { cameraId: number }) {
-  const [tab, setTab] = useState<'snapshot' | 'raw' | 'annotated'>('snapshot');
-  const [snapshot, setSnapshot] = useState<LoadState<{ image_url: string; captured_at?: string }>>(emptyState);
-  const [fullscreenUrl, setFullscreenUrl] = useState<string | undefined>();
-  const options = tab === 'annotated' ? { annotated: true, fallback_to_raw: true } : { annotated: false, fallback_to_raw: true };
+  const [tab, setTab] = useState<CameraSnapshotTab>('snapshot');
+  const [snapshot, setSnapshot] = useState<LoadState<CameraSnapshot>>(emptyState);
+  const [fullscreen, setFullscreen] = useState(false);
+  const visibleRequestRef = useRef(0);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (targetTab: CameraSnapshotTab, force = false) => {
+    const requestId = ++visibleRequestRef.current;
     setSnapshot({ loading: true });
     try {
-      const result = await api.getSnapshot(cameraId, options);
+      const result = await fetchCameraSnapshot(cameraId, targetTab, force);
+      if (visibleRequestRef.current !== requestId) return;
       setSnapshot({ loading: false, data: result });
     } catch (error) {
+      if (visibleRequestRef.current !== requestId) return;
       setSnapshot({ loading: false, error: blockError(error) });
     }
-  }, [cameraId, tab]);
+  }, [cameraId]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    load(tab);
+  }, [load, tab]);
+
+  function renderTabs(className = '') {
+    return (
+      <div className={`segmented analytics-snapshot-tabs ${className}`.trim()} role="tablist" aria-label="Вариант снимка камеры">
+        <button type="button" role="tab" aria-selected={tab === 'snapshot'} className={tab === 'snapshot' ? 'active' : ''} onClick={() => setTab('snapshot')}>Последний снимок</button>
+        <button type="button" role="tab" aria-selected={tab === 'raw'} className={tab === 'raw' ? 'active' : ''} onClick={() => setTab('raw')}>Последнее распознавание</button>
+        <button type="button" role="tab" aria-selected={tab === 'annotated'} className={tab === 'annotated' ? 'active' : ''} onClick={() => setTab('annotated')}>С разметкой</button>
+      </div>
+    );
+  }
 
   return (
     <div className="analytics-snapshot-block">
-      <div className="segmented">
-        <button type="button" className={tab === 'snapshot' ? 'active' : ''} onClick={() => setTab('snapshot')}>Последний снимок</button>
-        <button type="button" className={tab === 'raw' ? 'active' : ''} onClick={() => setTab('raw')}>Последнее распознавание</button>
-        <button type="button" className={tab === 'annotated' ? 'active' : ''} onClick={() => setTab('annotated')}>С разметкой</button>
-      </div>
+      {renderTabs()}
       <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <span className="small">Снято: {formatDateTime(snapshot.data?.captured_at)}</span>
         <div className="row" style={{ flexWrap: 'wrap' }}>
-          <Button variant="ghost" onClick={load} disabled={snapshot.loading}>{snapshot.loading ? 'Загрузка...' : 'Обновить'}</Button>
-          <Button variant="ghost" onClick={() => snapshot.data?.image_url && setFullscreenUrl(snapshot.data.image_url)} disabled={!snapshot.data?.image_url}>На весь экран</Button>
+          <Button variant="ghost" onClick={() => load(tab, true)} disabled={snapshot.loading}>{snapshot.loading ? 'Загрузка...' : 'Обновить'}</Button>
+          <Button variant="ghost" onClick={() => setFullscreen(true)} disabled={!snapshot.data?.image_url}>На весь экран</Button>
         </div>
       </div>
       {snapshot.error && <div className="notice error">Снимок недоступен: {snapshot.error}</div>}
@@ -2219,10 +2301,26 @@ function CameraSnapshots({ cameraId }: { cameraId: number }) {
       ) : !snapshot.loading && !snapshot.error ? (
         <div className="empty-state">Снимок недоступен</div>
       ) : null}
-      {fullscreenUrl && (
-        <div className="fullscreen-preview" role="dialog">
-          <button type="button" className="fullscreen-close" onClick={() => setFullscreenUrl(undefined)}>×</button>
-          <img src={fullscreenUrl} alt="Снимок камеры" />
+      {fullscreen && (
+        <div className="fullscreen-preview analytics-snapshot-fullscreen" role="dialog" aria-modal="true" aria-label="Полноэкранный просмотр снимка камеры">
+          <div className="analytics-snapshot-fullscreen-toolbar">
+            {renderTabs('fullscreen-tabs')}
+            <span>Снято: {formatDateTime(snapshot.data?.captured_at)}</span>
+            <Button variant="ghost" onClick={() => load(tab, true)} disabled={snapshot.loading}>
+              {snapshot.loading ? 'Загрузка...' : 'Обновить'}
+            </Button>
+          </div>
+          <button type="button" className="fullscreen-close" onClick={() => setFullscreen(false)} aria-label="Закрыть полноэкранный просмотр">×</button>
+          <div className="analytics-snapshot-fullscreen-stage">
+            {snapshot.error && <div className="notice error">Снимок недоступен: {snapshot.error}</div>}
+            {snapshot.data?.image_url ? (
+              <img src={snapshot.data.image_url} alt="Снимок камеры" />
+            ) : !snapshot.loading && !snapshot.error ? (
+              <div className="analytics-snapshot-fullscreen-state">Снимок недоступен</div>
+            ) : (
+              <div className="analytics-snapshot-fullscreen-state">Загрузка снимка...</div>
+            )}
+          </div>
         </div>
       )}
     </div>
