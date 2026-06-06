@@ -3,13 +3,11 @@ import { api } from '@/api/client';
 import { Button } from '@/components/UiKit';
 import { navigate } from '@/router/routes';
 import { useSessionStore } from '@/auth/sessionStore';
-import type { Camera, HealthResponse, VersionResponse } from '@/api/client';
+import type { Camera } from '@/api/client';
 import type { ParkingZone } from '@/types';
 
 type DashboardState = {
   loading: boolean;
-  health?: HealthResponse;
-  version?: VersionResponse;
   cameras: Camera[];
   zones: ParkingZone[];
   error?: string;
@@ -53,7 +51,6 @@ function formatDashboardLoadError(results: Array<{
 }
 
 export default function DashboardPage() {
-  const session = useSessionStore();
   const currentPartnerId = useSessionStore(state => state.currentPartnerId);
   const [state, setState] = useState<DashboardState>({
     loading: false,
@@ -67,9 +64,7 @@ export default function DashboardPage() {
     async function load() {
       setState(prev => ({ ...prev, loading: true, error: undefined }));
       try {
-        const [health, version, cameras, zones] = await Promise.allSettled([
-          api.health(),
-          api.version(),
+        const [cameras, zones] = await Promise.allSettled([
           api.listCameras({ partner_id: currentPartnerId }),
           api.listZones({ partner_id: currentPartnerId })
         ]);
@@ -78,13 +73,9 @@ export default function DashboardPage() {
 
         setState({
           loading: false,
-          health: health.status === 'fulfilled' ? health.value : undefined,
-          version: version.status === 'fulfilled' ? version.value : undefined,
           cameras: cameras.status === 'fulfilled' ? cameras.value : [],
           zones: zones.status === 'fulfilled' ? zones.value : [],
           error: formatDashboardLoadError([
-            { label: 'статус API', result: health },
-            { label: 'версию API', result: version },
             { label: 'камеры', result: cameras, ignoreStatuses: [401, 403] },
             { label: 'зоны', result: zones }
           ])
@@ -185,56 +176,45 @@ export default function DashboardPage() {
       {state.error && <div className="notice warning">{state.error}</div>}
 
       <div className="metric-grid dashboard-metric-grid">
-        <MetricCard label="API" value={state.loading ? '...' : state.health?.status ?? 'unknown'} />
-        <MetricCard label="Версия" value={state.version?.api_version ?? state.version?.version ?? 'unknown'} />
-        <MetricCard label="Камеры" value={state.cameras.length} hint={`${metrics.activeCameras} active / ${metrics.inactiveCameras} inactive`} />
-        <MetricCard label="Зоны" value={state.zones.length} hint={`${metrics.activeZones} active / ${metrics.paidZones} paid`} />
+        <MetricCard label="Камеры" value={state.cameras.length} hint={`${metrics.activeCameras} активных · ${metrics.inactiveCameras} неактивных`} />
+        <MetricCard label="Зоны" value={state.zones.length} hint={`${metrics.activeZones} активных · ${metrics.paidZones} платных`} />
         <MetricCard label="Свободные места" value={metrics.freePlaces} />
-        <MetricCard label="Средняя confidence" value={formatConfidence(metrics.avgConfidence)} />
+        <MetricCard label="Средняя уверенность" value={formatConfidence(metrics.avgConfidence)} />
       </div>
 
-      <div className="details-grid dashboard-summary-grid">
-        <div className="section-panel">
-          <h2>Сессия</h2>
-          <div className="dashboard-summary-list">
-            <div className="dashboard-summary-row">
-              <span className="metric-label">Пользователь</span>
-              <strong>{session.user?.full_name || session.user?.email || '—'}</strong>
-            </div>
-            <div className="dashboard-summary-row">
-              <span className="metric-label">Глобальная роль</span>
-              <strong>{session.user?.global_role || '—'}</strong>
-            </div>
-            <div className="dashboard-summary-row">
-              <span className="metric-label">Партнёры</span>
-              <strong>{session.user?.partner_memberships.filter(m => m.is_active !== false).length ?? 0}</strong>
-            </div>
-            <div className="dashboard-summary-row">
-              <span className="metric-label">Permissions</span>
-              <strong>{session.user?.permissions.length ?? 0}</strong>
-            </div>
+      <div className="details-grid dashboard-primary-grid">
+        <div className="section-panel dashboard-watchlist-panel">
+          <div className="dashboard-panel-heading">
+            <h2>Зоны внимания</h2>
+            <Button variant="ghost" onClick={() => navigate('zones')}>Все зоны</Button>
           </div>
-        </div>
+          <div className="dashboard-list dashboard-watchlist">
+            {zoneWatchlist.map(zone => {
+              const freeCount = typeof zone.free_count === 'number'
+                ? zone.free_count
+                : typeof zone.occupied === 'number'
+                  ? Math.max(0, zone.capacity - zone.occupied)
+                  : '—';
 
-        <div className="section-panel">
-          <h2>Система</h2>
-          <div className="dashboard-summary-list">
-            <div className="dashboard-summary-row">
-              <span className="metric-label">API status</span>
-              <strong>{state.health?.status ?? 'unknown'}</strong>
-            </div>
-            <div className="dashboard-summary-row">
-              <span className="metric-label">Database</span>
-              <strong>{state.health?.database ?? 'unknown'}</strong>
-            </div>
-            <div className="dashboard-summary-row">
-              <span className="metric-label">API version</span>
-              <strong>{state.version?.api_version ?? state.version?.version ?? 'unknown'}</strong>
-            </div>
-            <div className="dashboard-summary-row">
-              <span className="metric-label">Текущий partner</span>
-              <strong>{currentPartnerId ?? (session.isAdmin() ? 'Все партнёры' : '—')}</strong>
-            </div>
+              return (
+                <button
+                  type="button"
+                  key={String(zone.id)}
+                  className="dashboard-list-item"
+                  onClick={() => navigate('zones')}
+                >
+                  <div>
+                    <strong>Зона #{String(zone.id)}</strong>
+                    <div className="small">Камера #{zone.camera_id} · {zone.zone_type}</div>
+                  </div>
+                  <div className="dashboard-item-meta">
+                    <strong>{freeCount} свободно</strong>
+                    <span className="small">Уверенность: {formatConfidence(zone.confidence)}</span>
+                  </div>
+                </button>
+              );
+            })}
+            {!zoneWatchlist.length && <div className="empty-state">Зоны пока не загружены.</div>}
           </div>
         </div>
 
@@ -243,19 +223,15 @@ export default function DashboardPage() {
           <div className="dashboard-action-grid">
             <button type="button" className="dashboard-action-card" onClick={() => navigate('cameras')}>
               <strong>Проверить камеры</strong>
-              <span className="small">Редактирование настроек, snapshot и позиции на карте.</span>
             </button>
             <button type="button" className="dashboard-action-card" onClick={() => navigate('zones')}>
               <strong>Проверить зоны</strong>
-              <span className="small">Список зон, geometry entrypoint’ы и правка свойств.</span>
             </button>
             <button type="button" className="dashboard-action-card" onClick={() => navigate('profile')}>
               <strong>Открыть профиль</strong>
-              <span className="small">Посмотреть текущую сессию и роль администратора.</span>
             </button>
             <button type="button" className="dashboard-action-card" onClick={() => navigate('users')}>
-              <strong>Подготовить пользователей</strong>
-              <span className="small">Контрактный раздел для следующего этапа admin-панели.</span>
+              <strong>Управлять пользователями</strong>
             </button>
           </div>
         </div>
@@ -276,10 +252,7 @@ export default function DashboardPage() {
                   <strong>{camera.title}</strong>
                   <div className="small">#{camera.camera_id}</div>
                 </div>
-                <div className="dashboard-item-meta">
-                  <span className="small">lat: {camera.latitude ?? '—'}</span>
-                  <span className="small">lng: {camera.longitude ?? '—'}</span>
-                </div>
+                <span className="small">Координаты не заданы</span>
               </button>
             ))}
             {!camerasWithoutMap.length && <div className="empty-state">Все камеры уже привязаны к карте.</div>}
@@ -298,11 +271,11 @@ export default function DashboardPage() {
               >
                 <div>
                   <strong>Зона #{String(zone.id)}</strong>
-                  <div className="small">Camera #{zone.camera_id}</div>
+                  <div className="small">Камера #{zone.camera_id}</div>
                 </div>
                 <div className="dashboard-item-meta">
-                  <span className="small">image: {(zone.image_polygon ?? zone.image_quad)?.length ?? 0}/4</span>
-                  <span className="small">map: {zone.points.filter(point => point.latitude !== null && point.longitude !== null).length}/4</span>
+                  <span className="small">Кадр: {(zone.image_polygon ?? zone.image_quad)?.length ?? 0}/4</span>
+                  <span className="small">Карта: {zone.points.filter(point => point.latitude !== null && point.longitude !== null).length}/4</span>
                 </div>
               </button>
             ))}
@@ -311,7 +284,7 @@ export default function DashboardPage() {
         </div>
 
         <div className="section-panel">
-          <h2>Камеры под рукой</h2>
+          <h2>Недавно обновлённые камеры</h2>
           <div className="dashboard-list">
             {staleCameras.map(camera => (
               <button
@@ -326,45 +299,13 @@ export default function DashboardPage() {
                 </div>
                 <div className="dashboard-item-meta">
                   <span className={`status-pill ${camera.is_active === false ? 'paused' : 'active'}`}>
-                    {camera.is_active === false ? 'paused' : 'active'}
+                    {camera.is_active === false ? 'Неактивна' : 'Активна'}
                   </span>
                   <span className="small">{formatDate(camera.updated_at)}</span>
                 </div>
               </button>
             ))}
             {!staleCameras.length && <div className="empty-state">Камеры пока не загружены.</div>}
-          </div>
-        </div>
-
-        <div className="section-panel">
-          <h2>Зоны внимания</h2>
-          <div className="dashboard-list">
-            {zoneWatchlist.map(zone => {
-              const freeCount = typeof zone.free_count === 'number'
-                ? zone.free_count
-                : typeof zone.occupied === 'number'
-                  ? Math.max(0, zone.capacity - zone.occupied)
-                  : '—';
-
-              return (
-                <button
-                  type="button"
-                  key={String(zone.id)}
-                  className="dashboard-list-item"
-                  onClick={() => navigate('zones')}
-                >
-                  <div>
-                    <strong>Зона #{String(zone.id)}</strong>
-                    <div className="small">Camera #{zone.camera_id} • {zone.zone_type}</div>
-                  </div>
-                  <div className="dashboard-item-meta">
-                    <span className="small">free: {freeCount}</span>
-                    <span className="small">confidence: {formatConfidence(zone.confidence)}</span>
-                  </div>
-                </button>
-              );
-            })}
-            {!zoneWatchlist.length && <div className="empty-state">Зоны пока не загружены.</div>}
           </div>
         </div>
       </div>

@@ -118,14 +118,29 @@ function YandexCamerasMap({
   const center = cameraMapPoint(selectedCamera) ?? cameraMapPoint(firstCamera) ?? yandexPoint(59.9386, 30.3141);
   const { ymaps, map, loading, error } = useYandexMap(mapRef, {
     center,
-    zoom: selectedCamera ? 17 : 14
+    zoom: selectedCamera ? 17 : 14,
+    syncView: false
   });
 
   useEffect(() => {
+    if (!map || !mapRef.current) return;
+
+    const fitMapToContainer = () => {
+      map.container.fitToViewport();
+    };
+    const observer = new ResizeObserver(fitMapToContainer);
+    observer.observe(mapRef.current);
+    fitMapToContainer();
+
+    return () => observer.disconnect();
+  }, [map]);
+
+  useEffect(() => {
     if (!map) return;
+    map.container.fitToViewport();
     const selectedPoint = cameraMapPoint(selectedCamera);
     if (selectedPoint) {
-      map.setCenter(selectedPoint, 17, { duration: 200 });
+      map.setCenter(selectedPoint, 17);
       return;
     }
 
@@ -136,7 +151,7 @@ function YandexCamerasMap({
       fitYandexMap(map, points, 14);
       return;
     }
-    map.setCenter(yandexPoint(59.9386, 30.3141), 14, { duration: 200 });
+    map.setCenter(yandexPoint(59.9386, 30.3141), 14);
   }, [map, cameras, selectedCamera?.camera_id]);
 
   useEffect(() => {
@@ -666,7 +681,7 @@ export default function CamerasPage() {
       }
       await container.requestFullscreen();
     } catch (e: any) {
-      setError(`Не удалось открыть snapshot на весь экран: ${String(e?.message || e)}`);
+      setError(`Не удалось открыть кадр на весь экран: ${String(e?.message || e)}`);
     }
   }
 
@@ -776,7 +791,7 @@ export default function CamerasPage() {
                     </span>
                     <span>{typeof zonesCount === 'number' ? zonesCount : '—'}</span>
                     <span className={`status-pill ${cam.is_active === false ? 'paused' : 'active'}`}>
-                      {cam.is_active === false ? 'paused' : 'active'}
+                      {cam.is_active === false ? 'Неактивна' : 'Активна'}
                     </span>
                   </div>
                 );
@@ -949,7 +964,7 @@ export default function CamerasPage() {
                     <Button
                       variant="ghost"
                       onClick={toggleSnapshotFullscreen}
-                      title={isSnapshotFullscreen ? 'Выйти из полноэкранного режима' : 'Открыть snapshot на весь экран'}
+                      title={isSnapshotFullscreen ? 'Выйти из полноэкранного режима' : 'Открыть кадр на весь экран'}
                     >
                       {isSnapshotFullscreen ? 'Свернуть' : 'На весь экран'}
                     </Button>
@@ -962,7 +977,7 @@ export default function CamerasPage() {
                   </Button>
                 </div>
               </div>
-              {snapshot.loading && <div className="empty-state">Загрузка snapshot...</div>}
+              {snapshot.loading && <div className="empty-state">Загрузка кадра...</div>}
               {!snapshot.loading && snapshot.error && (
                 <div className="notice warning">{snapshot.error}</div>
               )}

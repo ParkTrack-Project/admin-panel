@@ -130,7 +130,7 @@ export default function Sidebar() {
     if (!zone) return;
     const confirmed = await confirmAction({
       title: 'Удалить зону?',
-      message: `Зона #${String(zone.id)} будет удалена из списка и backend, если она уже сохранена.`,
+      message: `Зона #${String(zone.id)} будет удалена без возможности восстановления.`,
       confirmLabel: 'Удалить',
       cancelLabel: 'Отмена',
       tone: 'danger'
@@ -283,7 +283,7 @@ export default function Sidebar() {
               мест: {z.capacity} • цена: {z.pay}
             </div>
             <div className="small">
-              {formatZoneLocationType(z.location_type)} • {z.is_active === false ? 'inactive' : 'active'}
+              {formatZoneLocationType(z.location_type)} • {z.is_active === false ? 'неактивна' : 'активна'}
             </div>
           </div>
         ))}

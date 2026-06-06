@@ -54,7 +54,7 @@ export default function TopBar() {
         const img = await loadImage('/sample.png');
         setImage(img, cameraId);
         fitToView(img);
-        notifyWarning('Snapshot недоступен, открыт тестовый кадр.');
+        notifyWarning('Кадр с камеры недоступен, открыт тестовый кадр.');
       }
     } catch (error) {
       console.error('Error loading snapshot:', error);
@@ -62,10 +62,10 @@ export default function TopBar() {
         const img = await loadImage('/sample.png');
         setImage(img, cameraId);
         fitToView(img);
-        notifyWarning('Не удалось загрузить snapshot, открыт тестовый кадр.');
+        notifyWarning('Не удалось загрузить кадр с камеры, открыт тестовый кадр.');
       } catch (fallbackError) {
         console.error('Error loading fallback image:', fallbackError);
-        notifyError('Не удалось загрузить snapshot и тестовый кадр.');
+        notifyError('Не удалось загрузить кадр с камеры и тестовый кадр.');
       }
     } finally {
       setLoadingSnapshot(false);
@@ -119,7 +119,7 @@ export default function TopBar() {
                 placeholder="http://…/frame.jpg"
               />
               <Button onClick={loadImageFromUrl}>Открыть</Button>
-              {loadingSnapshot && <span className="small">Загрузка snapshot...</span>}
+              {loadingSnapshot && <span className="small">Загрузка кадра...</span>}
             </div>
           </Field>
         )}
