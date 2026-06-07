@@ -8,6 +8,7 @@ import { useFeedbackStore } from '@/feedback/feedbackStore';
 import { useSessionStore } from '@/auth/sessionStore';
 import { fitYandexMap, yandexPoint, type YandexPoint } from '@/maps/yandex';
 import { useYandexMap } from '@/maps/useYandexMap';
+import { cameraSnapshotOptions, type CameraSnapshotMode } from '@/api/cameras';
 
 function hasCoordinates(latitude?: number | null, longitude?: number | null): latitude is number {
   return typeof latitude === 'number'
@@ -22,8 +23,8 @@ type SnapshotState = {
   data?: CameraSnapshot;
 };
 
-function snapshotCacheKey(cameraId: number, annotated: boolean) {
-  return `${cameraId}:${annotated ? 'annotated' : 'frame'}`;
+function snapshotCacheKey(cameraId: number, mode: CameraSnapshotMode) {
+  return `${cameraId}:${mode}`;
 }
 
 function revokeSnapshotData(data?: CameraSnapshot) {
@@ -46,6 +47,21 @@ type CameraEditorState = {
 type CameraSaveState = {
   loading: boolean;
   error?: string;
+};
+
+const SNAPSHOT_MODE_CONTENT: Record<CameraSnapshotMode, { title: string; description: string }> = {
+  latest: {
+    title: 'Последний снимок',
+    description: 'Свежий кадр из видеопотока'
+  },
+  detection: {
+    title: 'Последнее распознавание',
+    description: 'Кадр, сохранённый в момент последней детекции'
+  },
+  annotated: {
+    title: 'С разметкой',
+    description: 'Последняя визуализация распознавания'
+  }
 };
 
 function formatDate(dateStr?: string): string {
@@ -306,7 +322,7 @@ export default function CamerasPage() {
   const snapshotCacheAliveRef = useRef(true);
   const [snapshot, setSnapshot] = useState<SnapshotState>({ loading: false });
   const [snapshotReloadKey, setSnapshotReloadKey] = useState(0);
-  const [snapshotAnnotated, setSnapshotAnnotated] = useState(true);
+  const [snapshotMode, setSnapshotMode] = useState<CameraSnapshotMode>('latest');
   const [isSnapshotFullscreen, setIsSnapshotFullscreen] = useState(false);
   const [editor, setEditor] = useState<CameraEditorState | null>(null);
   const [saveState, setSaveState] = useState<CameraSaveState>({ loading: false });
@@ -335,8 +351,8 @@ export default function CamerasPage() {
     };
   }, []);
 
-  function fetchSnapshot(cameraId: number, annotated: boolean) {
-    const key = snapshotCacheKey(cameraId, annotated);
+  function fetchSnapshot(cameraId: number, mode: CameraSnapshotMode) {
+    const key = snapshotCacheKey(cameraId, mode);
     const cached = snapshotCacheRef.current.get(key);
     if (cached) return Promise.resolve(cached);
 
@@ -344,10 +360,7 @@ export default function CamerasPage() {
     if (inFlight) return inFlight;
 
     let request: Promise<CameraSnapshot>;
-    request = api.getSnapshot(cameraId, {
-      annotated,
-      fallback_to_raw: true
-    }).then(data => {
+    request = api.getSnapshot(cameraId, cameraSnapshotOptions(mode)).then(data => {
       if (!snapshotCacheAliveRef.current) {
         revokeSnapshotData(data);
         return data;
@@ -374,16 +387,9 @@ export default function CamerasPage() {
     return request;
   }
 
-  function prefetchOtherSnapshotMode(cameraId: number, annotated: boolean) {
-    const otherMode = !annotated;
-    const key = snapshotCacheKey(cameraId, otherMode);
-    if (snapshotCacheRef.current.has(key) || snapshotRequestsRef.current.has(key)) return;
-    fetchSnapshot(cameraId, otherMode).catch(() => undefined);
-  }
-
   function refreshCurrentSnapshot() {
     if (selectedCamera) {
-      const key = snapshotCacheKey(selectedCamera.camera_id, snapshotAnnotated);
+      const key = snapshotCacheKey(selectedCamera.camera_id, snapshotMode);
       const cached = snapshotCacheRef.current.get(key);
       revokeSnapshotData(cached);
       snapshotCacheRef.current.delete(key);
@@ -476,20 +482,18 @@ export default function CamerasPage() {
         return;
       }
 
-      const key = snapshotCacheKey(selectedCamera.camera_id, snapshotAnnotated);
+      const key = snapshotCacheKey(selectedCamera.camera_id, snapshotMode);
       const cached = snapshotCacheRef.current.get(key);
       if (cached) {
         setSnapshot({ loading: false, data: cached });
-        prefetchOtherSnapshotMode(selectedCamera.camera_id, snapshotAnnotated);
         return;
       }
 
       setSnapshot({ loading: true });
       try {
-        const data = await fetchSnapshot(selectedCamera.camera_id, snapshotAnnotated);
+        const data = await fetchSnapshot(selectedCamera.camera_id, snapshotMode);
         if (!cancelled) {
           setSnapshot({ loading: false, data });
-          prefetchOtherSnapshotMode(selectedCamera.camera_id, snapshotAnnotated);
         }
       } catch (e: any) {
         if (!cancelled) {
@@ -502,7 +506,7 @@ export default function CamerasPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedCamera?.camera_id, snapshotAnnotated, snapshotReloadKey]);
+  }, [selectedCamera?.camera_id, snapshotMode, snapshotReloadKey]);
 
   useEffect(() => {
     if (!selectedCamera) {
@@ -938,26 +942,31 @@ export default function CamerasPage() {
             <div className="camera-preview" ref={snapshotPreviewRef}>
               <div className="camera-preview-header">
                 <div>
-                  <h3>{snapshotAnnotated ? 'Распознанные автомобили' : 'Текущий кадр'}</h3>
-                  <div className="small">
-                    {snapshotAnnotated ? 'Разметка включена' : 'Разметка скрыта'}
-                  </div>
+                  <h3>{SNAPSHOT_MODE_CONTENT[snapshotMode].title}</h3>
+                  <div className="small">{SNAPSHOT_MODE_CONTENT[snapshotMode].description}</div>
                 </div>
                 <div className="camera-preview-actions">
                   <div className="snapshot-mode-toggle" role="group" aria-label="Режим просмотра кадра">
                     <button
                       type="button"
-                      className={`snapshot-mode-option ${snapshotAnnotated ? 'active' : ''}`}
-                      onClick={() => setSnapshotAnnotated(true)}
+                      className={`snapshot-mode-option ${snapshotMode === 'latest' ? 'active' : ''}`}
+                      onClick={() => setSnapshotMode('latest')}
                     >
-                      Разметка
+                      Последний снимок
                     </button>
                     <button
                       type="button"
-                      className={`snapshot-mode-option ${!snapshotAnnotated ? 'active' : ''}`}
-                      onClick={() => setSnapshotAnnotated(false)}
+                      className={`snapshot-mode-option ${snapshotMode === 'detection' ? 'active' : ''}`}
+                      onClick={() => setSnapshotMode('detection')}
                     >
-                      Кадр
+                      Последнее распознавание
+                    </button>
+                    <button
+                      type="button"
+                      className={`snapshot-mode-option ${snapshotMode === 'annotated' ? 'active' : ''}`}
+                      onClick={() => setSnapshotMode('annotated')}
+                    >
+                      С разметкой
                     </button>
                   </div>
                   {snapshot.data?.image_url && (
