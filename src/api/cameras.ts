@@ -84,6 +84,7 @@ export type CameraSnapshot = {
 
 export type CameraSnapshotOptions = {
   annotated?: boolean;
+  last_detection?: boolean;
   fallback_to_raw?: boolean;
 };
 
@@ -140,6 +141,7 @@ export const camerasApi = {
   async getSnapshot(cameraId: number, options?: CameraSnapshotOptions): Promise<CameraSnapshot> {
     const query = buildQuery({
       annotated: options?.annotated,
+      last_detection: options?.last_detection,
       fallback_to_raw: options?.fallback_to_raw
     });
     const { blob, headers } = await requestBlob(`/cameras/${encodeURIComponent(cameraId)}/snapshot${query}`);

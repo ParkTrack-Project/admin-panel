@@ -107,13 +107,13 @@ const GRANULARITY_LABELS: Record<AnalyticsGranularity, string> = {
   '1h': '1 час',
   '1d': '1 день'
 };
-type CameraSnapshotTab = 'snapshot' | 'raw' | 'annotated';
+type CameraSnapshotTab = 'latest' | 'detection' | 'annotated';
 
 const cameraSnapshotCache = new Map<string, CameraSnapshot>();
 const cameraSnapshotRequests = new Map<string, Promise<CameraSnapshot>>();
 
 function cameraSnapshotCacheKey(cameraId: number, tab: CameraSnapshotTab) {
-  return `${cameraId}:${tab === 'annotated' ? 'annotated' : 'raw'}`;
+  return `${cameraId}:${tab}`;
 }
 
 function revokeCameraSnapshot(snapshot?: CameraSnapshot) {
@@ -131,10 +131,12 @@ function fetchCameraSnapshot(cameraId: number, tab: CameraSnapshotTab, force = f
   if (!force && pending) return pending;
 
   let request: Promise<CameraSnapshot>;
-  request = api.getSnapshot(cameraId, {
-    annotated: tab === 'annotated',
-    fallback_to_raw: true
-  }).then(snapshot => {
+  const options = tab === 'annotated'
+    ? { annotated: true, fallback_to_raw: true }
+    : tab === 'detection'
+      ? { last_detection: true }
+      : undefined;
+  request = api.getSnapshot(cameraId, options).then(snapshot => {
     if (cameraSnapshotRequests.get(cacheKey) !== request) {
       revokeCameraSnapshot(snapshot);
       return snapshot;
@@ -2266,7 +2268,8 @@ function CameraAnalyticsPage({ cameraId }: { cameraId: string }) {
 }
 
 function CameraSnapshots({ cameraId }: { cameraId: number }) {
-  const [tab, setTab] = useState<CameraSnapshotTab>('snapshot');
+  const canViewAnnotatedSnapshot = useSessionStore(state => state.hasPermission('admin.monitoring.view'));
+  const [tab, setTab] = useState<CameraSnapshotTab>('latest');
   const [snapshot, setSnapshot] = useState<LoadState<CameraSnapshot>>(emptyState);
   const [fullscreen, setFullscreen] = useState(false);
   const visibleRequestRef = useRef(0);
@@ -2291,9 +2294,11 @@ function CameraSnapshots({ cameraId }: { cameraId: number }) {
   function renderTabs(className = '') {
     return (
       <div className={`segmented analytics-snapshot-tabs ${className}`.trim()} role="tablist" aria-label="Вариант снимка камеры">
-        <button type="button" role="tab" aria-selected={tab === 'snapshot'} className={tab === 'snapshot' ? 'active' : ''} onClick={() => setTab('snapshot')}>Последний снимок</button>
-        <button type="button" role="tab" aria-selected={tab === 'raw'} className={tab === 'raw' ? 'active' : ''} onClick={() => setTab('raw')}>Последнее распознавание</button>
-        <button type="button" role="tab" aria-selected={tab === 'annotated'} className={tab === 'annotated' ? 'active' : ''} onClick={() => setTab('annotated')}>С разметкой</button>
+        <button type="button" role="tab" aria-selected={tab === 'latest'} className={tab === 'latest' ? 'active' : ''} onClick={() => setTab('latest')}>Последний снимок</button>
+        <button type="button" role="tab" aria-selected={tab === 'detection'} className={tab === 'detection' ? 'active' : ''} onClick={() => setTab('detection')}>Последнее распознавание</button>
+        {canViewAnnotatedSnapshot && (
+          <button type="button" role="tab" aria-selected={tab === 'annotated'} className={tab === 'annotated' ? 'active' : ''} onClick={() => setTab('annotated')}>С разметкой</button>
+        )}
       </div>
     );
   }
