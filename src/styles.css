@@ -1650,9 +1650,13 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   border: 1px solid var(--border);
   border-radius: 8px;
   background: #eef6f0;
-  min-width: 176px;
+  min-width: min(100%, 360px);
   max-width: 100%;
-  flex: 1 1 190px;
+  flex: 1 1 360px;
+}
+
+.snapshot-mode-toggle.three-options {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .snapshot-mode-option {

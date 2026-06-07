@@ -84,8 +84,21 @@ export type CameraSnapshot = {
 
 export type CameraSnapshotOptions = {
   annotated?: boolean;
+  last_detection?: boolean;
   fallback_to_raw?: boolean;
 };
+
+export type CameraSnapshotMode = 'latest' | 'detection' | 'annotated';
+
+export function cameraSnapshotOptions(mode: CameraSnapshotMode): CameraSnapshotOptions | undefined {
+  if (mode === 'detection') {
+    return { last_detection: true };
+  }
+  if (mode === 'annotated') {
+    return { annotated: true, fallback_to_raw: true };
+  }
+  return undefined;
+}
 
 function formatBBox(bbox?: CameraBBox | string) {
   if (!bbox) return undefined;
@@ -140,6 +153,7 @@ export const camerasApi = {
   async getSnapshot(cameraId: number, options?: CameraSnapshotOptions): Promise<CameraSnapshot> {
     const query = buildQuery({
       annotated: options?.annotated,
+      last_detection: options?.last_detection,
       fallback_to_raw: options?.fallback_to_raw
     });
     const { blob, headers } = await requestBlob(`/cameras/${encodeURIComponent(cameraId)}/snapshot${query}`);
