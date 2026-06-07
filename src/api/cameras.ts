@@ -88,6 +88,18 @@ export type CameraSnapshotOptions = {
   fallback_to_raw?: boolean;
 };
 
+export type CameraSnapshotMode = 'latest' | 'detection' | 'annotated';
+
+export function cameraSnapshotOptions(mode: CameraSnapshotMode): CameraSnapshotOptions | undefined {
+  if (mode === 'detection') {
+    return { last_detection: true };
+  }
+  if (mode === 'annotated') {
+    return { annotated: true, fallback_to_raw: true };
+  }
+  return undefined;
+}
+
 function formatBBox(bbox?: CameraBBox | string) {
   if (!bbox) return undefined;
   if (typeof bbox === 'string') return bbox;

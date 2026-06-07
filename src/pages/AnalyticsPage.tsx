@@ -31,6 +31,7 @@ import { useYandexMap } from '@/maps/useYandexMap';
 import { fitYandexMap, yandexPoint, type YandexPoint } from '@/maps/yandex';
 import { useStore } from '@/store/useStore';
 import { navigate } from '@/router/routes';
+import { cameraSnapshotOptions, type CameraSnapshotMode } from '@/api/cameras';
 
 type PeriodPreset = 'today' | 'yesterday' | '1h' | '6h' | '12h' | '24h' | '7d' | '30d' | 'custom';
 type AutoRefreshInterval = 'off' | '10s' | '30s' | '1m' | '5m' | '15m' | '30m' | '1h';
@@ -107,12 +108,10 @@ const GRANULARITY_LABELS: Record<AnalyticsGranularity, string> = {
   '1h': '1 час',
   '1d': '1 день'
 };
-type CameraSnapshotTab = 'latest' | 'detection' | 'annotated';
-
 const cameraSnapshotCache = new Map<string, CameraSnapshot>();
 const cameraSnapshotRequests = new Map<string, Promise<CameraSnapshot>>();
 
-function cameraSnapshotCacheKey(cameraId: number, tab: CameraSnapshotTab) {
+function cameraSnapshotCacheKey(cameraId: number, tab: CameraSnapshotMode) {
   return `${cameraId}:${tab}`;
 }
 
@@ -122,7 +121,7 @@ function revokeCameraSnapshot(snapshot?: CameraSnapshot) {
   }
 }
 
-function fetchCameraSnapshot(cameraId: number, tab: CameraSnapshotTab, force = false) {
+function fetchCameraSnapshot(cameraId: number, tab: CameraSnapshotMode, force = false) {
   const cacheKey = cameraSnapshotCacheKey(cameraId, tab);
   const cached = cameraSnapshotCache.get(cacheKey);
   if (!force && cached) return Promise.resolve(cached);
@@ -131,12 +130,7 @@ function fetchCameraSnapshot(cameraId: number, tab: CameraSnapshotTab, force = f
   if (!force && pending) return pending;
 
   let request: Promise<CameraSnapshot>;
-  const options = tab === 'annotated'
-    ? { annotated: true, fallback_to_raw: true }
-    : tab === 'detection'
-      ? { last_detection: true }
-      : undefined;
-  request = api.getSnapshot(cameraId, options).then(snapshot => {
+  request = api.getSnapshot(cameraId, cameraSnapshotOptions(tab)).then(snapshot => {
     if (cameraSnapshotRequests.get(cacheKey) !== request) {
       revokeCameraSnapshot(snapshot);
       return snapshot;
@@ -2269,12 +2263,12 @@ function CameraAnalyticsPage({ cameraId }: { cameraId: string }) {
 
 function CameraSnapshots({ cameraId }: { cameraId: number }) {
   const canViewAnnotatedSnapshot = useSessionStore(state => state.hasPermission('admin.monitoring.view'));
-  const [tab, setTab] = useState<CameraSnapshotTab>('latest');
+  const [tab, setTab] = useState<CameraSnapshotMode>('latest');
   const [snapshot, setSnapshot] = useState<LoadState<CameraSnapshot>>(emptyState);
   const [fullscreen, setFullscreen] = useState(false);
   const visibleRequestRef = useRef(0);
 
-  const load = useCallback(async (targetTab: CameraSnapshotTab, force = false) => {
+  const load = useCallback(async (targetTab: CameraSnapshotMode, force = false) => {
     const requestId = ++visibleRequestRef.current;
     setSnapshot({ loading: true });
     try {
