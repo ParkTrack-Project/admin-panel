@@ -302,6 +302,7 @@ export default function CamerasPage() {
   const notifySuccess = useFeedbackStore(state => state.success);
   const confirmAction = useFeedbackStore(state => state.confirm);
   const currentPartnerId = useSessionStore(state => state.currentPartnerId);
+  const canViewAnnotatedSnapshot = useSessionStore(state => state.hasPermission('admin.monitoring.view'));
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -350,6 +351,12 @@ export default function CamerasPage() {
       snapshotRequestsRef.current.clear();
     };
   }, []);
+
+  useEffect(() => {
+    if (!canViewAnnotatedSnapshot && snapshotMode === 'annotated') {
+      setSnapshotMode('latest');
+    }
+  }, [canViewAnnotatedSnapshot, snapshotMode]);
 
   function fetchSnapshot(cameraId: number, mode: CameraSnapshotMode) {
     const key = snapshotCacheKey(cameraId, mode);
@@ -946,7 +953,11 @@ export default function CamerasPage() {
                   <div className="small">{SNAPSHOT_MODE_CONTENT[snapshotMode].description}</div>
                 </div>
                 <div className="camera-preview-actions">
-                  <div className="snapshot-mode-toggle" role="group" aria-label="Режим просмотра кадра">
+                  <div
+                    className={`snapshot-mode-toggle ${canViewAnnotatedSnapshot ? 'three-options' : ''}`}
+                    role="group"
+                    aria-label="Режим просмотра кадра"
+                  >
                     <button
                       type="button"
                       className={`snapshot-mode-option ${snapshotMode === 'latest' ? 'active' : ''}`}
@@ -961,13 +972,15 @@ export default function CamerasPage() {
                     >
                       Последнее распознавание
                     </button>
-                    <button
-                      type="button"
-                      className={`snapshot-mode-option ${snapshotMode === 'annotated' ? 'active' : ''}`}
-                      onClick={() => setSnapshotMode('annotated')}
-                    >
-                      С разметкой
-                    </button>
+                    {canViewAnnotatedSnapshot && (
+                      <button
+                        type="button"
+                        className={`snapshot-mode-option ${snapshotMode === 'annotated' ? 'active' : ''}`}
+                        onClick={() => setSnapshotMode('annotated')}
+                      >
+                        С разметкой
+                      </button>
+                    )}
                   </div>
                   {snapshot.data?.image_url && (
                     <Button

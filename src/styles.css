@@ -1641,7 +1641,7 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
 
 .snapshot-mode-toggle {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   min-height: 36px;
   padding: 3px;
   border: 1px solid var(--border);
@@ -1650,6 +1650,10 @@ hr { border: none; height: 1px; background: var(--border); margin: 10px 0; }
   min-width: min(100%, 360px);
   max-width: 100%;
   flex: 1 1 360px;
+}
+
+.snapshot-mode-toggle.three-options {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .snapshot-mode-option {

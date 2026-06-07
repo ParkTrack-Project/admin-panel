@@ -2268,6 +2268,12 @@ function CameraSnapshots({ cameraId }: { cameraId: number }) {
   const [fullscreen, setFullscreen] = useState(false);
   const visibleRequestRef = useRef(0);
 
+  useEffect(() => {
+    if (!canViewAnnotatedSnapshot && tab === 'annotated') {
+      setTab('latest');
+    }
+  }, [canViewAnnotatedSnapshot, tab]);
+
   const load = useCallback(async (targetTab: CameraSnapshotMode, force = false) => {
     const requestId = ++visibleRequestRef.current;
     setSnapshot({ loading: true });
