@@ -688,6 +688,84 @@ body { background: var(--bg); color: var(--text); font-family: Inter, system-ui,
   background: #07120c;
 }
 
+.analytics-detection-fullscreen {
+  padding: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  place-items: stretch;
+  background: #020a06;
+}
+
+.analytics-detection-fullscreen-toolbar {
+  min-width: 0;
+  min-height: 64px;
+  padding: 10px 72px 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: rgba(7, 18, 12, 0.96);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+.analytics-detection-fullscreen-selector {
+  flex: 0 1 420px;
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.analytics-detection-fullscreen-selector button {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.analytics-detection-fullscreen-selector button.active {
+  background: #fff;
+  color: #102015;
+}
+
+.analytics-detection-fullscreen-selector button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.analytics-detection-fullscreen-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.analytics-detection-fullscreen-stage {
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.analytics-detection-fullscreen-stage img {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+}
+
+@media (max-width: 760px) {
+  .analytics-detection-fullscreen-toolbar {
+    min-height: 0;
+    padding: 10px 64px 10px 10px;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .analytics-detection-fullscreen-selector {
+    flex-basis: auto;
+    width: 100%;
+  }
+}
+
 .analytics-feedback-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
