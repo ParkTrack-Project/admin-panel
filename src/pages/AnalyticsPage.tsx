@@ -2485,10 +2485,10 @@ function DetectionAnalyticsPage({ detectionRunId }: { detectionRunId: string }) 
 
       {item && (
         <Block title="Сравнение изображений" state={detail}>
-          <div className="analytics-image-compare">
-            <DetectionImage title="Исходное изображение" url={item.raw_snapshot_url ?? item.raw_image_url} />
-            <DetectionImage title="Изображение с разметкой" url={item.annotated_snapshot_url ?? item.annotated_image_url} />
-          </div>
+          <DetectionImageComparison
+            rawUrl={item.raw_snapshot_url ?? item.raw_image_url}
+            annotatedUrl={item.annotated_snapshot_url ?? item.annotated_image_url}
+          />
         </Block>
       )}
 
@@ -2521,24 +2521,149 @@ function Detail({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function DetectionImage({ title, url }: { title: string; url?: string | null }) {
-  const [fullscreen, setFullscreen] = useState(false);
+type DetectionImageVariant = 'raw' | 'annotated';
+
+type DetectionImageOption = {
+  key: DetectionImageVariant;
+  title: string;
+  selectorLabel: string;
+  url?: string | null;
+};
+
+function DetectionImageComparison({ rawUrl, annotatedUrl }: { rawUrl?: string | null; annotatedUrl?: string | null }) {
+  const [fullscreenImage, setFullscreenImage] = useState<DetectionImageVariant | null>(null);
+  const images: DetectionImageOption[] = [
+    { key: 'raw', title: 'Исходное изображение', selectorLabel: 'Исходное', url: rawUrl },
+    { key: 'annotated', title: 'Изображение с разметкой', selectorLabel: 'С разметкой', url: annotatedUrl }
+  ];
+  const availableImages = images.filter(image => Boolean(image.url));
+  const selectedImage = images.find(image => image.key === fullscreenImage);
+
+  useEffect(() => {
+    if (!fullscreenImage) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    function onFullscreenChange() {
+      if (!document.fullscreenElement) {
+        setFullscreenImage(null);
+      }
+    }
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape' && !document.fullscreenElement) {
+        setFullscreenImage(null);
+        return;
+      }
+
+      if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && availableImages.length > 1) {
+        event.preventDefault();
+        const currentIndex = availableImages.findIndex(image => image.key === fullscreenImage);
+        const direction = event.key === 'ArrowRight' ? 1 : -1;
+        const nextIndex = (currentIndex + direction + availableImages.length) % availableImages.length;
+        setFullscreenImage(availableImages[nextIndex].key);
+      }
+    }
+
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    window.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [annotatedUrl, fullscreenImage, rawUrl]);
+
+  async function openFullscreen(image: DetectionImageOption) {
+    if (!image.url) return;
+    setFullscreenImage(image.key);
+
+    if (!document.fullscreenElement) {
+      try {
+        await document.documentElement.requestFullscreen();
+      } catch {
+        // The fixed overlay remains available when the browser denies native fullscreen.
+      }
+    }
+  }
+
+  async function closeFullscreen() {
+    if (document.fullscreenElement) {
+      try {
+        await document.exitFullscreen();
+      } catch {
+        setFullscreenImage(null);
+      }
+      return;
+    }
+
+    setFullscreenImage(null);
+  }
+
+  return (
+    <>
+      <div className="analytics-image-compare">
+        {images.map(image => (
+          <DetectionImage
+            key={image.key}
+            title={image.title}
+            url={image.url}
+            onFullscreen={() => openFullscreen(image)}
+          />
+        ))}
+      </div>
+
+      {fullscreenImage && selectedImage?.url && (
+        <div className="fullscreen-preview analytics-detection-fullscreen" role="dialog" aria-modal="true" aria-label="Полноэкранное сравнение изображений">
+          <div className="analytics-detection-fullscreen-toolbar">
+            <div className="segmented analytics-detection-fullscreen-selector" role="tablist" aria-label="Выбор изображения">
+              {images.map(image => (
+                <button
+                  key={image.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={fullscreenImage === image.key}
+                  className={fullscreenImage === image.key ? 'active' : ''}
+                  disabled={!image.url}
+                  onClick={() => image.url && setFullscreenImage(image.key)}
+                >
+                  {image.selectorLabel}
+                </button>
+              ))}
+            </div>
+            <span className="analytics-detection-fullscreen-title">{selectedImage.title}</span>
+          </div>
+          <button type="button" className="fullscreen-close" onClick={closeFullscreen} aria-label="Закрыть полноэкранный просмотр">×</button>
+          <div className="analytics-detection-fullscreen-stage">
+            <img src={selectedImage.url} alt={selectedImage.title} />
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function DetectionImage({
+  title,
+  url,
+  onFullscreen
+}: {
+  title: string;
+  url?: string | null;
+  onFullscreen: () => void;
+}) {
   return (
     <div className="analytics-detection-image">
       <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <h3>{title}</h3>
         <div className="row" style={{ flexWrap: 'wrap' }}>
-          <Button variant="ghost" disabled={!url} onClick={() => setFullscreen(true)}>На весь экран</Button>
+          <Button variant="ghost" disabled={!url} onClick={onFullscreen}>На весь экран</Button>
           <Button variant="ghost" disabled={!url} onClick={() => url && window.open(url, '_blank', 'noopener,noreferrer')}>В новой вкладке</Button>
         </div>
       </div>
       {url ? <img src={url} alt={title} /> : <div className="empty-state">Изображение недоступно</div>}
-      {fullscreen && url && (
-        <div className="fullscreen-preview" role="dialog">
-          <button type="button" className="fullscreen-close" onClick={() => setFullscreen(false)}>×</button>
-          <img src={url} alt={title} />
-        </div>
-      )}
     </div>
   );
 }
