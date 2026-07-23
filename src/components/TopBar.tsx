@@ -43,7 +43,7 @@ export default function TopBar() {
     setLoadingSnapshot(true);
     try {
       apiConfig.set(apiBase, effectiveToken);
-      const snap = await api.getSnapshot(parseInt(cameraId, 10));
+      const snap = await api.getSnapshot(parseInt(cameraId, 10), 'latest');
       
       if (snap?.image_url) {
         const img = await loadImage(snap.image_url);

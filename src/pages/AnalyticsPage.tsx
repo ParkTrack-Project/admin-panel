@@ -31,7 +31,7 @@ import { useYandexMap } from '@/maps/useYandexMap';
 import { fitYandexMap, yandexPoint, type YandexPoint } from '@/maps/yandex';
 import { useStore } from '@/store/useStore';
 import { navigate } from '@/router/routes';
-import { cameraSnapshotOptions, type CameraSnapshotMode } from '@/api/cameras';
+import { type CameraSnapshotMode } from '@/api/cameras';
 
 type PeriodPreset = 'today' | 'yesterday' | '1h' | '6h' | '12h' | '24h' | '7d' | '30d' | 'custom';
 type AutoRefreshInterval = 'off' | '10s' | '30s' | '1m' | '5m' | '15m' | '30m' | '1h';
@@ -130,7 +130,7 @@ function fetchCameraSnapshot(cameraId: number, tab: CameraSnapshotMode, force = 
   if (!force && pending) return pending;
 
   let request: Promise<CameraSnapshot>;
-  request = api.getSnapshot(cameraId, cameraSnapshotOptions(tab)).then(snapshot => {
+  request = api.getSnapshot(cameraId, tab).then(snapshot => {
     if (cameraSnapshotRequests.get(cacheKey) !== request) {
       revokeCameraSnapshot(snapshot);
       return snapshot;

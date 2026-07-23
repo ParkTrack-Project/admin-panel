@@ -8,7 +8,7 @@ import { useFeedbackStore } from '@/feedback/feedbackStore';
 import { useSessionStore } from '@/auth/sessionStore';
 import { fitYandexMap, yandexPoint, type YandexPoint } from '@/maps/yandex';
 import { useYandexMap } from '@/maps/useYandexMap';
-import { cameraSnapshotOptions, type CameraSnapshotMode } from '@/api/cameras';
+import { type CameraSnapshotMode } from '@/api/cameras';
 
 function hasCoordinates(latitude?: number | null, longitude?: number | null): latitude is number {
   return typeof latitude === 'number'
@@ -367,7 +367,7 @@ export default function CamerasPage() {
     if (inFlight) return inFlight;
 
     let request: Promise<CameraSnapshot>;
-    request = api.getSnapshot(cameraId, cameraSnapshotOptions(mode)).then(data => {
+    request = api.getSnapshot(cameraId, mode).then(data => {
       if (!snapshotCacheAliveRef.current) {
         revokeSnapshotData(data);
         return data;

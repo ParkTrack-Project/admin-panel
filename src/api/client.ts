@@ -522,8 +522,8 @@ export const api = {
     return camerasApi.getNext();
   },
   
-  async getSnapshot(cameraId: number, options?: import('./cameras').CameraSnapshotOptions) {
-    return camerasApi.getSnapshot(cameraId, options);
+  async getSnapshot(cameraId: number, mode?: import('./cameras').CameraSnapshotMode) {
+    return camerasApi.getSnapshot(cameraId, mode);
   },
 
   // --- System ---

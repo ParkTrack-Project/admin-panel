@@ -90,7 +90,7 @@ export type CameraSnapshotOptions = {
 
 export type CameraSnapshotMode = 'latest' | 'detection' | 'annotated';
 
-export function cameraSnapshotOptions(mode: CameraSnapshotMode): CameraSnapshotOptions | undefined {
+function cameraSnapshotOptions(mode: CameraSnapshotMode): CameraSnapshotOptions | undefined {
   if (mode === 'detection') {
     return { last_detection: true };
   }
@@ -150,7 +150,8 @@ export const camerasApi = {
     return request<CamerasNextResponse>('GET', '/cameras/next');
   },
 
-  async getSnapshot(cameraId: number, options?: CameraSnapshotOptions): Promise<CameraSnapshot> {
+  async getSnapshot(cameraId: number, mode: CameraSnapshotMode = 'latest'): Promise<CameraSnapshot> {
+    const options = cameraSnapshotOptions(mode);
     const query = buildQuery({
       annotated: options?.annotated,
       last_detection: options?.last_detection,
