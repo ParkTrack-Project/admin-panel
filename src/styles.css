@@ -28,6 +28,42 @@ body { background: var(--bg); color: var(--text); font-family: Inter, system-ui,
 }
 
 .topbar { grid-area: topbar; border-bottom: 1px solid var(--border); background: var(--panel); padding: 10px 12px; }
+
+.labeler-snapshot-controls {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  flex: 1 1 520px;
+  min-width: 0;
+  max-width: 720px;
+}
+
+.labeler-snapshot-controls .snapshot-mode-toggle {
+  flex: 1 1 420px;
+}
+
+.labeler-snapshot-controls .button {
+  flex: 0 1 auto;
+  white-space: nowrap;
+}
+
+.labeler-snapshot-error {
+  margin-top: 8px;
+}
+
+@media (max-width: 760px) {
+  .labeler-snapshot-controls {
+    flex-basis: 100%;
+    max-width: none;
+    flex-wrap: wrap;
+  }
+
+  .labeler-snapshot-controls .snapshot-mode-toggle,
+  .labeler-snapshot-controls .button {
+    width: 100%;
+    flex-basis: 100%;
+  }
+}
 .sidebar { grid-area: sidebar; border-right: 1px solid var(--border); background: var(--panel); padding: 12px; overflow: auto; }
 .canvas { grid-area: canvas; position: relative; background: #101712; }
 .yandex-map-host {
