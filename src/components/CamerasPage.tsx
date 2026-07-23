@@ -9,6 +9,11 @@ import { useSessionStore } from '@/auth/sessionStore';
 import { fitYandexMap, yandexPoint, type YandexPoint } from '@/maps/yandex';
 import { useYandexMap } from '@/maps/useYandexMap';
 import { type CameraSnapshotMode } from '@/api/cameras';
+import {
+  CAMERA_SNAPSHOT_MODE_CONTENT,
+  CameraSnapshotModeSelector,
+  defaultCameraSnapshotMode
+} from './CameraSnapshotModeSelector';
 
 function hasCoordinates(latitude?: number | null, longitude?: number | null): latitude is number {
   return typeof latitude === 'number'
@@ -47,21 +52,6 @@ type CameraEditorState = {
 type CameraSaveState = {
   loading: boolean;
   error?: string;
-};
-
-const SNAPSHOT_MODE_CONTENT: Record<CameraSnapshotMode, { title: string; description: string }> = {
-  latest: {
-    title: 'Последний снимок',
-    description: 'Свежий кадр из видеопотока'
-  },
-  detection: {
-    title: 'Последнее распознавание',
-    description: 'Кадр, сохранённый в момент последней детекции'
-  },
-  annotated: {
-    title: 'С разметкой',
-    description: 'Последняя визуализация распознавания'
-  }
 };
 
 function formatDate(dateStr?: string): string {
@@ -323,7 +313,9 @@ export default function CamerasPage() {
   const snapshotCacheAliveRef = useRef(true);
   const [snapshot, setSnapshot] = useState<SnapshotState>({ loading: false });
   const [snapshotReloadKey, setSnapshotReloadKey] = useState(0);
-  const [snapshotMode, setSnapshotMode] = useState<CameraSnapshotMode>('latest');
+  const [snapshotMode, setSnapshotMode] = useState<CameraSnapshotMode>(
+    () => defaultCameraSnapshotMode(canViewAnnotatedSnapshot)
+  );
   const [isSnapshotFullscreen, setIsSnapshotFullscreen] = useState(false);
   const [editor, setEditor] = useState<CameraEditorState | null>(null);
   const [saveState, setSaveState] = useState<CameraSaveState>({ loading: false });
@@ -354,7 +346,7 @@ export default function CamerasPage() {
 
   useEffect(() => {
     if (!canViewAnnotatedSnapshot && snapshotMode === 'annotated') {
-      setSnapshotMode('latest');
+      setSnapshotMode('detection');
     }
   }, [canViewAnnotatedSnapshot, snapshotMode]);
 
@@ -949,39 +941,15 @@ export default function CamerasPage() {
             <div className="camera-preview" ref={snapshotPreviewRef}>
               <div className="camera-preview-header">
                 <div>
-                  <h3>{SNAPSHOT_MODE_CONTENT[snapshotMode].title}</h3>
-                  <div className="small">{SNAPSHOT_MODE_CONTENT[snapshotMode].description}</div>
+                  <h3>{CAMERA_SNAPSHOT_MODE_CONTENT[snapshotMode].title}</h3>
+                  <div className="small">{CAMERA_SNAPSHOT_MODE_CONTENT[snapshotMode].description}</div>
                 </div>
                 <div className="camera-preview-actions">
-                  <div
-                    className={`snapshot-mode-toggle ${canViewAnnotatedSnapshot ? 'three-options' : ''}`}
-                    role="group"
-                    aria-label="Режим просмотра кадра"
-                  >
-                    <button
-                      type="button"
-                      className={`snapshot-mode-option ${snapshotMode === 'latest' ? 'active' : ''}`}
-                      onClick={() => setSnapshotMode('latest')}
-                    >
-                      Последний снимок
-                    </button>
-                    <button
-                      type="button"
-                      className={`snapshot-mode-option ${snapshotMode === 'detection' ? 'active' : ''}`}
-                      onClick={() => setSnapshotMode('detection')}
-                    >
-                      Последнее распознавание
-                    </button>
-                    {canViewAnnotatedSnapshot && (
-                      <button
-                        type="button"
-                        className={`snapshot-mode-option ${snapshotMode === 'annotated' ? 'active' : ''}`}
-                        onClick={() => setSnapshotMode('annotated')}
-                      >
-                        С разметкой
-                      </button>
-                    )}
-                  </div>
+                  <CameraSnapshotModeSelector
+                    value={snapshotMode}
+                    canViewAnnotated={canViewAnnotatedSnapshot}
+                    onChange={setSnapshotMode}
+                  />
                   {snapshot.data?.image_url && (
                     <Button
                       variant="ghost"
