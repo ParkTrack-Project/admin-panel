@@ -2,28 +2,73 @@ import { useStore } from '@/store/useStore';
 import { apiConfig, api } from '@/api/client';
 import { useSessionStore } from '@/auth/sessionStore';
 import { Button, Field, Input, FilePicker } from './UiKit';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { navigate } from '@/router/routes';
 import { useFeedbackStore } from '@/feedback/feedbackStore';
+import type { CameraSnapshotMode } from '@/api/cameras';
+import {
+  CAMERA_SNAPSHOT_MODE_CONTENT,
+  CameraSnapshotModeSelector,
+  canViewCameraSnapshotMode,
+  defaultCameraSnapshotMode
+} from './CameraSnapshotModeSelector';
 
 export default function TopBar() {
   const { apiBase, token, cameraId, viewMode, setImage, image, imageCameraId, setViewMode, labelerReturnRoute } = useStore();
   const sessionAccessToken = useSessionStore(state => state.accessToken);
+  const canViewStoredSnapshots = useSessionStore(state => state.hasPermission('analytics.view'));
+  const canViewLiveSnapshot = useSessionStore(state => state.hasPermission('admin.monitoring.view'));
   const [imageUrlInput, setImageUrlInput] = useState('');
   const [loadingSnapshot, setLoadingSnapshot] = useState(false);
+  const [snapshotError, setSnapshotError] = useState<string>();
+  const [snapshotMode, setSnapshotMode] = useState<CameraSnapshotMode>(
+    () => defaultCameraSnapshotMode({ canViewStoredSnapshots, canViewLiveSnapshot })
+  );
+  const snapshotCacheRef = useRef<Map<string, Awaited<ReturnType<typeof loadImage>>>>(new Map());
+  const snapshotRequestsRef = useRef<Map<string, Promise<Awaited<ReturnType<typeof loadImage>>>>>(new Map());
+  const snapshotCacheGenerationRef = useRef(0);
+  const cacheCameraIdRef = useRef(cameraId);
+  const activeSnapshotModeRef = useRef(snapshotMode);
   const notifySuccess = useFeedbackStore(state => state.success);
   const notifyError = useFeedbackStore(state => state.error);
-  const notifyWarning = useFeedbackStore(state => state.warning);
   const effectiveToken = sessionAccessToken || token;
+  activeSnapshotModeRef.current = snapshotMode;
 
   useEffect(() => {
     apiConfig.set(apiBase, effectiveToken);
   }, [apiBase, effectiveToken]);
 
+  const clearSnapshotCache = useCallback(() => {
+    snapshotCacheGenerationRef.current += 1;
+    for (const cachedImage of snapshotCacheRef.current.values()) {
+      revokeImage(cachedImage);
+    }
+    snapshotCacheRef.current.clear();
+    snapshotRequestsRef.current.clear();
+  }, []);
+
+  useEffect(() => {
+    if (cacheCameraIdRef.current === cameraId) return;
+    clearSnapshotCache();
+    cacheCameraIdRef.current = cameraId;
+  }, [cameraId, clearSnapshotCache]);
+
+  useEffect(() => {
+    return () => clearSnapshotCache();
+  }, [clearSnapshotCache]);
+
+  useEffect(() => {
+    const access = { canViewStoredSnapshots, canViewLiveSnapshot };
+    if (!canViewCameraSnapshotMode(snapshotMode, access)) {
+      setSnapshotMode(defaultCameraSnapshotMode(access));
+    }
+  }, [canViewLiveSnapshot, canViewStoredSnapshots, snapshotMode]);
+
   async function loadImageFromUrl() {
     const url = imageUrlInput.trim();
     if (!url) return;
     try {
+      clearSnapshotCache();
       const img = await loadImage(url);
       setImage(img, cameraId || undefined);
       fitToView(img);
@@ -33,44 +78,116 @@ export default function TopBar() {
     }
   }
 
-  const loadByCameraId = useCallback(async () => {
+  const loadByCameraId = useCallback(async (
+    targetMode: CameraSnapshotMode = snapshotMode,
+    force = false
+  ) => {
     if (!cameraId) return;
-    
-    if (image?.url && imageCameraId === cameraId) {
+
+    const access = { canViewStoredSnapshots, canViewLiveSnapshot };
+    if (!canViewCameraSnapshotMode(targetMode, access)) {
+      setLoadingSnapshot(false);
+      setSnapshotError('Недостаточно прав для просмотра этого варианта снимка.');
+      const fallbackMode = defaultCameraSnapshotMode(access);
+      if (canViewCameraSnapshotMode(fallbackMode, access)) {
+        setSnapshotMode(fallbackMode);
+      }
       return;
     }
-    
+
+    const key = snapshotCacheKey(cameraId, targetMode);
+    const cached = snapshotCacheRef.current.get(key);
+    if (cached && !force) {
+      setLoadingSnapshot(false);
+      setSnapshotError(undefined);
+      if (image?.url !== cached.url || imageCameraId !== cameraId) {
+        setImage(cached, cameraId, { revokePrevious: false });
+        fitToView(cached);
+      }
+      return;
+    }
+
     setLoadingSnapshot(true);
+    setSnapshotError(undefined);
     try {
       apiConfig.set(apiBase, effectiveToken);
-      const snap = await api.getSnapshot(parseInt(cameraId, 10));
-      
-      if (snap?.image_url) {
-        const img = await loadImage(snap.image_url);
-        setImage(img, cameraId);
-        fitToView(img);
-      } else {
-        console.warn('Snapshot missing image_url, using fallback');
-        const img = await loadImage('/sample.png');
-        setImage(img, cameraId);
-        fitToView(img);
-        notifyWarning('Кадр с камеры недоступен, открыт тестовый кадр.');
+
+      let request = snapshotRequestsRef.current.get(key);
+      if (!request) {
+        const cacheGeneration = snapshotCacheGenerationRef.current;
+        request = api.getSnapshot(parseInt(cameraId, 10), targetMode).then(async snap => {
+          if (!snap?.image_url) {
+            throw new Error('API не вернул изображение для этой камеры.');
+          }
+
+          try {
+            const loadedImage = await loadImage(snap.image_url);
+            if (cacheGeneration !== snapshotCacheGenerationRef.current) {
+              revokeImage(loadedImage);
+              const cancellation = new Error('Snapshot request cancelled');
+              cancellation.name = 'AbortError';
+              throw cancellation;
+            }
+            const previous = snapshotCacheRef.current.get(key);
+            if (previous?.url !== loadedImage.url) {
+              revokeImage(previous);
+            }
+            snapshotCacheRef.current.set(key, loadedImage);
+            return loadedImage;
+          } catch (error) {
+            revokeImage({ url: snap.image_url });
+            throw error;
+          }
+        }).finally(() => {
+          if (snapshotRequestsRef.current.get(key) === request) {
+            snapshotRequestsRef.current.delete(key);
+          }
+        });
+        snapshotRequestsRef.current.set(key, request);
       }
-    } catch (error) {
-      console.error('Error loading snapshot:', error);
-      try {
-        const img = await loadImage('/sample.png');
-        setImage(img, cameraId);
+
+      const img = await request;
+      if (
+        useStore.getState().viewMode === 'labeler'
+        && useStore.getState().cameraId === cameraId
+        && activeSnapshotModeRef.current === targetMode
+      ) {
+        setImage(img, cameraId, { revokePrevious: false });
         fitToView(img);
-        notifyWarning('Не удалось загрузить кадр с камеры, открыт тестовый кадр.');
-      } catch (fallbackError) {
-        console.error('Error loading fallback image:', fallbackError);
-        notifyError('Не удалось загрузить кадр с камеры и тестовый кадр.');
+      }
+    } catch (error: any) {
+      console.error('Error loading snapshot:', error);
+      if (
+        error?.name !== 'AbortError'
+        && useStore.getState().viewMode === 'labeler'
+        && useStore.getState().cameraId === cameraId
+        && activeSnapshotModeRef.current === targetMode
+      ) {
+        const modeLabel = CAMERA_SNAPSHOT_MODE_CONTENT[targetMode].label;
+        setSnapshotError(
+          `Не удалось загрузить «${modeLabel}»: ${String(error?.message || error)}`
+        );
       }
     } finally {
-      setLoadingSnapshot(false);
+      if (
+        useStore.getState().viewMode === 'labeler'
+        && useStore.getState().cameraId === cameraId
+        && activeSnapshotModeRef.current === targetMode
+      ) {
+        setLoadingSnapshot(false);
+      }
     }
-  }, [cameraId, apiBase, effectiveToken, setImage, image, imageCameraId]);
+  }, [
+    apiBase,
+    cameraId,
+    canViewLiveSnapshot,
+    canViewStoredSnapshots,
+    effectiveToken,
+    image?.url,
+    imageCameraId,
+    setImage,
+    snapshotMode
+  ]);
 
   function fitToView(img: { naturalWidth: number; naturalHeight: number; url: string }) {
     useStore.getState().setView(1, 0, 0);
@@ -80,6 +197,7 @@ export default function TopBar() {
 
   function backToOrigin() {
     setImage(undefined);
+    clearSnapshotCache();
     if (labelerReturnRoute === 'zones') {
       navigate('zones');
       return;
@@ -91,11 +209,11 @@ export default function TopBar() {
   useEffect(() => {
     if (viewMode === 'labeler' && cameraId) {
       const timer = setTimeout(() => {
-        loadByCameraId();
+        loadByCameraId(snapshotMode);
       }, 150);
       return () => clearTimeout(timer);
     }
-  }, [viewMode, cameraId, loadByCameraId]);
+  }, [viewMode, cameraId, snapshotMode, loadByCameraId]);
 
   return (
     <div className="topbar">
@@ -108,6 +226,25 @@ export default function TopBar() {
             </Button>
           )}
         </div>
+
+        {isLabeler && cameraId && (
+          <div className="labeler-snapshot-controls">
+            <CameraSnapshotModeSelector
+              value={snapshotMode}
+              canViewStoredSnapshots={canViewStoredSnapshots}
+              canViewLiveSnapshot={canViewLiveSnapshot}
+              onChange={setSnapshotMode}
+              ariaLabel="Кадр для разметки"
+            />
+            <Button
+              variant="ghost"
+              onClick={() => loadByCameraId(snapshotMode, true)}
+              disabled={loadingSnapshot}
+            >
+              {loadingSnapshot ? 'Загрузка...' : 'Обновить кадр'}
+            </Button>
+          </div>
+        )}
 
         {isLabeler && (
           <Field label="Image URL">
@@ -130,6 +267,7 @@ export default function TopBar() {
               accept="image/*"
               onPick={async (f) => {
                 try {
+                  clearSnapshotCache();
                   const url = URL.createObjectURL(f);
                   const img = await loadImage(url);
                   setImage(img, cameraId || undefined);
@@ -143,6 +281,9 @@ export default function TopBar() {
           </Field>
         )}
       </div>
+      {isLabeler && snapshotError && (
+        <div className="notice warning labeler-snapshot-error">{snapshotError}</div>
+      )}
     </div>
   );
 }
@@ -156,4 +297,14 @@ async function loadImage(url: string) {
     img.onerror = () => rej(new Error('Image load error'));
   });
   return { url, naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight };
+}
+
+function snapshotCacheKey(cameraId: string, mode: CameraSnapshotMode) {
+  return `${cameraId}:${mode}`;
+}
+
+function revokeImage(image?: { url: string }) {
+  if (image?.url.startsWith('blob:')) {
+    URL.revokeObjectURL(image.url);
+  }
 }

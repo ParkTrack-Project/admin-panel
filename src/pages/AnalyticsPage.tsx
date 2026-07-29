@@ -31,7 +31,13 @@ import { useYandexMap } from '@/maps/useYandexMap';
 import { fitYandexMap, yandexPoint, type YandexPoint } from '@/maps/yandex';
 import { useStore } from '@/store/useStore';
 import { navigate } from '@/router/routes';
-import { cameraSnapshotOptions, type CameraSnapshotMode } from '@/api/cameras';
+import { type CameraSnapshotMode } from '@/api/cameras';
+import {
+  availableCameraSnapshotModes,
+  CAMERA_SNAPSHOT_MODE_CONTENT,
+  canViewCameraSnapshotMode,
+  defaultCameraSnapshotMode
+} from '@/components/CameraSnapshotModeSelector';
 
 type PeriodPreset = 'today' | 'yesterday' | '1h' | '6h' | '12h' | '24h' | '7d' | '30d' | 'custom';
 type AutoRefreshInterval = 'off' | '10s' | '30s' | '1m' | '5m' | '15m' | '30m' | '1h';
@@ -130,7 +136,7 @@ function fetchCameraSnapshot(cameraId: number, tab: CameraSnapshotMode, force = 
   if (!force && pending) return pending;
 
   let request: Promise<CameraSnapshot>;
-  request = api.getSnapshot(cameraId, cameraSnapshotOptions(tab)).then(snapshot => {
+  request = api.getSnapshot(cameraId, tab).then(snapshot => {
     if (cameraSnapshotRequests.get(cacheKey) !== request) {
       revokeCameraSnapshot(snapshot);
       return snapshot;
@@ -2262,19 +2268,35 @@ function CameraAnalyticsPage({ cameraId }: { cameraId: string }) {
 }
 
 function CameraSnapshots({ cameraId }: { cameraId: number }) {
-  const canViewAnnotatedSnapshot = useSessionStore(state => state.hasPermission('admin.monitoring.view'));
-  const [tab, setTab] = useState<CameraSnapshotMode>('latest');
+  const canViewStoredSnapshots = useSessionStore(state => state.hasPermission('analytics.view'));
+  const canViewLiveSnapshot = useSessionStore(state => state.hasPermission('admin.monitoring.view'));
+  const [tab, setTab] = useState<CameraSnapshotMode>(() => defaultCameraSnapshotMode({
+    canViewStoredSnapshots,
+    canViewLiveSnapshot
+  }));
   const [snapshot, setSnapshot] = useState<LoadState<CameraSnapshot>>(emptyState);
   const [fullscreen, setFullscreen] = useState(false);
   const visibleRequestRef = useRef(0);
 
   useEffect(() => {
-    if (!canViewAnnotatedSnapshot && tab === 'annotated') {
-      setTab('latest');
+    const access = { canViewStoredSnapshots, canViewLiveSnapshot };
+    if (!canViewCameraSnapshotMode(tab, access)) {
+      setTab(defaultCameraSnapshotMode(access));
     }
-  }, [canViewAnnotatedSnapshot, tab]);
+  }, [canViewLiveSnapshot, canViewStoredSnapshots, tab]);
 
   const load = useCallback(async (targetTab: CameraSnapshotMode, force = false) => {
+    if (!canViewCameraSnapshotMode(targetTab, {
+      canViewStoredSnapshots,
+      canViewLiveSnapshot
+    })) {
+      setSnapshot({
+        loading: false,
+        error: 'Недостаточно прав для просмотра этого варианта снимка.'
+      });
+      return;
+    }
+
     const requestId = ++visibleRequestRef.current;
     setSnapshot({ loading: true });
     try {
@@ -2285,20 +2307,32 @@ function CameraSnapshots({ cameraId }: { cameraId: number }) {
       if (visibleRequestRef.current !== requestId) return;
       setSnapshot({ loading: false, error: blockError(error) });
     }
-  }, [cameraId]);
+  }, [cameraId, canViewLiveSnapshot, canViewStoredSnapshots]);
 
   useEffect(() => {
     load(tab);
   }, [load, tab]);
 
   function renderTabs(className = '') {
+    const modes = availableCameraSnapshotModes({
+      canViewStoredSnapshots,
+      canViewLiveSnapshot
+    });
+
     return (
       <div className={`segmented analytics-snapshot-tabs ${className}`.trim()} role="tablist" aria-label="Вариант снимка камеры">
-        <button type="button" role="tab" aria-selected={tab === 'latest'} className={tab === 'latest' ? 'active' : ''} onClick={() => setTab('latest')}>Последний снимок</button>
-        <button type="button" role="tab" aria-selected={tab === 'detection'} className={tab === 'detection' ? 'active' : ''} onClick={() => setTab('detection')}>Последнее распознавание</button>
-        {canViewAnnotatedSnapshot && (
-          <button type="button" role="tab" aria-selected={tab === 'annotated'} className={tab === 'annotated' ? 'active' : ''} onClick={() => setTab('annotated')}>С разметкой</button>
-        )}
+        {modes.map(mode => (
+          <button
+            key={mode}
+            type="button"
+            role="tab"
+            aria-selected={tab === mode}
+            className={tab === mode ? 'active' : ''}
+            onClick={() => setTab(mode)}
+          >
+            {CAMERA_SNAPSHOT_MODE_CONTENT[mode].label}
+          </button>
+        ))}
       </div>
     );
   }
