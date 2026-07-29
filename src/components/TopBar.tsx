@@ -9,18 +9,20 @@ import type { CameraSnapshotMode } from '@/api/cameras';
 import {
   CAMERA_SNAPSHOT_MODE_CONTENT,
   CameraSnapshotModeSelector,
+  canViewCameraSnapshotMode,
   defaultCameraSnapshotMode
 } from './CameraSnapshotModeSelector';
 
 export default function TopBar() {
   const { apiBase, token, cameraId, viewMode, setImage, image, imageCameraId, setViewMode, labelerReturnRoute } = useStore();
   const sessionAccessToken = useSessionStore(state => state.accessToken);
-  const canViewAnnotatedSnapshot = useSessionStore(state => state.hasPermission('admin.monitoring.view'));
+  const canViewStoredSnapshots = useSessionStore(state => state.hasPermission('analytics.view'));
+  const canViewLiveSnapshot = useSessionStore(state => state.hasPermission('admin.monitoring.view'));
   const [imageUrlInput, setImageUrlInput] = useState('');
   const [loadingSnapshot, setLoadingSnapshot] = useState(false);
   const [snapshotError, setSnapshotError] = useState<string>();
   const [snapshotMode, setSnapshotMode] = useState<CameraSnapshotMode>(
-    () => defaultCameraSnapshotMode(canViewAnnotatedSnapshot)
+    () => defaultCameraSnapshotMode({ canViewStoredSnapshots, canViewLiveSnapshot })
   );
   const snapshotCacheRef = useRef<Map<string, Awaited<ReturnType<typeof loadImage>>>>(new Map());
   const snapshotRequestsRef = useRef<Map<string, Promise<Awaited<ReturnType<typeof loadImage>>>>>(new Map());
@@ -56,10 +58,11 @@ export default function TopBar() {
   }, [clearSnapshotCache]);
 
   useEffect(() => {
-    if (!canViewAnnotatedSnapshot && snapshotMode === 'annotated') {
-      setSnapshotMode('detection');
+    const access = { canViewStoredSnapshots, canViewLiveSnapshot };
+    if (!canViewCameraSnapshotMode(snapshotMode, access)) {
+      setSnapshotMode(defaultCameraSnapshotMode(access));
     }
-  }, [canViewAnnotatedSnapshot, snapshotMode]);
+  }, [canViewLiveSnapshot, canViewStoredSnapshots, snapshotMode]);
 
   async function loadImageFromUrl() {
     const url = imageUrlInput.trim();
@@ -81,9 +84,14 @@ export default function TopBar() {
   ) => {
     if (!cameraId) return;
 
-    if (targetMode === 'annotated' && !canViewAnnotatedSnapshot) {
+    const access = { canViewStoredSnapshots, canViewLiveSnapshot };
+    if (!canViewCameraSnapshotMode(targetMode, access)) {
       setLoadingSnapshot(false);
-      setSnapshotMode('detection');
+      setSnapshotError('Недостаточно прав для просмотра этого варианта снимка.');
+      const fallbackMode = defaultCameraSnapshotMode(access);
+      if (canViewCameraSnapshotMode(fallbackMode, access)) {
+        setSnapshotMode(fallbackMode);
+      }
       return;
     }
 
@@ -172,7 +180,8 @@ export default function TopBar() {
   }, [
     apiBase,
     cameraId,
-    canViewAnnotatedSnapshot,
+    canViewLiveSnapshot,
+    canViewStoredSnapshots,
     effectiveToken,
     image?.url,
     imageCameraId,
@@ -222,7 +231,8 @@ export default function TopBar() {
           <div className="labeler-snapshot-controls">
             <CameraSnapshotModeSelector
               value={snapshotMode}
-              canViewAnnotated={canViewAnnotatedSnapshot}
+              canViewStoredSnapshots={canViewStoredSnapshots}
+              canViewLiveSnapshot={canViewLiveSnapshot}
               onChange={setSnapshotMode}
               ariaLabel="Кадр для разметки"
             />

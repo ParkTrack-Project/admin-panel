@@ -12,6 +12,7 @@ import { type CameraSnapshotMode } from '@/api/cameras';
 import {
   CAMERA_SNAPSHOT_MODE_CONTENT,
   CameraSnapshotModeSelector,
+  canViewCameraSnapshotMode,
   defaultCameraSnapshotMode
 } from './CameraSnapshotModeSelector';
 
@@ -292,7 +293,8 @@ export default function CamerasPage() {
   const notifySuccess = useFeedbackStore(state => state.success);
   const confirmAction = useFeedbackStore(state => state.confirm);
   const currentPartnerId = useSessionStore(state => state.currentPartnerId);
-  const canViewAnnotatedSnapshot = useSessionStore(state => state.hasPermission('admin.monitoring.view'));
+  const canViewStoredSnapshots = useSessionStore(state => state.hasPermission('analytics.view'));
+  const canViewLiveSnapshot = useSessionStore(state => state.hasPermission('admin.monitoring.view'));
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -314,7 +316,7 @@ export default function CamerasPage() {
   const [snapshot, setSnapshot] = useState<SnapshotState>({ loading: false });
   const [snapshotReloadKey, setSnapshotReloadKey] = useState(0);
   const [snapshotMode, setSnapshotMode] = useState<CameraSnapshotMode>(
-    () => defaultCameraSnapshotMode(canViewAnnotatedSnapshot)
+    () => defaultCameraSnapshotMode({ canViewStoredSnapshots, canViewLiveSnapshot })
   );
   const [isSnapshotFullscreen, setIsSnapshotFullscreen] = useState(false);
   const [editor, setEditor] = useState<CameraEditorState | null>(null);
@@ -345,10 +347,11 @@ export default function CamerasPage() {
   }, []);
 
   useEffect(() => {
-    if (!canViewAnnotatedSnapshot && snapshotMode === 'annotated') {
-      setSnapshotMode('detection');
+    const access = { canViewStoredSnapshots, canViewLiveSnapshot };
+    if (!canViewCameraSnapshotMode(snapshotMode, access)) {
+      setSnapshotMode(defaultCameraSnapshotMode(access));
     }
-  }, [canViewAnnotatedSnapshot, snapshotMode]);
+  }, [canViewLiveSnapshot, canViewStoredSnapshots, snapshotMode]);
 
   function fetchSnapshot(cameraId: number, mode: CameraSnapshotMode) {
     const key = snapshotCacheKey(cameraId, mode);
@@ -481,6 +484,17 @@ export default function CamerasPage() {
         return;
       }
 
+      if (!canViewCameraSnapshotMode(snapshotMode, {
+        canViewStoredSnapshots,
+        canViewLiveSnapshot
+      })) {
+        setSnapshot({
+          loading: false,
+          error: 'Недостаточно прав для просмотра снимков этой камеры.'
+        });
+        return;
+      }
+
       const key = snapshotCacheKey(selectedCamera.camera_id, snapshotMode);
       const cached = snapshotCacheRef.current.get(key);
       if (cached) {
@@ -505,7 +519,13 @@ export default function CamerasPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedCamera?.camera_id, snapshotMode, snapshotReloadKey]);
+  }, [
+    canViewLiveSnapshot,
+    canViewStoredSnapshots,
+    selectedCamera?.camera_id,
+    snapshotMode,
+    snapshotReloadKey
+  ]);
 
   useEffect(() => {
     if (!selectedCamera) {
@@ -947,7 +967,8 @@ export default function CamerasPage() {
                 <div className="camera-preview-actions">
                   <CameraSnapshotModeSelector
                     value={snapshotMode}
-                    canViewAnnotated={canViewAnnotatedSnapshot}
+                    canViewStoredSnapshots={canViewStoredSnapshots}
+                    canViewLiveSnapshot={canViewLiveSnapshot}
                     onChange={setSnapshotMode}
                   />
                   {snapshot.data?.image_url && (

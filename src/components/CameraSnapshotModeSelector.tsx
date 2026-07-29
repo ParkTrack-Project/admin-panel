@@ -27,26 +27,49 @@ const CAMERA_SNAPSHOT_MODE_ORDER: CameraSnapshotMode[] = [
   'latest'
 ];
 
-export function defaultCameraSnapshotMode(canViewAnnotated: boolean): CameraSnapshotMode {
-  return canViewAnnotated ? 'annotated' : 'detection';
+export type CameraSnapshotAccess = {
+  canViewStoredSnapshots: boolean;
+  canViewLiveSnapshot: boolean;
+};
+
+export function canViewCameraSnapshotMode(
+  mode: CameraSnapshotMode,
+  access: CameraSnapshotAccess
+) {
+  return mode === 'latest'
+    ? access.canViewLiveSnapshot
+    : access.canViewStoredSnapshots;
+}
+
+export function availableCameraSnapshotModes(access: CameraSnapshotAccess) {
+  return CAMERA_SNAPSHOT_MODE_ORDER.filter(mode => canViewCameraSnapshotMode(mode, access));
+}
+
+export function defaultCameraSnapshotMode(access: CameraSnapshotAccess): CameraSnapshotMode {
+  return availableCameraSnapshotModes(access)[0] ?? 'latest';
 }
 
 type CameraSnapshotModeSelectorProps = {
   value: CameraSnapshotMode;
-  canViewAnnotated: boolean;
+  canViewStoredSnapshots: boolean;
+  canViewLiveSnapshot: boolean;
   onChange: (mode: CameraSnapshotMode) => void;
   ariaLabel?: string;
 };
 
 export function CameraSnapshotModeSelector({
   value,
-  canViewAnnotated,
+  canViewStoredSnapshots,
+  canViewLiveSnapshot,
   onChange,
   ariaLabel = 'Режим просмотра кадра'
 }: CameraSnapshotModeSelectorProps) {
-  const modes = CAMERA_SNAPSHOT_MODE_ORDER.filter(
-    mode => mode !== 'annotated' || canViewAnnotated
-  );
+  const modes = availableCameraSnapshotModes({
+    canViewStoredSnapshots,
+    canViewLiveSnapshot
+  });
+
+  if (modes.length === 0) return null;
 
   return (
     <div
