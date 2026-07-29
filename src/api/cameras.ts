@@ -1,4 +1,4 @@
-import { buildQuery, request, requestBlob } from './http';
+import { ApiRequestError, buildQuery, request, requestBlob } from './http';
 
 export type Camera = {
   camera_id: number;
@@ -80,24 +80,55 @@ export type CameraSnapshot = {
   captured_at?: string;
   width?: number;
   height?: number;
-};
-
-export type CameraSnapshotOptions = {
-  annotated?: boolean;
-  last_detection?: boolean;
-  fallback_to_raw?: boolean;
+  variant?: 'live' | 'raw' | 'annotated';
+  detection_run_id?: number | string;
 };
 
 export type CameraSnapshotMode = 'latest' | 'detection' | 'annotated';
 
-export function cameraSnapshotOptions(mode: CameraSnapshotMode): CameraSnapshotOptions | undefined {
-  if (mode === 'detection') {
-    return { last_detection: true };
+type CameraDetectionSnapshot = {
+  detection_run_id: number | string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  raw_snapshot_url?: string | null;
+  annotated_snapshot_url?: string | null;
+};
+
+type CameraDetectionSnapshotList = {
+  items: CameraDetectionSnapshot[];
+};
+
+async function getStoredCameraSnapshot(
+  cameraId: number,
+  mode: Extract<CameraSnapshotMode, 'detection' | 'annotated'>
+): Promise<CameraSnapshot> {
+  const response = await request<CameraDetectionSnapshotList>(
+    'GET',
+    `/admin/analytics/cameras/${encodeURIComponent(cameraId)}/detections?limit=1`
+  );
+  const detection = response.items[0];
+
+  if (!detection) {
+    throw new ApiRequestError('Для камеры пока нет сохранённых распознаваний.', 404);
   }
-  if (mode === 'annotated') {
-    return { annotated: true, fallback_to_raw: true };
+
+  const annotatedUrl = detection.annotated_snapshot_url?.trim();
+  const rawUrl = detection.raw_snapshot_url?.trim();
+  const imageUrl = mode === 'annotated' ? annotatedUrl || rawUrl : rawUrl;
+
+  if (!imageUrl) {
+    const message = mode === 'annotated'
+      ? 'Для последнего распознавания нет размеченного или исходного снимка.'
+      : 'Для последнего распознавания нет исходного снимка.';
+    throw new ApiRequestError(message, 404);
   }
-  return undefined;
+
+  return {
+    image_url: imageUrl,
+    captured_at: detection.started_at || detection.finished_at || undefined,
+    variant: mode === 'annotated' && annotatedUrl ? 'annotated' : 'raw',
+    detection_run_id: detection.detection_run_id
+  };
 }
 
 function formatBBox(bbox?: CameraBBox | string) {
@@ -150,16 +181,20 @@ export const camerasApi = {
     return request<CamerasNextResponse>('GET', '/cameras/next');
   },
 
-  async getSnapshot(cameraId: number, options?: CameraSnapshotOptions): Promise<CameraSnapshot> {
-    const query = buildQuery({
-      annotated: options?.annotated,
-      last_detection: options?.last_detection,
-      fallback_to_raw: options?.fallback_to_raw
-    });
-    const { blob, headers } = await requestBlob(`/cameras/${encodeURIComponent(cameraId)}/snapshot${query}`);
+  async getSnapshot(cameraId: number, mode: CameraSnapshotMode = 'latest'): Promise<CameraSnapshot> {
+    if (mode !== 'latest') {
+      return getStoredCameraSnapshot(cameraId, mode);
+    }
+
+    const { blob, headers } = await requestBlob(
+      `/admin/cameras/${encodeURIComponent(cameraId)}/snapshot`
+    );
     return {
       image_url: URL.createObjectURL(blob),
-      captured_at: headers.get('X-Captured-At') || undefined
+      captured_at: headers.get('X-Snapshot-Captured-At')
+        || headers.get('X-Captured-At')
+        || undefined,
+      variant: 'live'
     };
   }
 };

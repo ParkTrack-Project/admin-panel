@@ -69,7 +69,11 @@ type State = {
   setViewMode(mode: ViewMode): void;
   setCamera(id: string): void;
   setLabelerReturnRoute(route?: 'cameras' | 'zones'): void;
-  setImage(img: ImageMeta | undefined, cameraId?: string): void;
+  setImage(
+    img: ImageMeta | undefined,
+    cameraId?: string,
+    options?: { revokePrevious?: boolean }
+  ): void;
 
   loadCameraMeta(id: number): Promise<void>;
   saveCamera(id: number, patch: Partial<Camera>): Promise<boolean>;
@@ -129,9 +133,13 @@ export const useStore = create<State>((set, get) => ({
     });
   },
   setLabelerReturnRoute(route) { set({ labelerReturnRoute: route }); },
-  setImage(img, cameraId) {
+  setImage(img, cameraId, options) {
     set((state) => {
-      if (state.image?.url && state.image.url !== img?.url) {
+      if (
+        options?.revokePrevious !== false
+        && state.image?.url
+        && state.image.url !== img?.url
+      ) {
         revokeImage(state.image);
       }
       return {

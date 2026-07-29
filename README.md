@@ -290,13 +290,13 @@ Production-образ собирает приложение на Node.js и от
 - `/health`;
 - `/version`.
 
-Для `/cameras/{camera_id}/snapshot` поддерживаются три режима:
+Интерфейс поддерживает три режима снимков камеры:
 
-- без query-параметров — свежий кадр из видеопотока;
-- `last_detection=true` — кадр, сохранённый в момент последней детекции;
-- `annotated=true&fallback_to_raw=true` — визуализация распознавания с возможным fallback на обычный кадр.
+- `С разметкой` — `annotated_snapshot_url` последней детекции с fallback на `raw_snapshot_url`;
+- `Последнее распознавание` — `raw_snapshot_url` последней детекции;
+- `Последний снимок` — свежий кадр из видеопотока.
 
-Обычный кадр и кадр последней детекции требуют `cameras.view`. Для визуализации распознавания backend дополнительно проверяет `admin.monitoring.view`.
+Сохранённые артефакты загружаются через `/admin/analytics/cameras/{camera_id}/detections?limit=1` и требуют `analytics.view`. Свежий кадр запрашивается через `/admin/cameras/{camera_id}/snapshot` и требует `admin.monitoring.view`. Каждый режим кешируется отдельно до обновления страницы, а кнопка обновления сбрасывает только активный вариант.
 
 Основные analytics endpoints:
 

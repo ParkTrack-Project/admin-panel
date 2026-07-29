@@ -290,13 +290,13 @@ The frontend uses the following primary ParkTrack API groups:
 - `/health`;
 - `/version`.
 
-Three modes are supported for `/cameras/{camera_id}/snapshot`:
+The interface supports three camera snapshot modes:
 
-- no query parameters: a fresh snapshot from the video stream;
-- `last_detection=true`: the snapshot saved at the time of the last detection;
-- `annotated=true&fallback_to_raw=true`: recognition visualization with an optional fallback to a raw snapshot.
+- `Annotated`: the latest detection's `annotated_snapshot_url`, falling back to `raw_snapshot_url`;
+- `Last detection`: the latest detection's `raw_snapshot_url`;
+- `Latest snapshot`: a fresh frame from the video stream.
 
-Raw snapshots and last detection snapshots require `cameras.view`. For recognition visualization, the backend additionally checks `admin.monitoring.view`.
+Stored artifacts are loaded through `/admin/analytics/cameras/{camera_id}/detections?limit=1` and require `analytics.view`. The live frame is requested through `/admin/cameras/{camera_id}/snapshot` and requires `admin.monitoring.view`. Each mode is cached independently until the page is refreshed, while refresh invalidates only the active variant.
 
 Primary analytics endpoints:
 
