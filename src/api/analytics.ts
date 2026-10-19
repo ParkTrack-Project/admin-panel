@@ -267,8 +267,7 @@ export type DetectionRunDetail = DetectionRunListItem & {
   error?: string | null;
   raw_snapshot_url?: string | null;
   annotated_snapshot_url?: string | null;
-  raw_image_url?: string | null;
-  annotated_image_url?: string | null;
+  yolo_labels_url?: string | null;
   feedback?: DetectionFeedback | null;
 };
 

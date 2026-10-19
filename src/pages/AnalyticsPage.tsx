@@ -873,7 +873,7 @@ export default function AnalyticsPage() {
     return <CameraAnalyticsPage cameraId={route.cameraId} />;
   }
   if (route.view === 'detection') {
-    return <DetectionAnalyticsPage detectionRunId={route.detectionRunId} />;
+    return <DetectionAnalyticsPage key={route.detectionRunId} detectionRunId={route.detectionRunId} />;
   }
 
   return <AnalyticsDashboard />;
@@ -2311,6 +2311,7 @@ function CameraSnapshots({ cameraId }: { cameraId: number }) {
 
   useEffect(() => {
     load(tab);
+    return () => { visibleRequestRef.current += 1; };
   }, [load, tab]);
 
   function renderTabs(className = '') {
@@ -2349,7 +2350,7 @@ function CameraSnapshots({ cameraId }: { cameraId: number }) {
       </div>
       {snapshot.error && <div className="notice error">Снимок недоступен: {snapshot.error}</div>}
       {snapshot.data?.image_url ? (
-        <img className="analytics-snapshot" src={snapshot.data.image_url} alt="Снимок камеры" />
+        <img className="analytics-snapshot" src={snapshot.data.image_url} alt="Снимок камеры" onError={() => setSnapshot({ loading: false, error: 'Не удалось загрузить изображение.' })} />
       ) : !snapshot.loading && !snapshot.error ? (
         <div className="empty-state">Снимок недоступен</div>
       ) : null}
@@ -2366,7 +2367,7 @@ function CameraSnapshots({ cameraId }: { cameraId: number }) {
           <div className="analytics-snapshot-fullscreen-stage">
             {snapshot.error && <div className="notice error">Снимок недоступен: {snapshot.error}</div>}
             {snapshot.data?.image_url ? (
-              <img src={snapshot.data.image_url} alt="Снимок камеры" />
+              <img src={snapshot.data.image_url} alt="Снимок камеры" onError={() => setSnapshot({ loading: false, error: 'Не удалось загрузить изображение.' })} />
             ) : !snapshot.loading && !snapshot.error ? (
               <div className="analytics-snapshot-fullscreen-state">Снимок недоступен</div>
             ) : (
@@ -2520,8 +2521,13 @@ function DetectionAnalyticsPage({ detectionRunId }: { detectionRunId: string }) 
       {item && (
         <Block title="Сравнение изображений" state={detail}>
           <DetectionImageComparison
-            rawUrl={item.raw_snapshot_url ?? item.raw_image_url}
-            annotatedUrl={item.annotated_snapshot_url ?? item.annotated_image_url}
+            rawUrl={item.raw_snapshot_url}
+            annotatedUrl={item.annotated_snapshot_url}
+          />
+          <DetectionLabelsDownload
+            key={`${item.detection_run_id}:${item.yolo_labels_url}`}
+            detectionRunId={item.detection_run_id}
+            url={item.yolo_labels_url}
           />
         </Block>
       )}
@@ -2543,6 +2549,56 @@ function DetectionAnalyticsPage({ detectionRunId }: { detectionRunId: string }) 
         </Block>
       )}
     </section>
+  );
+}
+
+function DetectionLabelsDownload({ detectionRunId, url }: { detectionRunId: number | string; url?: string | null }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string>();
+  const requestRef = useRef<AbortController>();
+  const labelsUrl = url?.trim();
+
+  useEffect(() => () => requestRef.current?.abort(), []);
+
+  async function download() {
+    if (!labelsUrl || requestRef.current) return;
+    const controller = new AbortController();
+    requestRef.current = controller;
+    setLoading(true);
+    setError(undefined);
+    try {
+      // Public artifact URLs must not receive API credentials.
+      const response = await fetch(labelsUrl, { signal: controller.signal, credentials: 'omit' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const labels = await response.text();
+      if (controller.signal.aborted) return;
+      const link = document.createElement('a');
+      // A text data URL preserves the download filename across origins without an object URL.
+      link.href = `data:text/plain;charset=utf-8,${encodeURIComponent(labels)}`;
+      link.download = `detection-${detectionRunId}-labels.txt`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setError(`Не удалось скачать labels: ${blockError(error)}. Проверьте доступность файла и настройки CORS хранилища.`);
+      }
+    } finally {
+      if (!controller.signal.aborted) setLoading(false);
+      if (requestRef.current === controller) requestRef.current = undefined;
+    }
+  }
+
+  return (
+    <div className="page-stack">
+      <div className="row" style={{ flexWrap: 'wrap' }}>
+        <Button variant="ghost" disabled={!labelsUrl || loading} onClick={download}>
+          {loading ? 'Скачивание...' : 'Скачать YOLO labels'}
+        </Button>
+        {!labelsUrl && <span className="small">Labels-файл недоступен для этого распознавания.</span>}
+      </div>
+      {error && <div className="notice error" role="alert">{error}</div>}
+    </div>
   );
 }
 
@@ -2688,16 +2744,19 @@ function DetectionImage({
   url?: string | null;
   onFullscreen: () => void;
 }) {
+  const [failedUrl, setFailedUrl] = useState<string>();
+  const available = Boolean(url && url !== failedUrl);
+
   return (
     <div className="analytics-detection-image">
       <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <h3>{title}</h3>
         <div className="row" style={{ flexWrap: 'wrap' }}>
-          <Button variant="ghost" disabled={!url} onClick={onFullscreen}>На весь экран</Button>
+          <Button variant="ghost" disabled={!available} onClick={onFullscreen}>На весь экран</Button>
           <Button variant="ghost" disabled={!url} onClick={() => url && window.open(url, '_blank', 'noopener,noreferrer')}>В новой вкладке</Button>
         </div>
       </div>
-      {url ? <img src={url} alt={title} /> : <div className="empty-state">Изображение недоступно</div>}
+      {available ? <img src={url!} alt={title} onError={() => setFailedUrl(url!)} /> : <div className="empty-state">Изображение недоступно</div>}
     </div>
   );
 }
