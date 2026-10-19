@@ -2520,8 +2520,8 @@ function DetectionAnalyticsPage({ detectionRunId }: { detectionRunId: string }) 
       {item && (
         <Block title="Сравнение изображений" state={detail}>
           <DetectionImageComparison
-            rawUrl={item.raw_snapshot_url ?? item.raw_image_url}
-            annotatedUrl={item.annotated_snapshot_url ?? item.annotated_image_url}
+            rawUrl={item.raw_snapshot_url}
+            annotatedUrl={item.annotated_snapshot_url}
           />
         </Block>
       )}
