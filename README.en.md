@@ -42,6 +42,8 @@ The application works with the `api-server` backend, uses role-based access cont
 - forecast quality metrics;
 - scrollable status table for all zones with camera names and color-coded statuses;
 - zone and camera map;
+- camera search beside the map by name and ID, synchronized map/list selection, and direct links to camera analytics;
+- preserved map zoom and center during metric refreshes; selecting another camera focuses its location;
 - dedicated analytics pages for zones, cameras, and detection runs;
 - recognition quality assessment and feedback review;
 - independent caching of the latest snapshot, last detection snapshot, and annotated snapshot until the page is refreshed;

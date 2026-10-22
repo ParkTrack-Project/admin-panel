@@ -1024,9 +1024,9 @@ function AnalyticsDashboard() {
         <KpiGrid summary={summary} frequency={frequency} confidence={confidence} />
       </Block>
 
-      <div className="analytics-dashboard-grid">
+      <div className="page-stack">
         <Block title="Карта зон и камер" state={{ loading: cameras.loading || zones.loading || health.loading, error: cameras.error ?? zones.error ?? health.error }}>
-          <AnalyticsMap zones={zoneItems} cameras={cameraItems} summary={summary.data} health={health.data} />
+          <AnalyticsMap key={currentPartnerId ?? 'all'} zones={zoneItems} cameras={cameraItems} summary={summary.data} health={health.data} />
         </Block>
 
         <Block title="Состояние зон" state={health}>
@@ -1753,7 +1753,39 @@ function AnalyticsMap({
   health?: AnalyticsDetectorHealth;
 }) {
   const mapRef = useRef<HTMLDivElement | null>(null);
-  const [selected, setSelected] = useState<React.ReactNode>(null);
+  const fittedMapRef = useRef<unknown>();
+  const focusedSelectionRef = useRef<{ map: unknown; key: string }>();
+  const [selected, setSelected] = useState<{ kind: 'camera' | 'zone'; id: string } | null>(null);
+  const [cameraSearch, setCameraSearch] = useState('');
+  const query = cameraSearch.trim().toLocaleLowerCase('ru-RU');
+  const visibleCameras = useMemo(() => cameras.filter(camera => (
+    camera.title.toLocaleLowerCase('ru-RU').includes(query) || String(camera.camera_id).includes(query.replace(/^#/, ''))
+  )), [cameras, query]);
+  const summaryByZone = useMemo(() => new Map((summary?.zones ?? []).map(item => [String(item.zone_id), item])), [summary?.zones]);
+  const healthByZone = useMemo(() => new Map((health?.items ?? []).map(item => [String(item.zone_id), item])), [health?.items]);
+  const summaryByCamera = useMemo(() => new Map((summary?.cameras ?? []).map(item => [item.camera_id, item])), [summary?.cameras]);
+  const selectedCamera = selected?.kind === 'camera' ? cameras.find(camera => String(camera.camera_id) === selected.id) : undefined;
+  const selectedZone = selected?.kind === 'zone' ? zones.find(zone => String(zone.id) === selected.id) : undefined;
+
+  function cameraStatus(camera: Camera) {
+    return camera.is_active === false
+      ? { key: 'offline', label: 'Неактивна' }
+      : detectorStatus(summaryByCamera.get(camera.camera_id)?.status);
+  }
+
+  function zoneMetrics(zone: ParkingZone) {
+    const zoneSummary = summaryByZone.get(String(zone.id));
+    const zoneHealth = healthByZone.get(String(zone.id));
+    const capacity = zoneHealth?.capacity ?? zoneSummary?.capacity ?? zone.capacity;
+    const occupied = zoneHealth?.occupied_count ?? zoneHealth?.occupied ?? zoneSummary?.occupied_count ?? zoneSummary?.occupied ?? zone.occupied;
+    const free = zoneHealth?.free_count ?? zoneHealth?.free ?? zoneSummary?.free_count ?? zoneSummary?.free ?? zone.free_count;
+    const occupancy = zoneHealth?.occupancy_percent ?? zoneSummary?.occupancy_percent ?? (
+      typeof occupied === 'number' && typeof capacity === 'number' && capacity > 0 ? (occupied / capacity) * 100 : null
+    );
+    const lastUpdate = zoneHealth?.last_update_at ?? zoneSummary?.last_update_at ?? zone.occupancy_updated_at;
+    return { capacity, occupied, free, occupancy, lastUpdate };
+  }
+
   const center = useMemo<YandexPoint>(() => {
     const camera = cameras.find(item => hasCoordinates(item.latitude, item.longitude));
     if (camera) return yandexPoint(camera.latitude, camera.longitude);
@@ -1764,25 +1796,26 @@ function AnalyticsMap({
   const { ymaps, map, loading, error } = useYandexMap(mapRef, { center, zoom: 12, syncView: false });
 
   useEffect(() => {
+    if (!map || !mapRef.current || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => map.container.fitToViewport());
+    observer.observe(mapRef.current);
+    return () => observer.disconnect();
+  }, [map]);
+
+  useEffect(() => {
+    if (selected && !selectedCamera && !selectedZone) setSelected(null);
+  }, [selected, selectedCamera, selectedZone]);
+
+  useEffect(() => {
     if (!ymaps || !map) return;
     const collection = new ymaps.GeoObjectCollection();
     const boundsPoints: YandexPoint[] = [];
-    const summaryByZone = new Map((summary?.zones ?? []).map(item => [String(item.zone_id), item]));
-    const healthByZone = new Map((health?.items ?? []).map(item => [String(item.zone_id), item]));
 
     zones.forEach(zone => {
       const points = zoneMapPoints(zone);
       if (points.length < 3) return;
       boundsPoints.push(...points);
-      const zoneSummary = summaryByZone.get(String(zone.id));
-      const zoneHealth = healthByZone.get(String(zone.id));
-      const capacity = zoneHealth?.capacity ?? zoneSummary?.capacity ?? zone.capacity;
-      const occupied = zoneHealth?.occupied_count ?? zoneHealth?.occupied ?? zoneSummary?.occupied_count ?? zoneSummary?.occupied ?? zone.occupied;
-      const free = zoneHealth?.free_count ?? zoneHealth?.free ?? zoneSummary?.free_count ?? zoneSummary?.free ?? zone.free_count;
-      const occupancy = zoneHealth?.occupancy_percent ?? zoneSummary?.occupancy_percent ?? (
-        typeof occupied === 'number' && typeof capacity === 'number' && capacity > 0 ? (occupied / capacity) * 100 : null
-      );
-      const lastUpdate = zoneHealth?.last_update_at ?? zoneSummary?.last_update_at ?? zone.occupancy_updated_at;
+      const { occupancy, lastUpdate } = zoneMetrics(zone);
       const color = occupancyColor(occupancy, lastUpdate);
       const polygon = new ymaps.Polygon(
         [points],
@@ -1790,30 +1823,13 @@ function AnalyticsMap({
         {
           strokeColor: color,
           strokeOpacity: 0.95,
-          strokeWidth: 2,
+          strokeWidth: selected?.kind === 'zone' && selected.id === String(zone.id) ? 4 : 2,
           fillColor: color,
           fillOpacity: 0.2,
           zIndex: 150
         }
       );
-      polygon.events.add('click', () => {
-        setSelected(
-          <MapDetails
-            title={`Зона #${String(zone.id)}`}
-            rows={[
-              ['Всего мест', formatNumber(capacity)],
-              ['Занято', formatNumber(occupied)],
-              ['Свободно', formatNumber(free)],
-              ['Занятость', formatPercent(occupancy)],
-              ['Последнее обновление', formatDateTime(lastUpdate)]
-            ]}
-            actions={[
-              ['Редактировать камеру', () => setAnalyticsRoute({ view: 'camera', cameraId: String(zone.camera_id) })],
-              ['Аналитика зоны', () => setAnalyticsRoute({ view: 'zone', zoneId: String(zone.id) })]
-            ]}
-          />
-        );
-      });
+      polygon.events.add('click', () => setSelected({ kind: 'zone', id: String(zone.id) }));
       collection.add(polygon);
     });
 
@@ -1826,39 +1842,106 @@ function AnalyticsMap({
         { hintContent: `Камера #${camera.camera_id}` },
         {
           preset: 'islands#circleDotIcon',
-          iconColor: camera.is_active === false ? '#9ca3af' : '#128a45'
+          iconColor: selected?.kind === 'camera' && selected.id === String(camera.camera_id)
+            ? '#2563eb'
+            : camera.is_active === false ? '#9ca3af' : '#128a45'
         }
       );
-      placemark.events.add('click', () => {
-        setSelected(
-          <MapDetails
-            title={`Камера #${camera.camera_id}`}
-            rows={[
-              ['Название', camera.title],
-              ['Статус', camera.is_active === false ? 'Неактивна' : 'Активна'],
-              ['Последнее обновление', formatDateTime(camera.updated_at)]
-            ]}
-            actions={[
-              ['Аналитика камеры', () => setAnalyticsRoute({ view: 'camera', cameraId: String(camera.camera_id) })]
-            ]}
-          />
-        );
-      });
+      placemark.events.add('click', () => setSelected({ kind: 'camera', id: String(camera.camera_id) }));
       collection.add(placemark);
     });
 
     map.geoObjects.add(collection);
-    if (boundsPoints.length) fitYandexMap(map, boundsPoints, 12);
+    // Refreshed metrics rebuild the overlays, but must preserve the user's viewport.
+    if (boundsPoints.length && fittedMapRef.current !== map) {
+      fitYandexMap(map, boundsPoints, 12);
+      fittedMapRef.current = map;
+    }
     return () => {
       map.geoObjects.remove(collection);
     };
-  }, [ymaps, map, zones, cameras, summary, health]);
+  }, [ymaps, map, zones, cameras, summary, health, selected]);
+
+  useEffect(() => {
+    if (!selected) {
+      focusedSelectionRef.current = undefined;
+      return;
+    }
+    if (!map) return;
+    const key = `${selected.kind}:${selected.id}`;
+    const previousFocus = focusedSelectionRef.current;
+    if (previousFocus && previousFocus.map === map && previousFocus.key === key) return;
+    if (selectedCamera && hasCoordinates(selectedCamera.latitude, selectedCamera.longitude)) {
+      map.setCenter(yandexPoint(selectedCamera.latitude, selectedCamera.longitude), 16, { duration: 200 });
+    } else if (selectedZone) {
+      fitYandexMap(map, zoneMapPoints(selectedZone), 16);
+    }
+    focusedSelectionRef.current = { map, key };
+  }, [map, selected, selectedCamera, selectedZone]);
+
+  const selectedZoneMetrics = selectedZone ? zoneMetrics(selectedZone) : undefined;
 
   return (
     <div className="analytics-map-layout">
-      <div className="analytics-map-details">
-        {selected ?? <div className="empty-state">Выберите зону или камеру на карте.</div>}
-      </div>
+      <aside className="analytics-map-sidebar" aria-label="Выбор камеры">
+        <div className="analytics-camera-navigation">
+          <label className="col">
+            <span className="metric-label">Найти камеру</span>
+            <Input type="search" aria-label="Поиск камер по названию или ID" placeholder="Название или ID камеры" value={cameraSearch} onChange={event => setCameraSearch(event.target.value)} />
+          </label>
+          <span className="small" role="status">Камер: {visibleCameras.length} из {cameras.length}</span>
+          {visibleCameras.length ? (
+            <ul className="analytics-camera-list" aria-label="Камеры аналитики">
+              {visibleCameras.map(camera => {
+                const isSelected = selected?.kind === 'camera' && selected.id === String(camera.camera_id);
+                const status = cameraStatus(camera);
+                return (
+                  <li key={camera.camera_id} className={`analytics-camera-item${isSelected ? ' selected' : ''}`}>
+                    <button type="button" className="analytics-camera-select" aria-pressed={isSelected} onClick={() => setSelected({ kind: 'camera', id: String(camera.camera_id) })}>
+                      <strong>{camera.title || `Камера #${camera.camera_id}`}</strong>
+                      <span className="small">Камера #{camera.camera_id}</span>
+                      <span className={`status-pill analytics-status-${status.key}`}>{status.label}</span>
+                      {!hasCoordinates(camera.latitude, camera.longitude) && <span className="small">Нет координат на карте</span>}
+                    </button>
+                    <Button variant="ghost" className="analytics-camera-open" aria-label={`Открыть аналитику камеры #${camera.camera_id}`} onClick={() => setAnalyticsRoute({ view: 'camera', cameraId: String(camera.camera_id) })}>Аналитика →</Button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : <div className="empty-state">{cameras.length ? 'Камеры не найдены. Измените поисковый запрос.' : 'Камеры пока не добавлены.'}</div>}
+        </div>
+        <div className="analytics-map-details">
+          {selectedCamera ? (
+            <MapDetails
+              title={`Камера #${selectedCamera.camera_id}`}
+              rows={[
+                ['Название', selectedCamera.title],
+                ['Активность', selectedCamera.is_active === false ? 'Неактивна' : 'Активна'],
+                ['Состояние детектора', cameraStatus(selectedCamera).label],
+                ['Последнее наблюдение', formatDateTime(summaryByCamera.get(selectedCamera.camera_id)?.last_update_at)]
+              ]}
+              actions={[
+                ['Аналитика камеры', () => setAnalyticsRoute({ view: 'camera', cameraId: String(selectedCamera.camera_id) })]
+              ]}
+            />
+          ) : selectedZone && selectedZoneMetrics ? (
+            <MapDetails
+              title={`Зона #${String(selectedZone.id)}`}
+              rows={[
+                ['Всего мест', formatNumber(selectedZoneMetrics.capacity)],
+                ['Занято', formatNumber(selectedZoneMetrics.occupied)],
+                ['Свободно', formatNumber(selectedZoneMetrics.free)],
+                ['Занятость', formatPercent(selectedZoneMetrics.occupancy)],
+                ['Последнее обновление', formatDateTime(selectedZoneMetrics.lastUpdate)]
+              ]}
+              actions={[
+                ['Аналитика камеры', () => setAnalyticsRoute({ view: 'camera', cameraId: String(selectedZone.camera_id) })],
+                ['Аналитика зоны', () => setAnalyticsRoute({ view: 'zone', zoneId: String(selectedZone.id) })]
+              ]}
+            />
+          ) : <div className="empty-state">Выберите камеру в списке или объект на карте.</div>}
+        </div>
+      </aside>
       <div className="analytics-map-host" ref={mapRef}>
         {loading && <div className="map-status-overlay">Загрузка Яндекс.Карт...</div>}
         {error && <div className="map-status-overlay error">{error}</div>}
