@@ -1026,7 +1026,7 @@ function AnalyticsDashboard() {
 
       <div className="analytics-dashboard-grid">
         <Block title="Карта зон и камер" state={{ loading: cameras.loading || zones.loading || health.loading, error: cameras.error ?? zones.error ?? health.error }}>
-          <AnalyticsMap zones={zoneItems} cameras={cameraItems} summary={summary.data} health={health.data} />
+          <AnalyticsMap key={currentPartnerId ?? 'all'} zones={zoneItems} cameras={cameraItems} summary={summary.data} health={health.data} />
         </Block>
 
         <Block title="Состояние зон" state={health}>
@@ -1753,6 +1753,7 @@ function AnalyticsMap({
   health?: AnalyticsDetectorHealth;
 }) {
   const mapRef = useRef<HTMLDivElement | null>(null);
+  const fittedMapRef = useRef<unknown>();
   const [selected, setSelected] = useState<React.ReactNode>(null);
   const center = useMemo<YandexPoint>(() => {
     const camera = cameras.find(item => hasCoordinates(item.latitude, item.longitude));
@@ -1848,7 +1849,11 @@ function AnalyticsMap({
     });
 
     map.geoObjects.add(collection);
-    if (boundsPoints.length) fitYandexMap(map, boundsPoints, 12);
+    // Refreshed metrics rebuild the overlays, but must preserve the user's viewport.
+    if (boundsPoints.length && fittedMapRef.current !== map) {
+      fitYandexMap(map, boundsPoints, 12);
+      fittedMapRef.current = map;
+    }
     return () => {
       map.geoObjects.remove(collection);
     };
