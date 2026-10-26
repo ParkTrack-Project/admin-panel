@@ -1,4 +1,5 @@
 import { ApiRequestError, buildQuery, request, requestBlob } from './http';
+import { analyticsApi } from './analytics';
 
 export type Camera = {
   camera_id: number;
@@ -86,39 +87,25 @@ export type CameraSnapshot = {
 
 export type CameraSnapshotMode = 'latest' | 'detection' | 'annotated';
 
-type CameraDetectionSnapshot = {
-  detection_run_id: number | string;
-  started_at?: string | null;
-  finished_at?: string | null;
-  raw_snapshot_url?: string | null;
-  annotated_snapshot_url?: string | null;
-};
-
-type CameraDetectionSnapshotList = {
-  items: CameraDetectionSnapshot[];
-};
-
 async function getStoredCameraSnapshot(
   cameraId: number,
   mode: Extract<CameraSnapshotMode, 'detection' | 'annotated'>
 ): Promise<CameraSnapshot> {
-  const response = await request<CameraDetectionSnapshotList>(
-    'GET',
-    `/admin/analytics/cameras/${encodeURIComponent(cameraId)}/detections?limit=1`
-  );
-  const detection = response.items[0];
+  const response = await analyticsApi.cameraDetections(cameraId, { limit: 1 });
+  const latestDetection = response.items[0];
 
-  if (!detection) {
+  if (!latestDetection) {
     throw new ApiRequestError('Для камеры пока нет сохранённых распознаваний.', 404);
   }
 
+  const detection = await analyticsApi.detection(latestDetection.detection_run_id);
   const annotatedUrl = detection.annotated_snapshot_url?.trim();
   const rawUrl = detection.raw_snapshot_url?.trim();
-  const imageUrl = mode === 'annotated' ? annotatedUrl || rawUrl : rawUrl;
+  const imageUrl = mode === 'annotated' ? annotatedUrl : rawUrl;
 
   if (!imageUrl) {
     const message = mode === 'annotated'
-      ? 'Для последнего распознавания нет размеченного или исходного снимка.'
+      ? 'Для последнего распознавания нет размеченного снимка.'
       : 'Для последнего распознавания нет исходного снимка.';
     throw new ApiRequestError(message, 404);
   }
@@ -126,7 +113,7 @@ async function getStoredCameraSnapshot(
   return {
     image_url: imageUrl,
     captured_at: detection.started_at || detection.finished_at || undefined,
-    variant: mode === 'annotated' && annotatedUrl ? 'annotated' : 'raw',
+    variant: mode === 'annotated' ? 'annotated' : 'raw',
     detection_run_id: detection.detection_run_id
   };
 }

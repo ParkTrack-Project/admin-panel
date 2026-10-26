@@ -42,6 +42,8 @@ The application works with the `api-server` backend, uses role-based access cont
 - forecast quality metrics;
 - scrollable status table for all zones with camera names and color-coded statuses;
 - zone and camera map;
+- camera search beside the map by name and ID, synchronized map/list selection, and direct links to camera analytics;
+- preserved map zoom and center during metric refreshes; selecting another camera focuses its location;
 - dedicated analytics pages for zones, cameras, and detection runs;
 - recognition quality assessment and feedback review;
 - independent caching of the latest snapshot, last detection snapshot, and annotated snapshot until the page is refreshed;
@@ -292,11 +294,13 @@ The frontend uses the following primary ParkTrack API groups:
 
 The interface supports three camera snapshot modes:
 
-- `Annotated`: the latest detection's `annotated_snapshot_url`, falling back to `raw_snapshot_url`;
+- `Annotated`: the latest detection's `annotated_snapshot_url`;
 - `Last detection`: the latest detection's `raw_snapshot_url`;
 - `Latest snapshot`: a fresh frame from the video stream.
 
-Stored artifacts are loaded through `/admin/analytics/cameras/{camera_id}/detections?limit=1` and require `analytics.view`. The live frame is requested through `/admin/cameras/{camera_id}/snapshot` and requires `admin.monitoring.view`. Each mode is cached independently until the page is refreshed, while refresh invalidates only the active variant.
+The list `/admin/analytics/cameras/{camera_id}/detections?limit=1` supplies the latest detection ID; stored artifact URLs come only from `/admin/analytics/detections/{id}` and require `analytics.view`. Missing variants are not substituted. The live frame is requested through `/admin/cameras/{camera_id}/snapshot` and requires `admin.monitoring.view`. Each mode is cached independently until the page is refreshed, while refresh invalidates only the active variant.
+
+The detection page downloads `yolo_labels_url` as `detection-{id}-labels.txt`. Storage must allow CORS GET from the application origin; API credentials are never sent to S3. A missing URL disables the button, and HTTP/network errors appear next to it. Images use direct URLs without object URLs.
 
 Primary analytics endpoints:
 
