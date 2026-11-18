@@ -185,7 +185,7 @@ function normalizeServerMessage(message?: string) {
   return normalized;
 }
 
-export async function request<T>(method: HttpMethod, path: string, body?: any): Promise<T> {
+export async function request<T>(method: HttpMethod, path: string, body?: any, signal?: AbortSignal): Promise<T> {
   const url = `${cfg.baseUrl}${path}`;
   const headers: Record<string, string> = {
     'Accept': 'application/json',
@@ -198,8 +198,9 @@ export async function request<T>(method: HttpMethod, path: string, body?: any): 
 
   let res: Response;
   try {
-    res = await fetch(url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
-  } catch {
+    res = await fetch(url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined, signal });
+  } catch (error) {
+    if (signal?.aborted) throw error;
     throw new ApiRequestError(`Не удалось подключиться к API (${cfg.baseUrl}). Проверьте доступность сервера.`);
   }
 
@@ -210,6 +211,8 @@ export async function request<T>(method: HttpMethod, path: string, body?: any): 
   } else {
     try { data = await res.text(); } catch {}
   }
+
+  signal?.throwIfAborted();
 
   useRequestLog.getState().add({ id: id + '-resp', ts: Date.now(), method, url, status: res.status, response: data });
 

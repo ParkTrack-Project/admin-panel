@@ -428,8 +428,8 @@ export const analyticsApi = {
     return request<DetectionRunList>('GET', `/admin/analytics/cameras/${encodeURIComponent(cameraId)}/detections${analyticsQuery(query)}`);
   },
 
-  async detection(detectionRunId: number | string) {
-    return request<DetectionRunDetail>('GET', `/admin/analytics/detections/${encodeURIComponent(detectionRunId)}`);
+  async detection(detectionRunId: number | string, signal?: AbortSignal) {
+    return request<DetectionRunDetail>('GET', `/admin/analytics/detections/${encodeURIComponent(detectionRunId)}`, undefined, signal);
   },
 
   async createDetectionFeedback(detectionRunId: number | string, data: DetectionFeedbackRequest) {
