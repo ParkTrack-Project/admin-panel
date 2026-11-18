@@ -16,7 +16,6 @@ export type DetectionArchiveResult = {
   skipped: Array<{ detectionRunId: number | string; reason: string }>;
 };
 
-// The browser holds the source files and the generated ZIP in memory at once.
 const MAX_ARCHIVE_CONTENT_BYTES = 64 * 1024 * 1024;
 const MAX_ZIP_FILES = 65_535;
 const ARCHIVE_LIMIT_MESSAGE = 'Не помещается в ZIP (лимит 64 МБ). Выберите меньше файлов.';
@@ -37,7 +36,6 @@ function getArtifactUrl(value?: string | null) {
     const url = new URL(value);
     if ((url.protocol === 'https:' || url.protocol === 'http:') && !url.username && !url.password) return url;
   } catch {
-    // Only absolute storage URLs are part of the artifacts contract.
   }
   return undefined;
 }
@@ -198,7 +196,6 @@ export function downloadDetectionArchive({ blob, filename }: DetectionArchiveDow
     link.click();
   } finally {
     link.remove();
-    // Allow the browser to consume the object URL before releasing it.
     setTimeout(() => URL.revokeObjectURL(url), 1_000);
   }
 }
