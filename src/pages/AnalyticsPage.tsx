@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/api/client';
+import type { DetectionArchiveKind, DetectionArchiveResult } from '@/api/detectionArchives';
 import type {
   AnalyticsConfidence,
   AnalyticsDetectorHealth,
@@ -2477,6 +2478,7 @@ function DetectionHistory({ cameraId, query }: { cameraId: number; query: Analyt
   const [reloadKey, setReloadKey] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const detections = history.data?.items ?? [];
+  const selectedDetections = detections.filter(item => selectedIds.has(String(item.detection_run_id)));
   const reviewIndex = detections.findIndex(item => String(item.detection_run_id) === reviewId);
   const current = detections[reviewIndex];
   const pageCount = Math.ceil(detections.length / DETECTION_TABLE_PAGE_SIZE);
@@ -2512,9 +2514,12 @@ function DetectionHistory({ cameraId, query }: { cameraId: number; query: Analyt
   return (
     <Block title={current ? 'Проверка распознаваний' : 'Последние распознавания'} state={{ loading: history.loading }}>
       {detections.length > 0 && (
-        <div className="analytics-review-controls">
-          <span className="small" role="status">Отмечено в этой сессии: {selectedIds.size}</span>
-          {selectedIds.size > 0 && <Button variant="ghost" onClick={() => setSelectedIds(new Set())}>Снять все отметки</Button>}
+        <div className="analytics-review-selection">
+          <div className="analytics-review-controls">
+            <span className="small" role="status">Отмечено в этой сессии: {selectedDetections.length}</span>
+            {selectedDetections.length > 0 && <Button variant="ghost" onClick={() => setSelectedIds(new Set())}>Снять все отметки</Button>}
+          </div>
+          <DetectionArchiveActions cameraId={cameraId} selected={selectedDetections} />
         </div>
       )}
       {history.error ? (
@@ -2587,18 +2592,18 @@ function DetectionReview({
   const imageTitle = variant === 'annotated' ? 'Кадр с разметкой' : 'Исходный кадр';
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
     setDetail({ id, loading: true });
-    api.analytics.detection(id).then(data => {
-      if (cancelled) return;
-      if (String(data.detection_run_id) !== id || data.camera_id !== cameraId) {
+    api.analytics.detection(id, controller.signal).then(data => {
+      if (controller.signal.aborted) return;
+      if (data?.camera_id !== cameraId || String(data.detection_run_id) !== id) {
         throw new Error('Сервер вернул данные другого распознавания.');
       }
       setDetail({ id, loading: false, data });
     }).catch(error => {
-      if (!cancelled) setDetail({ id, loading: false, error: blockError(error) });
+      if (!controller.signal.aborted) setDetail({ id, loading: false, error: blockError(error) });
     });
-    return () => { cancelled = true; };
+    return () => controller.abort();
   }, [cameraId, id, reloadKey]);
 
   return (
@@ -2623,6 +2628,76 @@ function DetectionReview({
         </div>
       ) : !activeDetail?.data ? <div className="empty-state" role="status">Загрузка кадра…</div> : (
         <ReviewFrame key={`${id}:${variant}:${image}`} url={image?.trim()} title={imageTitle} />
+      )}
+    </>
+  );
+}
+
+function DetectionArchiveActions({ cameraId, selected }: { cameraId: number; selected: DetectionRunList['items'] }) {
+  type Report = Pick<DetectionArchiveResult, 'includedCount' | 'skipped'> & {
+    kind: DetectionArchiveKind;
+    save?: () => void;
+  };
+  const requestRef = useRef<AbortController>();
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [report, setReport] = useState<Report>();
+
+  useEffect(() => () => requestRef.current?.abort(), []);
+
+  async function download(kind: DetectionArchiveKind) {
+    if (!selected.length || requestRef.current) return;
+    const controller = new AbortController();
+    requestRef.current = controller;
+    setBusy(true);
+    setMessage('');
+    setReport(undefined);
+    try {
+      const { buildDetectionArchive, downloadDetectionArchive } = await import('@/api/detectionArchives');
+      const { archive, includedCount, skipped } = await buildDetectionArchive({ cameraId, detections: selected, kind, signal: controller.signal });
+      if (controller.signal.aborted) return;
+      const save = archive ? () => downloadDetectionArchive(archive) : undefined;
+      setReport({ kind, includedCount, skipped, save });
+      save?.();
+    } catch (error) {
+      if (!controller.signal.aborted) setMessage(`Не удалось скачать ZIP: ${blockError(error)}`);
+    } finally {
+      if (!controller.signal.aborted) {
+        requestRef.current = undefined;
+        setBusy(false);
+      }
+    }
+  }
+
+  function cancel() {
+    requestRef.current?.abort();
+    requestRef.current = undefined;
+    setBusy(false);
+    setMessage('Скачивание отменено.');
+  }
+
+  return (
+    <>
+      <div className="analytics-review-controls" role="group" aria-label="Пакетное скачивание отмеченных распознаваний">
+        <Button variant="ghost" disabled={!selected.length || busy} onClick={() => void download('annotated')}>Скачать кадры с разметкой (ZIP)</Button>
+        <Button variant="ghost" disabled={!selected.length || busy} onClick={() => void download('labels')}>Скачать YOLO labels (ZIP)</Button>
+        {busy && <><span className="small" role="status">Собираем архив…</span><Button variant="ghost" onClick={cancel}>Отменить</Button></>}
+      </div>
+      {message && <div className="notice" role="status">{message}</div>}
+      {report && (
+        <div className={`notice${report.includedCount ? '' : ' error'}`}>
+          <div role="status">
+            {report.kind === 'annotated' ? 'Кадры с разметкой. ' : 'YOLO labels. '}
+            {report.includedCount ? `ZIP готов. Файлов в архиве: ${report.includedCount}.` : 'ZIP не создан: нет доступных файлов.'}
+            {' '}Пропущено: {report.skipped.length}.
+          </div>
+          {report.skipped.length > 0 && (
+            <ul className="analytics-archive-skips">
+              {report.skipped.map(item => <li key={String(item.detectionRunId)}>#{item.detectionRunId} — {item.reason}</li>)}
+            </ul>
+          )}
+          {report.save && <Button variant="ghost" className="analytics-archive-save" onClick={report.save}>Сохранить готовый ZIP</Button>}
+        </div>
       )}
     </>
   );
@@ -2657,6 +2732,7 @@ function DetectionsTable({
       <div className="table-header analytics-detections-table">
         <span>Отметка</span>
         <span>Время и ID</span>
+        <span>Действия</span>
         <span>Статус</span>
         <span>Обработка</span>
         <span>Машин</span>
@@ -2664,7 +2740,6 @@ function DetectionsTable({
         <span>Свободно</span>
         <span>Уверенность модели</span>
         <span>Оценка</span>
-        <span>Действия</span>
       </div>
       <div className="table-list">
         {detections.map((item, index) => {
@@ -2673,6 +2748,10 @@ function DetectionsTable({
             <div key={id} className="table-row analytics-detections-table">
               <input type="checkbox" aria-label={`Отметить распознавание #${id} как проблемное`} checked={selectedIds.has(id)} onChange={() => onToggleSelection(id)} />
               <span>{formatDateTime(item.started_at ?? item.finished_at)} <span className="small">#{id}</span></span>
+              <div className="analytics-review-controls">
+                <Button variant="ghost" aria-label={`Проверить распознавание #${id}`} onClick={() => onReview(index)}>Проверить</Button>
+                <Button variant="ghost" aria-label={`Открыть детали распознавания #${id}`} onClick={() => setAnalyticsRoute({ view: 'detection', detectionRunId: id })}>Детали</Button>
+              </div>
               <span>{formatDetectionStatus(item.status)}</span>
               <span>{formatMs(item.processing_time_ms)}</span>
               <span>{formatNumber(item.detected_cars_count ?? item.cars_detected)}</span>
@@ -2680,10 +2759,6 @@ function DetectionsTable({
               <span>{formatNumber(item.free_count ?? item.free)}</span>
               <span>{formatPercent(item.confidence_avg ?? item.confidence)}</span>
               <span>{item.has_feedback ? 'Да' : 'Нет'}</span>
-              <div className="analytics-review-controls">
-                <Button variant="ghost" aria-label={`Проверить распознавание #${id}`} onClick={() => onReview(index)}>Проверить</Button>
-                <Button variant="ghost" aria-label={`Открыть детали распознавания #${id}`} onClick={() => setAnalyticsRoute({ view: 'detection', detectionRunId: id })}>Детали</Button>
-              </div>
             </div>
           );
         })}
