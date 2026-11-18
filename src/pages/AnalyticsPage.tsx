@@ -2475,6 +2475,7 @@ function DetectionHistory({ cameraId, query }: { cameraId: number; query: Analyt
   const [reviewId, setReviewId] = useState<string>();
   const [variant, setVariant] = useState<DetectionImageVariant>('annotated');
   const [reloadKey, setReloadKey] = useState(0);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const detections = history.data?.items ?? [];
   const reviewIndex = detections.findIndex(item => String(item.detection_run_id) === reviewId);
   const current = detections[reviewIndex];
@@ -2499,8 +2500,23 @@ function DetectionHistory({ cameraId, query }: { cameraId: number; query: Analyt
     setReviewId(String(item.detection_run_id));
   }
 
+  function toggleSelection(id: string) {
+    setSelectedIds(previous => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   return (
     <Block title={current ? 'Проверка распознаваний' : 'Последние распознавания'} state={{ loading: history.loading }}>
+      {detections.length > 0 && (
+        <div className="analytics-review-controls">
+          <span className="small" role="status">Отмечено в этой сессии: {selectedIds.size}</span>
+          {selectedIds.size > 0 && <Button variant="ghost" onClick={() => setSelectedIds(new Set())}>Снять все отметки</Button>}
+        </div>
+      )}
       {history.error ? (
         <div className="analytics-review-controls">
           <div className="notice error" role="alert">Не удалось загрузить распознавания: {history.error}</div>
@@ -2517,6 +2533,10 @@ function DetectionHistory({ cameraId, query }: { cameraId: number; query: Analyt
             </div>
             <Button variant="ghost" onClick={() => setAnalyticsRoute({ view: 'detection', detectionRunId: String(current.detection_run_id) })}>Детали и оценка</Button>
           </div>
+          <label className="analytics-review-check">
+            <input type="checkbox" checked={selectedIds.has(String(current.detection_run_id))} onChange={() => toggleSelection(String(current.detection_run_id))} />
+            Отметить как проблемное
+          </label>
           <DetectionReview cameraId={cameraId} item={current} variant={variant} onVariantChange={setVariant} />
         </div>
       ) : !history.loading ? (
@@ -2531,7 +2551,12 @@ function DetectionHistory({ cameraId, query }: { cameraId: number; query: Analyt
               </span>
             </div>
           )}
-          <DetectionsTable detections={detections.slice(pageStart, pageStart + DETECTION_TABLE_PAGE_SIZE)} />
+          <DetectionsTable
+            detections={detections.slice(pageStart, pageStart + DETECTION_TABLE_PAGE_SIZE)}
+            selectedIds={selectedIds}
+            onToggleSelection={toggleSelection}
+            onReview={index => showDetection(pageStart + index)}
+          />
           {pageCount > 1 && (
             <nav className="analytics-review-controls" aria-label="Страницы распознаваний">
               <Button variant="ghost" disabled={page === 0} onClick={() => setPage(value => value - 1)}>← Новее</Button>
@@ -2615,7 +2640,14 @@ function ReviewFrame({ url, title }: { url?: string | null; title: string }) {
   );
 }
 
-function DetectionsTable({ detections }: { detections: DetectionRunList['items'] }) {
+function DetectionsTable({
+  detections, selectedIds, onToggleSelection, onReview
+}: {
+  detections: DetectionRunList['items'];
+  selectedIds: ReadonlySet<string>;
+  onToggleSelection: (id: string) => void;
+  onReview: (index: number) => void;
+}) {
   if (!detections.length) {
     return <div className="empty-state">Распознавания не найдены.</div>;
   }
@@ -2623,7 +2655,8 @@ function DetectionsTable({ detections }: { detections: DetectionRunList['items']
   return (
     <div className="table-scroll">
       <div className="table-header analytics-detections-table">
-        <span>Время</span>
+        <span>Отметка</span>
+        <span>Время и ID</span>
         <span>Статус</span>
         <span>Обработка</span>
         <span>Машин</span>
@@ -2631,27 +2664,29 @@ function DetectionsTable({ detections }: { detections: DetectionRunList['items']
         <span>Свободно</span>
         <span>Уверенность модели</span>
         <span>Оценка</span>
-        <span></span>
+        <span>Действия</span>
       </div>
       <div className="table-list">
-        {detections.map(item => (
-          <button
-            type="button"
-            key={String(item.detection_run_id)}
-            className="table-row analytics-detections-table contract-row-button"
-            onClick={() => setAnalyticsRoute({ view: 'detection', detectionRunId: String(item.detection_run_id) })}
-          >
-            <span>{formatDateTime(item.started_at)}</span>
-            <span>{formatDetectionStatus(item.status)}</span>
-            <span>{formatMs(item.processing_time_ms)}</span>
-            <span>{formatNumber(item.detected_cars_count ?? item.cars_detected)}</span>
-            <span>{formatNumber(item.occupied_count ?? item.occupied)}</span>
-            <span>{formatNumber(item.free_count ?? item.free)}</span>
-            <span>{formatPercent(item.confidence_avg ?? item.confidence)}</span>
-            <span>{item.has_feedback ? 'Да' : 'Нет'}</span>
-            <span>Открыть</span>
-          </button>
-        ))}
+        {detections.map((item, index) => {
+          const id = String(item.detection_run_id);
+          return (
+            <div key={id} className="table-row analytics-detections-table">
+              <input type="checkbox" aria-label={`Отметить распознавание #${id} как проблемное`} checked={selectedIds.has(id)} onChange={() => onToggleSelection(id)} />
+              <span>{formatDateTime(item.started_at ?? item.finished_at)} <span className="small">#{id}</span></span>
+              <span>{formatDetectionStatus(item.status)}</span>
+              <span>{formatMs(item.processing_time_ms)}</span>
+              <span>{formatNumber(item.detected_cars_count ?? item.cars_detected)}</span>
+              <span>{formatNumber(item.occupied_count ?? item.occupied)}</span>
+              <span>{formatNumber(item.free_count ?? item.free)}</span>
+              <span>{formatPercent(item.confidence_avg ?? item.confidence)}</span>
+              <span>{item.has_feedback ? 'Да' : 'Нет'}</span>
+              <div className="analytics-review-controls">
+                <Button variant="ghost" aria-label={`Проверить распознавание #${id}`} onClick={() => onReview(index)}>Проверить</Button>
+                <Button variant="ghost" aria-label={`Открыть детали распознавания #${id}`} onClick={() => setAnalyticsRoute({ view: 'detection', detectionRunId: id })}>Детали</Button>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

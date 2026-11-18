@@ -756,8 +756,12 @@ body { background: var(--bg); color: var(--text); font-family: Inter, system-ui,
 
 .table-header.analytics-detections-table,
 .table-row.analytics-detections-table {
-  grid-template-columns: 170px 110px 110px 90px 90px 90px 150px 90px 100px;
-  min-width: 990px;
+  grid-template-columns: 64px 174px 82px 90px 58px 58px 76px 108px 56px 190px;
+  min-width: 1070px;
+}
+
+.analytics-detections-table input[type='checkbox'] {
+  justify-self: start;
 }
 
 .analytics-review-controls {
@@ -765,6 +769,13 @@ body { background: var(--bg); color: var(--text); font-family: Inter, system-ui,
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.analytics-review-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
 }
 
 .analytics-image-compare {
