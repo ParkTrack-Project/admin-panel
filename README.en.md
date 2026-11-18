@@ -45,6 +45,8 @@ The application works with the `api-server` backend, uses role-based access cont
 - camera search beside the map by name and ID, synchronized map/list selection, and direct links to camera analytics;
 - preserved map zoom and center during metric refreshes; selecting another camera focuses its location;
 - dedicated analytics pages for zones, cameras, and detection runs;
+- sequential review of up to 100 recent camera detections from the past 7 days, with marks kept while the camera page is open;
+- separate ZIP downloads for annotated images and YOLO labels from marked detections;
 - recognition quality assessment and feedback review;
 - independent caching of the latest snapshot, last detection snapshot, and annotated snapshot until the page is refreshed;
 - snapshot switching and refresh controls in fullscreen view.
@@ -301,6 +303,8 @@ The interface supports three camera snapshot modes:
 The list `/admin/analytics/cameras/{camera_id}/detections?limit=1` supplies the latest detection ID; stored artifact URLs come only from `/admin/analytics/detections/{id}` and require `analytics.view`. Missing variants are not substituted. The live frame is requested through `/admin/cameras/{camera_id}/snapshot` and requires `admin.monitoring.view`. Each mode is cached independently until the page is refreshed, while refresh invalidates only the active variant.
 
 The detection page downloads `yolo_labels_url` as `detection-{id}-labels.txt`. Storage must allow CORS GET from the application origin; API credentials are never sent to S3. A missing URL disables the button, and HTTP/network errors appear next to it. Images use direct URLs without object URLs.
+
+On the camera analytics page, use the review button in recent detections to browse them in order. Marks survive navigation between detections and the list while the camera page is open. Bulk downloads use detail API links to create separate ZIP files for annotated images and YOLO labels. Storage must allow CORS GET from the application origin for both artifact types. Each archive includes up to 64 MiB of source files and reports skipped files with their reasons.
 
 Primary analytics endpoints:
 

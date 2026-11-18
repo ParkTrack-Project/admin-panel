@@ -756,8 +756,42 @@ body { background: var(--bg); color: var(--text); font-family: Inter, system-ui,
 
 .table-header.analytics-detections-table,
 .table-row.analytics-detections-table {
-  grid-template-columns: 170px 110px 110px 90px 90px 90px 150px 90px 100px;
-  min-width: 990px;
+  grid-template-columns: 64px 174px 190px 82px 90px 58px 58px 76px 108px 56px;
+  min-width: 1070px;
+}
+
+.analytics-detections-table input[type='checkbox'] {
+  justify-self: start;
+}
+
+.analytics-review-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.analytics-review-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+}
+
+.analytics-review-selection {
+  display: grid;
+  gap: 8px;
+}
+
+.analytics-archive-skips {
+  max-height: 12rem;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding-inline-start: 1.5rem;
+}
+
+.analytics-archive-save {
+  margin-top: 8px;
 }
 
 .analytics-image-compare {
